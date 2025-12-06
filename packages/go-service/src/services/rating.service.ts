@@ -1,137 +1,218 @@
 /**
  * Rating Service
- * Manages ratings for drivers after orders
+ * Manages ratings between users and drivers
  */
 
 import { z } from 'zod'
-import {
-  prisma,
-  logger,
-  NotFoundError,
-  ValidationError,
-  ErrorCode,
-} from '@gominiapp/core'
+import { prisma, logger, NotFoundError, ValidationError, ErrorCode } from '@gominiapp/core'
 
 export const createRatingSchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: z.string(),
+  toUserId: z.string(),
   rating: z.number().min(1).max(5),
-  comment: z.string().max(500).optional(),
+  comment: z.string().optional(),
 })
 
 export class RatingService {
   /**
-   * Rate a completed order
+   * Create a rating for an order
    */
-  async rateOrder(
-    userId: string,
+  async createRating(
+    fromUserId: string,
     data: z.infer<typeof createRatingSchema>
-  ): Promise<void> {
+  ): Promise<any> {
     const validated = createRatingSchema.parse(data)
 
-    // Get order
+    // Verify order exists and is completed
     const order = await prisma.order.findUnique({
       where: { id: validated.orderId },
-      include: { driver: true },
     })
 
     if (!order) {
       throw new NotFoundError('Order not found', ErrorCode.ORDER_NOT_FOUND)
     }
 
-    if (order.userId !== userId) {
-      throw new ValidationError('You cannot rate this order')
-    }
-
     if (order.status !== 'COMPLETED') {
       throw new ValidationError('Can only rate completed orders')
     }
 
-    if (!order.driverId) {
-      throw new ValidationError('Order has no driver to rate')
+    // Check that the user is part of this order
+    if (order.userId !== fromUserId && order.driverId !== fromUserId) {
+      throw new ValidationError('You are not part of this order')
     }
 
-    // Check if already rated
-    const existingRating = await prisma.rating.findFirst({
-      where: { orderId: validated.orderId },
+    // Verify toUserId is part of this order
+    if (order.userId !== validated.toUserId && order.driverId !== validated.toUserId) {
+      throw new ValidationError('Invalid rating target')
+    }
+
+    // Check for existing rating
+    const existingRating = await prisma.rating.findUnique({
+      where: {
+        orderId_fromUserId: {
+          orderId: validated.orderId,
+          fromUserId,
+        },
+      },
     })
 
     if (existingRating) {
-      throw new ValidationError('Order has already been rated')
+      throw new ValidationError('You have already rated this order')
     }
 
-    // Create rating
-    await prisma.rating.create({
+    // Create the rating
+    const rating = await prisma.rating.create({
       data: {
         orderId: validated.orderId,
-        driverId: order.driverId,
-        userId,
+        fromUserId,
+        toUserId: validated.toUserId,
         rating: validated.rating,
         comment: validated.comment,
       },
     })
 
-    // Update driver's average rating
-    const ratings = await prisma.rating.findMany({
-      where: { driverId: order.driverId },
-      select: { rating: true },
-    })
+    // Update average rating for the target user
+    await this.updateAverageRating(validated.toUserId)
 
-    const avgRating = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length
-
-    await prisma.driver.update({
-      where: { id: order.driverId },
-      data: { rating: Math.round(avgRating * 10) / 10 },
-    })
-
-    logger.info('Order rated', {
+    logger.info('Rating created', {
       orderId: validated.orderId,
-      driverId: order.driverId,
+      fromUserId,
+      toUserId: validated.toUserId,
       rating: validated.rating,
     })
+
+    return rating
   }
 
   /**
-   * Get ratings for a driver
+   * Get ratings for a user
    */
-  async getDriverRatings(
-    driverId: string,
+  async getUserRatings(
+    userId: string,
     options: { page?: number; pageSize?: number } = {}
-  ): Promise<{
-    ratings: Array<{
-      id: string
-      rating: number
-      comment?: string
-      createdAt: Date
-    }>
-    average: number
-    total: number
-  }> {
+  ): Promise<{ ratings: any[]; total: number; average: number }> {
     const { page = 1, pageSize = 20 } = options
 
-    const [ratings, stats] = await Promise.all([
+    const [ratings, total, aggregate] = await Promise.all([
       prisma.rating.findMany({
-        where: { driverId },
+        where: { toUserId: userId },
+        include: {
+          fromUser: {
+            select: { id: true, displayName: true, avatarUrl: true },
+          },
+          order: {
+            select: { id: true, type: true, requestedAt: true },
+          },
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: {
-          id: true,
-          rating: true,
-          comment: true,
-          createdAt: true,
-        },
       }),
+      prisma.rating.count({ where: { toUserId: userId } }),
       prisma.rating.aggregate({
-        where: { driverId },
+        where: { toUserId: userId },
         _avg: { rating: true },
-        _count: true,
       }),
     ])
 
     return {
       ratings,
-      average: stats._avg.rating || 0,
-      total: stats._count,
+      total,
+      average: aggregate._avg.rating || 0,
     }
+  }
+
+  /**
+   * Get rating summary for a user
+   */
+  async getRatingSummary(userId: string): Promise<{
+    average: number
+    total: number
+    distribution: { stars: number; count: number }[]
+  }> {
+    const [aggregate, distribution] = await Promise.all([
+      prisma.rating.aggregate({
+        where: { toUserId: userId },
+        _avg: { rating: true },
+        _count: true,
+      }),
+      prisma.rating.groupBy({
+        by: ['rating'],
+        where: { toUserId: userId },
+        _count: true,
+      }),
+    ])
+
+    // Build distribution with all star levels (1-5)
+    const distributionMap = new Map(
+      distribution.map(d => [d.rating, d._count])
+    )
+    const fullDistribution = [5, 4, 3, 2, 1].map(stars => ({
+      stars,
+      count: distributionMap.get(stars) || 0,
+    }))
+
+    return {
+      average: Math.round((aggregate._avg.rating || 0) * 10) / 10,
+      total: aggregate._count,
+      distribution: fullDistribution,
+    }
+  }
+
+  /**
+   * Update average rating for a user (stored on User model)
+   */
+  private async updateAverageRating(userId: string): Promise<void> {
+    const aggregate = await prisma.rating.aggregate({
+      where: { toUserId: userId },
+      _avg: { rating: true },
+    })
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { rating: aggregate._avg.rating || 0 },
+    })
+
+    // If user is a driver, also update driver rating
+    const driver = await prisma.driver.findUnique({
+      where: { userId },
+    })
+
+    if (driver) {
+      await prisma.driver.update({
+        where: { userId },
+        data: { rating: aggregate._avg.rating || 0 },
+      })
+    }
+  }
+
+  /**
+   * Check if user can rate an order
+   */
+  async canRateOrder(userId: string, orderId: string): Promise<boolean> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+    })
+
+    if (!order || order.status !== 'COMPLETED') {
+      return false
+    }
+
+    // Check user is part of order
+    if (order.userId !== userId && order.driverId !== userId) {
+      return false
+    }
+
+    // Check for existing rating
+    const existingRating = await prisma.rating.findUnique({
+      where: {
+        orderId_fromUserId: {
+          orderId,
+          fromUserId: userId,
+        },
+      },
+    })
+
+    return !existingRating
   }
 }

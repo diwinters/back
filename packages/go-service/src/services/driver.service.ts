@@ -1,29 +1,18 @@
 /**
  * Driver Service
- * Manages driver registration, availability, and location updates
+ * Manages driver registration, availability, and location
  */
 
 import { z } from 'zod'
-import {
-  prisma,
-  GeoService,
-  RedisService,
-  getRedis,
-  PushNotificationService,
-  logger,
-  NotFoundError,
-  ValidationError,
-  ConflictError,
-  ErrorCode,
-} from '@gominiapp/core'
-import type { Coordinates, DriverProfile, NearbyDriver } from '@gominiapp/core'
+import { prisma, logger, AppError, ErrorCode, NotFoundError, ConflictError } from '@gominiapp/core'
 
 // Validation schemas
 export const registerDriverSchema = z.object({
-  vehicleType: z.enum(['CAR', 'MOTORCYCLE', 'BICYCLE', 'VAN']),
-  vehiclePlate: z.string().min(1).max(20),
+  vehicleType: z.enum(['ECONOMY', 'COMFORT', 'PREMIUM', 'XL', 'MOTO', 'BIKE']),
+  licensePlate: z.string().min(1),
   vehicleModel: z.string().optional(),
   vehicleColor: z.string().optional(),
+  vehicleMake: z.string().optional(),
   availabilityType: z.enum(['RIDE', 'DELIVERY', 'BOTH']).default('BOTH'),
 })
 
@@ -31,7 +20,6 @@ export const updateLocationSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   heading: z.number().min(0).max(360).optional(),
-  speed: z.number().min(0).optional(),
 })
 
 export const updateAvailabilitySchema = z.object({
@@ -40,92 +28,76 @@ export const updateAvailabilitySchema = z.object({
 })
 
 // Location update threshold in meters
-const LOCATION_UPDATE_THRESHOLD = 80
+const LOCATION_UPDATE_THRESHOLD_METERS = 80
 
 export class DriverService {
-  private redis: RedisService
-  private pushService: PushNotificationService
-
-  constructor() {
-    this.redis = getRedis()
-    this.pushService = new PushNotificationService()
-  }
-
   /**
-   * Register a new driver
+   * Register a user as a driver
    */
   async registerDriver(
     userId: string,
     data: z.infer<typeof registerDriverSchema>
-  ): Promise<DriverProfile> {
+  ): Promise<any> {
     const validated = registerDriverSchema.parse(data)
 
-    // Check if already a driver
-    const existing = await prisma.driver.findUnique({
+    // Check if driver already exists
+    const existingDriver = await prisma.driver.findUnique({
       where: { userId },
     })
 
-    if (existing) {
-      throw new ConflictError('User is already registered as a driver', ErrorCode.DRIVER_ALREADY_EXISTS)
+    if (existingDriver) {
+      throw new ConflictError('User is already a driver', ErrorCode.DRIVER_ALREADY_EXISTS)
     }
 
+    // Create driver
     const driver = await prisma.driver.create({
       data: {
         userId,
         vehicleType: validated.vehicleType as any,
-        vehiclePlate: validated.vehiclePlate,
+        licensePlate: validated.licensePlate,
         vehicleModel: validated.vehicleModel,
         vehicleColor: validated.vehicleColor,
+        vehicleMake: validated.vehicleMake,
         availabilityType: validated.availabilityType as any,
-        isOnline: false,
-        rating: 5.0,
-        totalRides: 0,
-        totalDeliveries: 0,
       },
-      include: {
-        user: true,
-      },
+      include: { user: true },
     })
 
-    // Update user's isDriver flag
-    await prisma.user.update({
-      where: { id: userId },
-      data: { isDriver: true },
-    })
+    logger.info('Driver registered', { driverId: driver.id, userId })
 
-    logger.info('Driver registered', { userId, driverId: driver.id })
-
-    return this.toDriverProfile(driver)
+    return driver
   }
 
   /**
-   * Get driver profile
+   * Get driver by ID
    */
-  async getDriver(driverId: string): Promise<DriverProfile> {
+  async getDriver(driverId: string): Promise<any> {
     const driver = await prisma.driver.findUnique({
       where: { id: driverId },
+      include: { user: true },
     })
 
     if (!driver) {
       throw new NotFoundError('Driver not found', ErrorCode.DRIVER_NOT_FOUND)
     }
 
-    return this.toDriverProfile(driver)
+    return driver
   }
 
   /**
    * Get driver by user ID
    */
-  async getDriverByUserId(userId: string): Promise<DriverProfile> {
+  async getDriverByUserId(userId: string): Promise<any> {
     const driver = await prisma.driver.findUnique({
       where: { userId },
+      include: { user: true },
     })
 
     if (!driver) {
       throw new NotFoundError('Driver not found', ErrorCode.DRIVER_NOT_FOUND)
     }
 
-    return this.toDriverProfile(driver)
+    return driver
   }
 
   /**
@@ -134,7 +106,7 @@ export class DriverService {
   async updateAvailability(
     driverId: string,
     data: z.infer<typeof updateAvailabilitySchema>
-  ): Promise<DriverProfile> {
+  ): Promise<any> {
     const validated = updateAvailabilitySchema.parse(data)
 
     const driver = await prisma.driver.update({
@@ -143,26 +115,20 @@ export class DriverService {
         ...(validated.isOnline !== undefined && { isOnline: validated.isOnline }),
         ...(validated.availabilityType && { availabilityType: validated.availabilityType as any }),
       },
+      include: { user: true },
     })
 
-    // Update Redis if going online/offline
-    if (validated.isOnline === false) {
-      await this.redis.removeDriverLocation(driverId)
-      logger.info('Driver went offline', { driverId })
-    } else if (validated.isOnline === true && driver.currentLatitude && driver.currentLongitude) {
-      await this.redis.updateDriverLocation(
-        driverId,
-        driver.currentLatitude,
-        driver.currentLongitude
-      )
-      logger.info('Driver went online', { driverId })
-    }
+    logger.info('Driver availability updated', {
+      driverId,
+      isOnline: driver.isOnline,
+      availabilityType: driver.availabilityType,
+    })
 
-    return this.toDriverProfile(driver)
+    return driver
   }
 
   /**
-   * Update driver location with 80m threshold optimization
+   * Update driver location
    */
   async updateLocation(
     driverId: string,
@@ -170,70 +136,47 @@ export class DriverService {
   ): Promise<{ updated: boolean; distance?: number }> {
     const validated = updateLocationSchema.parse(data)
 
+    // Get current location
     const driver = await prisma.driver.findUnique({
       where: { id: driverId },
+      select: {
+        currentLatitude: true,
+        currentLongitude: true,
+      },
     })
 
     if (!driver) {
       throw new NotFoundError('Driver not found', ErrorCode.DRIVER_NOT_FOUND)
     }
 
-    if (!driver.isOnline) {
-      throw new ValidationError('Driver must be online to update location')
-    }
-
-    // Check if location has changed significantly (80m threshold)
+    // Calculate distance from last location
     let shouldUpdate = true
     let distance: number | undefined
 
     if (driver.currentLatitude && driver.currentLongitude) {
-      const hasMoved = GeoService.hasMovedBeyondThreshold(
-        { latitude: driver.currentLatitude, longitude: driver.currentLongitude },
-        { latitude: validated.latitude, longitude: validated.longitude },
-        LOCATION_UPDATE_THRESHOLD
+      distance = this.calculateDistance(
+        driver.currentLatitude,
+        driver.currentLongitude,
+        validated.latitude,
+        validated.longitude
       )
 
-      if (!hasMoved) {
-        shouldUpdate = false
-        distance = GeoService.calculateDistance(
-          { latitude: driver.currentLatitude, longitude: driver.currentLongitude },
-          { latitude: validated.latitude, longitude: validated.longitude }
-        ) * 1000 // Convert to meters
-      }
+      // Only update if moved more than threshold
+      shouldUpdate = distance >= LOCATION_UPDATE_THRESHOLD_METERS
     }
 
     if (shouldUpdate) {
-      // Update database
       await prisma.driver.update({
         where: { id: driverId },
         data: {
           currentLatitude: validated.latitude,
           currentLongitude: validated.longitude,
+          currentHeading: validated.heading,
           lastLocationUpdate: new Date(),
         },
       })
 
-      // Update Redis for fast geo queries
-      await this.redis.updateDriverLocation(
-        driverId,
-        validated.latitude,
-        validated.longitude
-      )
-
-      // Publish location update for real-time subscribers
-      await this.redis.publish('driver:location', {
-        driverId,
-        latitude: validated.latitude,
-        longitude: validated.longitude,
-        heading: validated.heading,
-        timestamp: Date.now(),
-      })
-
-      logger.debug('Driver location updated', {
-        driverId,
-        lat: validated.latitude,
-        lng: validated.longitude,
-      })
+      logger.debug('Driver location updated', { driverId, ...validated })
     }
 
     return { updated: shouldUpdate, distance }
@@ -243,113 +186,67 @@ export class DriverService {
    * Find nearby available drivers
    */
   async findNearbyDrivers(
-    location: Coordinates,
+    latitude: number,
+    longitude: number,
     options: {
       radiusKm?: number
       availabilityType?: 'RIDE' | 'DELIVERY' | 'BOTH'
       vehicleType?: string
       limit?: number
     } = {}
-  ): Promise<NearbyDriver[]> {
-    const { radiusKm = 5, availabilityType, vehicleType, limit = 10 } = options
+  ): Promise<any[]> {
+    const { radiusKm = 10, availabilityType, vehicleType, limit = 20 } = options
 
-    // First try Redis for fast geo query
-    const nearbyIds = await this.redis.getNearbyDrivers(
-      location.latitude,
-      location.longitude,
-      radiusKm
-    )
+    // Simple bounding box query (for production, use PostGIS)
+    const latDelta = radiusKm / 111
+    const lonDelta = radiusKm / (111 * Math.cos(latitude * Math.PI / 180))
 
-    if (nearbyIds.length > 0) {
-      // Get driver details from database
-      const drivers = await prisma.driver.findMany({
-        where: {
-          id: { in: nearbyIds },
-          isOnline: true,
-          ...(availabilityType && availabilityType !== 'BOTH' ? {
-            OR: [
-              { availabilityType },
-              { availabilityType: 'BOTH' },
-            ],
-          } : {}),
-          ...(vehicleType ? { vehicleType: vehicleType as any } : {}),
+    const drivers = await prisma.driver.findMany({
+      where: {
+        isOnline: true,
+        currentLatitude: {
+          gte: latitude - latDelta,
+          lte: latitude + latDelta,
         },
-        include: { user: true },
-        take: limit,
-      })
+        currentLongitude: {
+          gte: longitude - lonDelta,
+          lte: longitude + lonDelta,
+        },
+        ...(availabilityType && availabilityType !== 'BOTH' ? {
+          OR: [
+            { availabilityType: availabilityType as any },
+            { availabilityType: 'BOTH' },
+          ],
+        } : {}),
+        ...(vehicleType ? { vehicleType: vehicleType as any } : {}),
+      },
+      include: { user: true },
+      take: limit,
+    })
 
-      return drivers.map(d => {
-        const distanceKm = GeoService.calculateDistance(
-          location,
-          { latitude: d.currentLatitude!, longitude: d.currentLongitude! }
+    // Calculate actual distances and filter
+    return drivers
+      .map(d => {
+        const dist = this.calculateDistance(
+          latitude,
+          longitude,
+          d.currentLatitude!,
+          d.currentLongitude!
         )
-
         return {
-          id: d.id,
-          userId: d.userId,
-          distanceKm,
-          etaMinutes: GeoService.calculateEta(
-            { latitude: d.currentLatitude!, longitude: d.currentLongitude! },
-            location
-          ),
-          vehicleType: d.vehicleType,
-          vehicleInfo: `${d.vehicleColor || ''} ${d.vehicleModel || d.vehicleType} - ${d.vehiclePlate}`.trim(),
-          rating: d.rating,
-          location: {
-            latitude: d.currentLatitude!,
-            longitude: d.currentLongitude!,
-          },
+          ...d,
+          distanceKm: dist / 1000,
+          etaMinutes: Math.ceil((dist / 1000) / 30 * 60), // Assume 30 km/h
         }
-      }).sort((a, b) => a.distanceKm - b.distanceKm)
-    }
-
-    // Fallback to PostGIS query
-    const drivers = await GeoService.findNearbyDrivers(
-      location.latitude,
-      location.longitude,
-      radiusKm,
-      { availabilityType, vehicleType, limit }
-    )
-
-    // Enrich with driver details
-    const driverIds = drivers.map(d => d.id)
-    const driverDetails = await prisma.driver.findMany({
-      where: { id: { in: driverIds } },
-    })
-
-    const detailsMap = new Map(driverDetails.map(d => [d.id, d]))
-
-    return drivers.map(d => {
-      const details = detailsMap.get(d.id)!
-      return {
-        id: d.id,
-        userId: d.userId,
-        distanceKm: d.distanceKm,
-        etaMinutes: GeoService.calculateEta(
-          { latitude: d.latitude, longitude: d.longitude },
-          location
-        ),
-        vehicleType: d.vehicleType,
-        vehicleInfo: `${details.vehicleColor || ''} ${details.vehicleModel || d.vehicleType} - ${details.vehiclePlate}`.trim(),
-        rating: d.rating,
-        location: {
-          latitude: d.latitude,
-          longitude: d.longitude,
-        },
-      }
-    })
+      })
+      .filter(d => d.distanceKm <= radiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
   }
 
   /**
    * Get driver stats
    */
-  async getDriverStats(driverId: string): Promise<{
-    totalRides: number
-    totalDeliveries: number
-    rating: number
-    totalEarnings: number
-    completionRate: number
-  }> {
+  async getDriverStats(driverId: string): Promise<any> {
     const driver = await prisma.driver.findUnique({
       where: { id: driverId },
     })
@@ -358,48 +255,31 @@ export class DriverService {
       throw new NotFoundError('Driver not found', ErrorCode.DRIVER_NOT_FOUND)
     }
 
-    // Get order stats
-    const [completedOrders, totalOrders, earnings] = await Promise.all([
-      prisma.order.count({
-        where: { driverId, status: 'COMPLETED' },
-      }),
-      prisma.order.count({
-        where: { driverId },
-      }),
-      prisma.order.aggregate({
-        where: { driverId, status: 'COMPLETED' },
-        _sum: { fare: true },
-      }),
-    ])
-
     return {
       totalRides: driver.totalRides,
       totalDeliveries: driver.totalDeliveries,
       rating: driver.rating,
-      totalEarnings: earnings._sum.fare || 0,
-      completionRate: totalOrders > 0 ? completedOrders / totalOrders : 1,
+      totalEarnings: driver.totalEarnings,
     }
   }
 
-  private toDriverProfile(driver: any): DriverProfile {
-    return {
-      id: driver.id,
-      userId: driver.userId,
-      isOnline: driver.isOnline,
-      availabilityType: driver.availabilityType,
-      vehicleType: driver.vehicleType,
-      vehiclePlate: driver.vehiclePlate,
-      vehicleModel: driver.vehicleModel,
-      vehicleColor: driver.vehicleColor,
-      rating: driver.rating,
-      totalRides: driver.totalRides,
-      totalDeliveries: driver.totalDeliveries,
-      ...(driver.currentLatitude && driver.currentLongitude && {
-        currentLocation: {
-          latitude: driver.currentLatitude,
-          longitude: driver.currentLongitude,
-        },
-      }),
-    }
+  /**
+   * Calculate distance between two points in meters (Haversine formula)
+   */
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number {
+    const R = 6371000 // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
   }
 }
