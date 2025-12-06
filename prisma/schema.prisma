@@ -87,7 +87,7 @@ model Driver {
   vehicleYear     Int?
   vehicleColor    String?
   licensePlate    String?
-  vehicleType     VehicleType @default(ECONOMY)
+  vehicleType     String   @default("ECONOMY") // Dynamic vehicle type
   vehicleImageUrl String?   // Primary vehicle image URL
   
   // Stats
@@ -113,14 +113,7 @@ enum AvailabilityType {
   BOTH
 }
 
-enum VehicleType {
-  ECONOMY
-  COMFORT
-  PREMIUM
-  XL
-  MOTO
-  BIKE
-}
+// VehicleType is now dynamic - stored as String and configured via VehicleTypeConfig table
 
 // =============================================================================
 // GO SERVICE: Orders (Rides & Deliveries)
@@ -154,7 +147,7 @@ model Order {
   polyline        String?     // Encoded polyline for route display
   
   // Pricing
-  vehicleType     VehicleType @default(ECONOMY)
+  vehicleType     String      @default("ECONOMY") // Dynamic vehicle type
   estimatedFare   Float
   finalFare       Float?
   surgeMultiplier Float       @default(1.0)
