@@ -47,12 +47,10 @@ export class RatingService {
     }
 
     // Check for existing rating
-    const existingRating = await prisma.rating.findUnique({
+    const existingRating = await prisma.rating.findFirst({
       where: {
-        orderId_fromUserId: {
-          orderId: validated.orderId,
-          fromUserId,
-        },
+        orderId: validated.orderId,
+        fromUserId,
       },
     })
 
@@ -168,12 +166,7 @@ export class RatingService {
       _avg: { rating: true },
     })
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { rating: aggregate._avg.rating || 0 },
-    })
-
-    // If user is a driver, also update driver rating
+    // Update driver rating if user is a driver
     const driver = await prisma.driver.findUnique({
       where: { userId },
     })
@@ -204,12 +197,10 @@ export class RatingService {
     }
 
     // Check for existing rating
-    const existingRating = await prisma.rating.findUnique({
+    const existingRating = await prisma.rating.findFirst({
       where: {
-        orderId_fromUserId: {
-          orderId,
-          fromUserId: userId,
-        },
+        orderId,
+        fromUserId: userId,
       },
     })
 

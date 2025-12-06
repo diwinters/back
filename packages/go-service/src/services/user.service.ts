@@ -89,38 +89,29 @@ export class UserService {
   }
 
   /**
-   * Get user's saved addresses
+   * Get user's saved places
    */
-  async getSavedAddresses(userId: string): Promise<any[]> {
-    return prisma.savedAddress.findMany({
+  async getSavedPlaces(userId: string): Promise<any[]> {
+    return prisma.savedPlace.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
     })
   }
 
   /**
-   * Add saved address
+   * Add saved place
    */
-  async addSavedAddress(
+  async addSavedPlace(
     userId: string,
     data: {
       label: string
       address: string
       latitude: number
       longitude: number
-      name?: string
-      isDefault?: boolean
+      name: string
     }
   ): Promise<any> {
-    // If setting as default, unset other defaults of same label type
-    if (data.isDefault) {
-      await prisma.savedAddress.updateMany({
-        where: { userId, label: data.label },
-        data: { isDefault: false },
-      })
-    }
-
-    return prisma.savedAddress.create({
+    return prisma.savedPlace.create({
       data: {
         userId,
         label: data.label,
@@ -128,17 +119,16 @@ export class UserService {
         latitude: data.latitude,
         longitude: data.longitude,
         name: data.name,
-        isDefault: data.isDefault || false,
       },
     })
   }
 
   /**
-   * Delete saved address
+   * Delete saved place
    */
-  async deleteSavedAddress(userId: string, addressId: string): Promise<void> {
-    await prisma.savedAddress.deleteMany({
-      where: { id: addressId, userId },
+  async deleteSavedPlace(userId: string, placeId: string): Promise<void> {
+    await prisma.savedPlace.deleteMany({
+      where: { id: placeId, userId },
     })
   }
 
@@ -177,7 +167,7 @@ export class UserService {
       completedOrders: statusCounts.get('COMPLETED') || 0,
       cancelledOrders: statusCounts.get('CANCELLED') || 0,
       averageRating: Math.round((ratingAggregate._avg.rating || 0) * 10) / 10,
-      totalSpent: totalSpent._sum.finalFare?.toNumber() || 0,
+      totalSpent: totalSpent._sum.finalFare || 0,
     }
   }
 
@@ -197,7 +187,7 @@ export class UserService {
   async updatePushToken(userId: string, pushToken: string): Promise<void> {
     await prisma.user.update({
       where: { id: userId },
-      data: { expoPushToken: pushToken },
+      data: { pushToken },
     })
     logger.debug('Push token updated', { userId })
   }
@@ -224,7 +214,6 @@ export class UserService {
         handle: true,
         displayName: true,
         avatarUrl: true,
-        rating: true,
       },
       take: limit,
     })
