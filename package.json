@@ -9,17 +9,28 @@
   "scripts": {
     "dev": "concurrently \"yarn workspace @gominiapp/gateway dev\" \"yarn workspace @gominiapp/go-service dev\"",
     "build": "yarn workspaces foreach -A run build",
+    "start": "node packages/gateway/dist/server.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "test": "yarn workspaces foreach -A run test"
+    "test": "yarn workspaces foreach -A run test",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:start:prod": "pm2 start ecosystem.config.js --env production",
+    "pm2:stop": "pm2 stop gominiapp-gateway",
+    "pm2:restart": "pm2 restart gominiapp-gateway",
+    "pm2:reload": "pm2 reload gominiapp-gateway",
+    "pm2:delete": "pm2 delete gominiapp-gateway",
+    "pm2:logs": "pm2 logs gominiapp-gateway",
+    "pm2:monit": "pm2 monit",
+    "pm2:status": "pm2 status"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "concurrently": "^8.2.2",
+    "pm2": "^5.3.0",
     "prisma": "^5.7.0",
     "typescript": "^5.3.2"
   },
