@@ -16,6 +16,11 @@ const KEYS = {
   SESSION: 'session:',
 }
 
+// Pub/Sub channels for cluster communication
+const CHANNELS = {
+  WS_MESSAGE: 'ws:message',  // Cross-instance WebSocket messages
+}
+
 // TTLs in seconds
 const TTL = {
   DRIVER_LOCATION: 300, // 5 minutes - stale if not updated
@@ -26,6 +31,7 @@ const TTL = {
 export class RedisService {
   private client: Redis
   private subscriber: Redis
+  private messageHandlers: Map<string, (message: any) => void> = new Map()
 
   constructor() {
     this.client = new Redis(REDIS_URL, {
@@ -41,6 +47,19 @@ export class RedisService {
 
     this.client.on('connect', () => {
       logger.info('Redis connected')
+    })
+
+    // Set up pub/sub message handling
+    this.subscriber.on('message', (channel, message) => {
+      const handler = this.messageHandlers.get(channel)
+      if (handler) {
+        try {
+          const data = JSON.parse(message)
+          handler(data)
+        } catch (error) {
+          logger.error('Failed to parse pub/sub message', { channel, error })
+        }
+      }
     })
   }
 
@@ -263,6 +282,30 @@ export class RedisService {
 
   async getOnlineDriverCount(): Promise<number> {
     return this.client.zcard(KEYS.DRIVER_GEO)
+  }
+
+  // ==========================================================================
+  // Pub/Sub for Cluster Communication
+  // ==========================================================================
+
+  /**
+   * Subscribe to WebSocket message channel for cross-cluster communication
+   * @param handler Callback function to handle incoming messages
+   */
+  async subscribeToWsMessages(handler: (message: { did: string; message: any }) => void): Promise<void> {
+    this.messageHandlers.set(CHANNELS.WS_MESSAGE, handler)
+    await this.subscriber.subscribe(CHANNELS.WS_MESSAGE)
+    logger.info('Subscribed to WebSocket message channel for cluster communication')
+  }
+
+  /**
+   * Publish a WebSocket message to all cluster instances
+   * Used when target client is not on current instance
+   */
+  async publishWsMessage(did: string, message: any): Promise<void> {
+    const payload = JSON.stringify({ did, message })
+    await this.client.publish(CHANNELS.WS_MESSAGE, payload)
+    logger.debug('Published WebSocket message to cluster', { did, type: message.type })
   }
 
   /**

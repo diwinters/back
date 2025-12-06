@@ -28,9 +28,11 @@ export class WebSocketServer {
   private clients: Map<string, WSClient> = new Map()
   private redis: RedisService
   private pingInterval: NodeJS.Timeout | null = null
+  private instanceId: string
 
   constructor(server: HttpServer, redis: RedisService) {
     this.redis = redis
+    this.instanceId = `ws-${process.pid}-${Date.now()}`
     this.wss = new WSServer({ 
       server,
       path: '/ws',
@@ -39,6 +41,26 @@ export class WebSocketServer {
 
     this.setupServer()
     this.startPingInterval()
+    this.setupClusterMessaging()
+  }
+
+  /**
+   * Set up Redis pub/sub for cross-cluster WebSocket messaging
+   */
+  private async setupClusterMessaging() {
+    await this.redis.subscribeToWsMessages(({ did, message }) => {
+      // Check if we have this client locally
+      const client = this.clients.get(did)
+      if (client && client.ws.readyState === WebSocket.OPEN) {
+        logger.info('Received cluster message, forwarding to local client', { 
+          did, 
+          type: message.type,
+          instanceId: this.instanceId 
+        })
+        this.send(client.ws, message)
+      }
+    })
+    logger.info('WebSocket cluster messaging initialized', { instanceId: this.instanceId })
   }
 
   private verifyClient(info: { origin: string; req: any }, callback: (result: boolean, code?: number, message?: string) => void) {
@@ -189,19 +211,22 @@ export class WebSocketServer {
 
   /**
    * Send message to a specific DID
+   * If client not on this instance, publishes to Redis for other instances to handle
    */
-  sendToDid(did: string, message: WSMessage): boolean {
+  async sendToDid(did: string, message: WSMessage): Promise<boolean> {
     const client = this.clients.get(did)
-    logger.debug('sendToDid called', { did, hasClient: !!client, clientState: client?.ws?.readyState })
+    logger.debug('sendToDid called', { did, hasClient: !!client, clientState: client?.ws?.readyState, instanceId: this.instanceId })
     
-    if (!client || client.ws.readyState !== WebSocket.OPEN) {
-      logger.warn('Cannot send to DID - client not found or not connected', { did })
-      return false
+    if (client && client.ws.readyState === WebSocket.OPEN) {
+      this.send(client.ws, message)
+      logger.info('Message sent to DID (local)', { did, type: message.type })
+      return true
     }
     
-    this.send(client.ws, message)
-    logger.info('Message sent to DID', { did, type: message.type })
-    return true
+    // Client not on this instance - publish to Redis for other cluster instances
+    logger.info('Client not on this instance, publishing to cluster', { did, type: message.type, instanceId: this.instanceId })
+    await this.redis.publishWsMessage(did, message)
+    return true // Return true since message was published to cluster
   }
 
   /**
@@ -230,7 +255,7 @@ export class WebSocketServer {
     // If we found drivers in Redis, send to them
     if (nearbyDriverDids.length > 0) {
       for (const did of nearbyDriverDids) {
-        this.sendToDid(did, message)
+        await this.sendToDid(did, message)
       }
       logger.info('Broadcast to nearby drivers from Redis', { count: nearbyDriverDids.length })
       return nearbyDriverDids
@@ -256,8 +281,8 @@ export class WebSocketServer {
   /**
    * Send order update to user
    */
-  sendOrderUpdate(userDid: string, orderId: string, status: string, data: any = {}) {
-    this.sendToDid(userDid, {
+  async sendOrderUpdate(userDid: string, orderId: string, status: string, data: any = {}) {
+    await this.sendToDid(userDid, {
       type: 'order_update',
       payload: { orderId, status, ...data },
     })
@@ -266,8 +291,8 @@ export class WebSocketServer {
   /**
    * Send new order request to driver
    */
-  sendOrderRequest(driverDid: string, orderData: any) {
-    this.sendToDid(driverDid, {
+  async sendOrderRequest(driverDid: string, orderData: any) {
+    await this.sendToDid(driverDid, {
       type: 'new_order_request',
       payload: orderData,
     })

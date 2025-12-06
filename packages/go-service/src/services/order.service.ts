@@ -237,7 +237,7 @@ export class OrderService {
     // Notify user that driver accepted their order
     const wsServer = getWebSocketServer()
     if (wsServer && updatedOrder.user) {
-      wsServer.sendOrderUpdate(
+      await wsServer.sendOrderUpdate(
         updatedOrder.user.did,
         orderId,
         'DRIVER_ASSIGNED',
@@ -338,7 +338,7 @@ export class OrderService {
         CANCELLED: 'Order has been cancelled',
       }
       
-      wsServer.sendOrderUpdate(
+      await wsServer.sendOrderUpdate(
         updatedOrder.user.did,
         orderId,
         status,
@@ -411,7 +411,7 @@ export class OrderService {
       
       // Notify user
       if (order.user) {
-        wsServer.sendOrderUpdate(order.user.did, orderId, 'CANCELLED', cancelData)
+        await wsServer.sendOrderUpdate(order.user.did, orderId, 'CANCELLED', cancelData)
       }
       
       // Notify driver if assigned
@@ -421,7 +421,7 @@ export class OrderService {
           where: { id: order.driverId! },
         })
         if (driverUser) {
-          wsServer.sendOrderUpdate(driverUser.did, orderId, 'CANCELLED', cancelData)
+          await wsServer.sendOrderUpdate(driverUser.did, orderId, 'CANCELLED', cancelData)
         }
       }
     }
