@@ -5,7 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import { AppError } from '../utils/errors'
+import { AppError, ErrorCode } from '../utils/errors'
 import { logger } from '../utils/logger'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
@@ -115,7 +115,7 @@ export function authMiddleware(required: boolean = true) {
 
     if (!did) {
       if (required) {
-        return next(new AppError('Authentication required', 401))
+        return next(new AppError('Authentication required', ErrorCode.UNAUTHORIZED, 401))
       }
       return next()
     }
@@ -123,7 +123,7 @@ export function authMiddleware(required: boolean = true) {
     // Validate DID exists
     const resolved = await resolveDid(did)
     if (!resolved.valid) {
-      return next(new AppError('Invalid DID', 401))
+      return next(new AppError('Invalid DID', ErrorCode.INVALID_DID, 401))
     }
 
     req.user = {

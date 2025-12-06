@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express'
-import { prisma, getRedis } from '@gominiapp/core'
+import { prisma, getRedisService } from '@gominiapp/core'
 
 const router = Router()
 
@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
 
   try {
     // Check Redis
-    const redis = getRedis()
+    const redis = getRedisService()
     await redis.ping()
     checks.services.redis = 'healthy'
   } catch {

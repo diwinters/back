@@ -10,7 +10,7 @@ import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import { createServer } from 'http'
 
-import { logger, errorHandler, WSServer, getRedis } from '@gominiapp/core'
+import { logger, errorHandler, WebSocketServer, getRedisService } from '@gominiapp/core'
 
 // Routes
 import { authRouter } from './routes/auth.routes'
@@ -87,17 +87,17 @@ app.use((req, res) => {
 app.use(errorHandler)
 
 // Initialize WebSocket server
-const wsServer = new WSServer(server)
+const wsServer = new WebSocketServer(server)
 
 // Initialize Redis connection
-const redis = getRedis()
+const redis = getRedisService()
 
 // Graceful shutdown
 const shutdown = async () => {
   logger.info('Shutting down server...')
   
   wsServer.close()
-  await redis.disconnect()
+  await redis.close()
   
   server.close(() => {
     logger.info('Server shut down')
@@ -117,15 +117,10 @@ process.on('SIGINT', shutdown)
 // Start server
 const PORT = process.env.PORT || 3001
 
-redis.connect().then(() => {
-  server.listen(PORT, () => {
-    logger.info(`🚀 GoMiniApp Gateway running on port ${PORT}`)
-    logger.info(`📡 WebSocket server ready`)
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
-  })
-}).catch((error) => {
-  logger.error('Failed to connect to Redis', { error })
-  process.exit(1)
+server.listen(PORT, () => {
+  logger.info(`🚀 GoMiniApp Gateway running on port ${PORT}`)
+  logger.info(`📡 WebSocket server ready`)
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
 })
 
 export { app, server }
