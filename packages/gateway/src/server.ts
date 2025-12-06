@@ -10,7 +10,7 @@ import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import { createServer } from 'http'
 
-import { logger, errorHandler, WebSocketServer, getRedisService } from '@gominiapp/core'
+import { logger, errorHandler, WebSocketServer, setWebSocketServer, getRedisService } from '@gominiapp/core'
 
 // Routes
 import { authRouter } from './routes/auth.routes'
@@ -91,6 +91,7 @@ const redis = getRedisService()
 
 // Initialize WebSocket server
 const wsServer = new WebSocketServer(server, redis)
+setWebSocketServer(wsServer) // Make globally accessible for order notifications
 
 // Graceful shutdown
 const shutdown = async () => {

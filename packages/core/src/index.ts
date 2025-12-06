@@ -14,7 +14,7 @@ export type { AuthenticatedRequest } from './auth/did'
 export { PushNotificationService } from './notifications/push'
 
 // Real-time
-export { WebSocketServer } from './realtime/websocket'
+export { WebSocketServer, setWebSocketServer, getWebSocketServer } from './realtime/websocket'
 export { RedisService, getRedisService } from './realtime/redis'
 
 // Geo

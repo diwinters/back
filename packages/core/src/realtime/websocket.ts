@@ -297,3 +297,22 @@ export class WebSocketServer {
     this.wss.close()
   }
 }
+
+// Global WebSocket server instance for cross-service access
+let wsServerInstance: WebSocketServer | null = null
+
+/**
+ * Set the global WebSocket server instance
+ * Called from gateway server initialization
+ */
+export function setWebSocketServer(server: WebSocketServer): void {
+  wsServerInstance = server
+}
+
+/**
+ * Get the global WebSocket server instance
+ * Returns null if not initialized
+ */
+export function getWebSocketServer(): WebSocketServer | null {
+  return wsServerInstance
+}

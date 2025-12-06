@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod'
-import { prisma, logger, AppError, ErrorCode, NotFoundError, ValidationError } from '@gominiapp/core'
+import { prisma, logger, AppError, ErrorCode, NotFoundError, ValidationError, getWebSocketServer } from '@gominiapp/core'
 import { DriverService } from './driver.service'
 
 // Validation schemas
@@ -150,6 +150,41 @@ export class OrderService {
 
     logger.info('Order created', { orderId: order.id, userId, type: validated.type })
 
+    // Notify nearby drivers via WebSocket
+    const wsServer = getWebSocketServer()
+    if (wsServer) {
+      const orderData = {
+        id: order.id,
+        type: order.type,
+        pickupLatitude: validated.pickupLatitude,
+        pickupLongitude: validated.pickupLongitude,
+        pickupAddress: validated.pickupAddress,
+        dropoffLatitude: validated.dropoffLatitude,
+        dropoffLongitude: validated.dropoffLongitude,
+        dropoffAddress: validated.dropoffAddress,
+        estimatedFare: order.estimatedFare,
+        estimatedDistance: order.estimatedDistance,
+        estimatedDuration: order.estimatedDuration,
+        vehicleType: order.vehicleType,
+        user: {
+          displayName: order.user?.displayName,
+        },
+      }
+      
+      // Broadcast to drivers within 5km radius
+      wsServer.broadcastToNearbyDrivers(
+        validated.pickupLatitude,
+        validated.pickupLongitude,
+        5000, // 5km radius
+        {
+          type: 'new_order',
+          data: orderData,
+        }
+      )
+      
+      logger.info('Order broadcast to nearby drivers', { orderId: order.id })
+    }
+
     return order
   }
 
@@ -195,6 +230,30 @@ export class OrderService {
     })
 
     logger.info('Order accepted', { orderId, driverId })
+
+    // Notify user that driver accepted their order
+    const wsServer = getWebSocketServer()
+    if (wsServer && updatedOrder.user) {
+      wsServer.sendOrderUpdate(
+        updatedOrder.user.did,
+        orderId,
+        'DRIVER_ASSIGNED',
+        {
+          driver: {
+            id: updatedOrder.driver?.id,
+            displayName: updatedOrder.driver?.displayName,
+            avatarUrl: updatedOrder.driver?.avatarUrl,
+            currentLatitude: driver.currentLatitude,
+            currentLongitude: driver.currentLongitude,
+            vehicleMake: driver.vehicleMake,
+            vehicleModel: driver.vehicleModel,
+            vehicleColor: driver.vehicleColor,
+            licensePlate: driver.licensePlate,
+          },
+        }
+      )
+      logger.info('User notified of driver assignment', { orderId, userDid: updatedOrder.user.did })
+    }
 
     return updatedOrder
   }
@@ -265,6 +324,32 @@ export class OrderService {
 
     logger.info('Order status updated', { orderId, status })
 
+    // Notify user of status update via WebSocket
+    const wsServer = getWebSocketServer()
+    if (wsServer && updatedOrder.user) {
+      const statusMessages: Record<string, string> = {
+        DRIVER_ARRIVING: 'Driver is on the way to pickup',
+        ARRIVED: 'Driver has arrived at pickup location',
+        IN_PROGRESS: 'Trip has started',
+        COMPLETED: 'Trip completed',
+        CANCELLED: 'Order has been cancelled',
+      }
+      
+      wsServer.sendOrderUpdate(
+        updatedOrder.user.did,
+        orderId,
+        status,
+        {
+          message: statusMessages[status],
+          driverLocation: location,
+          completedAt: status === 'COMPLETED' ? updatedOrder.completedAt : undefined,
+          finalFare: status === 'COMPLETED' ? updatedOrder.finalFare : undefined,
+        }
+      )
+      
+      logger.info('User notified of status update', { orderId, status, userDid: updatedOrder.user.did })
+    }
+
     return updatedOrder
   }
 
@@ -274,6 +359,14 @@ export class OrderService {
   async cancelOrder(orderId: string, userId: string, reason?: string): Promise<void> {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
+      include: {
+        user: true,
+        driver: {
+          include: {
+            driver: true, // Get driver's user record for DID
+          },
+        },
+      },
     })
 
     if (!order) {
@@ -303,6 +396,32 @@ export class OrderService {
     })
 
     logger.info('Order cancelled', { orderId, cancelledBy: userId, reason })
+
+    // Notify both user and driver of cancellation via WebSocket
+    const wsServer = getWebSocketServer()
+    if (wsServer) {
+      const cancelData = {
+        message: 'Order has been cancelled',
+        reason,
+        cancelledBy: userId,
+      }
+      
+      // Notify user
+      if (order.user) {
+        wsServer.sendOrderUpdate(order.user.did, orderId, 'CANCELLED', cancelData)
+      }
+      
+      // Notify driver if assigned
+      if (order.driver?.driver) {
+        // Get the driver's user record to find their DID
+        const driverUser = await prisma.user.findUnique({
+          where: { id: order.driverId! },
+        })
+        if (driverUser) {
+          wsServer.sendOrderUpdate(driverUser.did, orderId, 'CANCELLED', cancelData)
+        }
+      }
+    }
   }
 
   /**
