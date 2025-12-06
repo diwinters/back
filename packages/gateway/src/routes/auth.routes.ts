@@ -39,7 +39,7 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Get or create user
-    const user = await userService.getOrCreateUser(did, handle)
+    let user = await userService.getOrCreateUser(did, handle)
     
     // Update profile if provided
     if (displayName || avatarUrl || pushToken) {
@@ -52,6 +52,10 @@ router.post('/login', async (req, res, next) => {
       }
     }
 
+    // Get full user with driver info
+    const fullUser = await userService.getUser(user.id)
+    const isDriver = !!fullUser.driver
+
     // Generate JWT
     const token = jwt.sign(
       {
@@ -63,13 +67,16 @@ router.post('/login', async (req, res, next) => {
       { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
     )
 
-    logger.info('User authenticated', { userId: user.id, did })
+    logger.info('User authenticated', { userId: user.id, did, isDriver })
 
     res.json({
       success: true,
       data: {
         token,
-        user,
+        user: {
+          ...fullUser,
+          isDriver,
+        },
         expiresIn: JWT_EXPIRES_IN,
       },
     })
