@@ -163,8 +163,8 @@ export class OrderService {
         dropoffLongitude: validated.dropoffLongitude,
         dropoffAddress: validated.dropoffAddress,
         estimatedFare: order.estimatedFare,
-        estimatedDistance: order.estimatedDistance,
-        estimatedDuration: order.estimatedDuration,
+        estimatedDistance: (order as any).estimatedDistance,
+        estimatedDuration: (order as any).estimatedDuration,
         vehicleType: order.vehicleType,
         user: {
           displayName: order.user?.displayName,
@@ -178,7 +178,7 @@ export class OrderService {
         5000, // 5km radius
         {
           type: 'new_order',
-          data: orderData,
+          payload: orderData,
         }
       )
       
