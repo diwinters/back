@@ -475,6 +475,7 @@
             <div id="ordersMessage" class="message"></div>
             
             <div class="toolbar">
+                <button class="btn btn-success" onclick="showCreateOrder()">➕ Create Order</button>
                 <select id="orderFilter" onchange="loadOrders()">
                     <option value="">All Orders</option>
                     <option value="PENDING">Pending</option>
@@ -598,6 +599,132 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeCreateDriver()">Cancel</button>
                     <button type="submit" class="btn btn-success">Create Driver</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Order Modal -->
+    <div id="createOrderModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3>Create New Order</h3>
+            <form id="createOrderForm">
+                <!-- User Selection -->
+                <div class="form-group">
+                    <label>User DID (Bluesky)</label>
+                    <input type="text" id="createOrderUserDid" placeholder="did:plc:..." required>
+                    <small style="color: #6b7280;">Enter the customer's Bluesky DID</small>
+                </div>
+
+                <!-- Order Type -->
+                <div class="form-group">
+                    <label>Order Type</label>
+                    <select id="createOrderType" onchange="toggleDeliveryFields()" required>
+                        <option value="RIDE">🚗 Ride</option>
+                        <option value="DELIVERY">📦 Delivery</option>
+                    </select>
+                </div>
+
+                <!-- Vehicle Type -->
+                <div class="form-group">
+                    <label>Vehicle Type</label>
+                    <select id="createOrderVehicleType">
+                        <option value="ECONOMY">Economy</option>
+                        <option value="COMFORT">Comfort</option>
+                        <option value="PREMIUM">Premium</option>
+                        <option value="XL">XL</option>
+                        <option value="MOTO">Moto</option>
+                        <option value="BIKE">Bike</option>
+                    </select>
+                </div>
+
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin-bottom: 15px;">📍 Pickup Location</h4>
+
+                <div class="form-group">
+                    <label>Pickup Address</label>
+                    <input type="text" id="createOrderPickupAddress" placeholder="123 Main St, City" required>
+                </div>
+                <div class="form-group">
+                    <label>Pickup Name (optional)</label>
+                    <input type="text" id="createOrderPickupName" placeholder="Home, Office, etc.">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Pickup Latitude</label>
+                        <input type="number" id="createOrderPickupLat" step="any" placeholder="40.7128" required>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Pickup Longitude</label>
+                        <input type="number" id="createOrderPickupLon" step="any" placeholder="-74.0060" required>
+                    </div>
+                </div>
+
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin-bottom: 15px;">📍 Dropoff Location</h4>
+
+                <div class="form-group">
+                    <label>Dropoff Address</label>
+                    <input type="text" id="createOrderDropoffAddress" placeholder="456 Oak Ave, City" required>
+                </div>
+                <div class="form-group">
+                    <label>Dropoff Name (optional)</label>
+                    <input type="text" id="createOrderDropoffName" placeholder="Airport, Mall, etc.">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Dropoff Latitude</label>
+                        <input type="number" id="createOrderDropoffLat" step="any" placeholder="40.7580" required>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Dropoff Longitude</label>
+                        <input type="number" id="createOrderDropoffLon" step="any" placeholder="-73.9855" required>
+                    </div>
+                </div>
+
+                <!-- Pricing -->
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin-bottom: 15px;">💰 Pricing (Optional)</h4>
+                <div class="form-group">
+                    <label>Estimated Fare ($)</label>
+                    <input type="number" id="createOrderFare" step="0.01" placeholder="Auto-calculated if empty">
+                    <small style="color: #6b7280;">Leave empty to auto-calculate based on distance</small>
+                </div>
+
+                <!-- Delivery Fields (hidden by default) -->
+                <div id="deliveryFields" style="display: none;">
+                    <hr style="margin: 20px 0; border: none; border-top: 1px solid #e5e7eb;">
+                    <h4 style="margin-bottom: 15px;">📦 Delivery Details</h4>
+                    
+                    <div class="form-group">
+                        <label>Package Size</label>
+                        <select id="createOrderPackageSize">
+                            <option value="SMALL">Small (fits in hand)</option>
+                            <option value="MEDIUM" selected>Medium (fits in bag)</option>
+                            <option value="LARGE">Large (needs trunk)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Package Description</label>
+                        <input type="text" id="createOrderPackageDesc" placeholder="Documents, food, electronics...">
+                    </div>
+                    <div class="form-group">
+                        <label>Recipient Name</label>
+                        <input type="text" id="createOrderRecipientName" placeholder="John Doe">
+                    </div>
+                    <div class="form-group">
+                        <label>Recipient Phone</label>
+                        <input type="text" id="createOrderRecipientPhone" placeholder="+1 555-1234">
+                    </div>
+                    <div class="form-group">
+                        <label>Delivery Instructions</label>
+                        <textarea id="createOrderDeliveryInstructions" placeholder="Leave at door, call on arrival..." style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; min-height: 60px;"></textarea>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateOrder()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Create Order</button>
                 </div>
             </form>
         </div>

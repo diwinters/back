@@ -353,6 +353,147 @@ app.delete('/api/drivers/:id', async (req, res) => {
 // ============================================================================
 
 /**
+ * POST /api/orders
+ * Create a new order (admin-initiated)
+ */
+app.post('/api/orders', async (req, res) => {
+  try {
+    const {
+      // User identification
+      userId,
+      userDid,
+      
+      // Order type
+      type, // RIDE or DELIVERY
+      
+      // Pickup
+      pickupAddress,
+      pickupName,
+      pickupLatitude,
+      pickupLongitude,
+      
+      // Dropoff
+      dropoffAddress,
+      dropoffName,
+      dropoffLatitude,
+      dropoffLongitude,
+      
+      // Pricing
+      vehicleType,
+      estimatedFare,
+      
+      // Delivery-specific
+      packageSize,
+      packageDescription,
+      recipientName,
+      recipientPhone,
+      deliveryInstructions
+    } = req.body
+
+    // Find user by ID or DID
+    let user
+    if (userId) {
+      user = await prisma.user.findUnique({ where: { id: userId } })
+    } else if (userDid) {
+      user = await prisma.user.findUnique({ where: { did: userDid } })
+    }
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: 'User not found. Provide valid userId or userDid.'
+      })
+    }
+
+    // Validate required fields
+    if (!type || !['RIDE', 'DELIVERY'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid order type. Must be RIDE or DELIVERY.'
+      })
+    }
+
+    if (!pickupLatitude || !pickupLongitude || !dropoffLatitude || !dropoffLongitude) {
+      return res.status(400).json({
+        success: false,
+        error: 'Pickup and dropoff coordinates are required.'
+      })
+    }
+
+    // Calculate estimated distance (simple Haversine)
+    const R = 6371 // km
+    const dLat = (dropoffLatitude - pickupLatitude) * Math.PI / 180
+    const dLon = (dropoffLongitude - pickupLongitude) * Math.PI / 180
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(pickupLatitude * Math.PI / 180) * Math.cos(dropoffLatitude * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    const distanceKm = R * c
+
+    // Estimate duration (assume 30 km/h average)
+    const durationMinutes = Math.round(distanceKm / 30 * 60)
+
+    // Calculate fare if not provided
+    const fare = estimatedFare || (5 + distanceKm * 1.5 + durationMinutes * 0.2)
+
+    // Create the order
+    const order = await prisma.order.create({
+      data: {
+        type,
+        status: 'PENDING',
+        userId: user.id,
+        
+        pickupLatitude: parseFloat(pickupLatitude),
+        pickupLongitude: parseFloat(pickupLongitude),
+        pickupAddress: pickupAddress || 'Pickup Location',
+        pickupName: pickupName || null,
+        
+        dropoffLatitude: parseFloat(dropoffLatitude),
+        dropoffLongitude: parseFloat(dropoffLongitude),
+        dropoffAddress: dropoffAddress || 'Dropoff Location',
+        dropoffName: dropoffName || null,
+        
+        distanceKm,
+        durationMinutes,
+        vehicleType: vehicleType || 'ECONOMY',
+        estimatedFare: fare,
+        surgeMultiplier: 1.0,
+        
+        // Delivery fields
+        packageSize: type === 'DELIVERY' ? (packageSize || 'MEDIUM') : null,
+        packageDescription: type === 'DELIVERY' ? packageDescription : null,
+        recipientName: type === 'DELIVERY' ? recipientName : null,
+        recipientPhone: type === 'DELIVERY' ? recipientPhone : null,
+        deliveryInstructions: type === 'DELIVERY' ? deliveryInstructions : null,
+      },
+      include: {
+        user: true
+      }
+    })
+
+    // Create initial order event
+    await prisma.orderEvent.create({
+      data: {
+        orderId: order.id,
+        type: 'ORDER_CREATED',
+        description: 'Order created by admin'
+      }
+    })
+
+    res.json({
+      success: true,
+      data: order,
+      message: `Order created successfully. Distance: ${distanceKm.toFixed(2)}km, ETA: ${durationMinutes}min, Fare: $${fare.toFixed(2)}`
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
  * GET /api/orders
  * List all orders
  */

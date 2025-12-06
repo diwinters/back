@@ -451,6 +451,82 @@ async function deleteOrder(orderId) {
 }
 
 // ============================================================================
+// Create Order
+// ============================================================================
+
+function showCreateOrder() {
+    document.getElementById('createOrderModal').classList.add('show')
+}
+
+function closeCreateOrder() {
+    document.getElementById('createOrderModal').classList.remove('show')
+    document.getElementById('createOrderForm').reset()
+    document.getElementById('deliveryFields').style.display = 'none'
+}
+
+function toggleDeliveryFields() {
+    const orderType = document.getElementById('createOrderType').value
+    const deliveryFields = document.getElementById('deliveryFields')
+    deliveryFields.style.display = orderType === 'DELIVERY' ? 'block' : 'none'
+}
+
+document.getElementById('createOrderForm').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    
+    const orderType = document.getElementById('createOrderType').value
+    
+    const orderData = {
+        userDid: document.getElementById('createOrderUserDid').value,
+        type: orderType,
+        vehicleType: document.getElementById('createOrderVehicleType').value,
+        
+        // Pickup
+        pickupAddress: document.getElementById('createOrderPickupAddress').value,
+        pickupName: document.getElementById('createOrderPickupName').value || undefined,
+        pickupLatitude: document.getElementById('createOrderPickupLat').value,
+        pickupLongitude: document.getElementById('createOrderPickupLon').value,
+        
+        // Dropoff
+        dropoffAddress: document.getElementById('createOrderDropoffAddress').value,
+        dropoffName: document.getElementById('createOrderDropoffName').value || undefined,
+        dropoffLatitude: document.getElementById('createOrderDropoffLat').value,
+        dropoffLongitude: document.getElementById('createOrderDropoffLon').value,
+        
+        // Fare
+        estimatedFare: document.getElementById('createOrderFare').value ? parseFloat(document.getElementById('createOrderFare').value) : undefined
+    }
+    
+    // Add delivery-specific fields
+    if (orderType === 'DELIVERY') {
+        orderData.packageSize = document.getElementById('createOrderPackageSize').value
+        orderData.packageDescription = document.getElementById('createOrderPackageDesc').value || undefined
+        orderData.recipientName = document.getElementById('createOrderRecipientName').value || undefined
+        orderData.recipientPhone = document.getElementById('createOrderRecipientPhone').value || undefined
+        orderData.deliveryInstructions = document.getElementById('createOrderDeliveryInstructions').value || undefined
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData)
+        })
+        
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('ordersMessage', `✓ ${data.message}`, 'success')
+            closeCreateOrder()
+            loadOrders()
+        } else {
+            showMessage('ordersMessage', `✗ ${data.error}`, 'error')
+        }
+    } catch (error) {
+        showMessage('ordersMessage', `✗ Failed to create order: ${error.message}`, 'error')
+    }
+})
+
+// ============================================================================
 // Utilities
 // ============================================================================
 
