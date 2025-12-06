@@ -20,6 +20,7 @@ function showTab(tabName) {
     if (tabName === 'users') loadUsers()
     if (tabName === 'drivers') loadDrivers()
     if (tabName === 'orders') loadOrders()
+    if (tabName === 'vehicleTypes') loadVehicleTypes()
 }
 
 // ============================================================================
@@ -525,6 +526,219 @@ document.getElementById('createOrderForm').addEventListener('submit', async (e) 
         showMessage('ordersMessage', `✗ Failed to create order: ${error.message}`, 'error')
     }
 })
+
+// ============================================================================
+// Vehicle Types
+// ============================================================================
+
+let currentVehicleTypeId = null
+
+async function loadVehicleTypes() {
+    try {
+        showLoading('vehicleTypesTable')
+        const res = await fetch(`${API_BASE}/api/vehicle-types`)
+        const data = await res.json()
+        
+        if (data.success) {
+            renderVehicleTypesTable(data.data)
+        } else {
+            document.getElementById('vehicleTypesTable').innerHTML = `<p>Error: ${data.error}</p>`
+        }
+    } catch (error) {
+        document.getElementById('vehicleTypesTable').innerHTML = `<p>Error: ${error.message}</p>`
+    }
+}
+
+function renderVehicleTypesTable(vehicleTypes) {
+    if (vehicleTypes.length === 0) {
+        document.getElementById('vehicleTypesTable').innerHTML = `
+            <div style="text-align: center; padding: 40px; color: #6b7280;">
+                <p>No vehicle types configured.</p>
+                <p>Click "Seed Defaults" to add default vehicle types.</p>
+            </div>
+        `
+        return
+    }
+
+    const html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Icon</th>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Capacity</th>
+                    <th>Base Fare</th>
+                    <th>Per KM</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${vehicleTypes.map(vt => `
+                    <tr>
+                        <td>${vt.sortOrder}</td>
+                        <td style="font-size: 24px;">${vt.icon}</td>
+                        <td><code>${vt.code}</code></td>
+                        <td><strong>${vt.name}</strong></td>
+                        <td>${vt.description || '-'}</td>
+                        <td>${vt.capacity}</td>
+                        <td>$${vt.baseFare.toFixed(2)}</td>
+                        <td>$${vt.perKmRate.toFixed(2)}</td>
+                        <td>
+                            ${vt.isActive ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}
+                            ${vt.isPromo ? `<span class="badge badge-info">${vt.promoText || 'Promo'}</span>` : ''}
+                        </td>
+                        <td>
+                            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="editVehicleType('${vt.id}')">Edit</button>
+                            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="deleteVehicleType('${vt.id}', '${vt.name}')">Delete</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `
+    document.getElementById('vehicleTypesTable').innerHTML = html
+}
+
+function showCreateVehicleType() {
+    currentVehicleTypeId = null
+    document.getElementById('vehicleTypeModalTitle').textContent = 'Add Vehicle Type'
+    document.getElementById('vehicleTypeForm').reset()
+    document.getElementById('vehicleTypeId').value = ''
+    document.getElementById('promoTextGroup').style.display = 'none'
+    document.getElementById('vehicleTypeModal').classList.add('show')
+}
+
+async function editVehicleType(id) {
+    try {
+        const res = await fetch(`${API_BASE}/api/vehicle-types/${id}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const vt = data.data
+            currentVehicleTypeId = id
+            
+            document.getElementById('vehicleTypeModalTitle').textContent = 'Edit Vehicle Type'
+            document.getElementById('vehicleTypeId').value = id
+            document.getElementById('vehicleTypeCode').value = vt.code
+            document.getElementById('vehicleTypeName').value = vt.name
+            document.getElementById('vehicleTypeDescription').value = vt.description || ''
+            document.getElementById('vehicleTypeIcon').value = vt.icon
+            document.getElementById('vehicleTypeCapacity').value = vt.capacity
+            document.getElementById('vehicleTypeBaseFare').value = vt.baseFare
+            document.getElementById('vehicleTypePerKm').value = vt.perKmRate
+            document.getElementById('vehicleTypePerMin').value = vt.perMinuteRate
+            document.getElementById('vehicleTypeMinFare').value = vt.minimumFare
+            document.getElementById('vehicleTypeFeatures').value = (vt.features || []).join(', ')
+            document.getElementById('vehicleTypeSortOrder').value = vt.sortOrder
+            document.getElementById('vehicleTypeActive').value = vt.isActive ? 'true' : 'false'
+            document.getElementById('vehicleTypeIsPromo').value = vt.isPromo ? 'true' : 'false'
+            document.getElementById('vehicleTypePromoText').value = vt.promoText || ''
+            
+            togglePromoText()
+            document.getElementById('vehicleTypeModal').classList.add('show')
+        }
+    } catch (error) {
+        showMessage('vehicleTypesMessage', 'Error loading vehicle type: ' + error.message, 'error')
+    }
+}
+
+function closeVehicleTypeModal() {
+    document.getElementById('vehicleTypeModal').classList.remove('show')
+    currentVehicleTypeId = null
+}
+
+function togglePromoText() {
+    const isPromo = document.getElementById('vehicleTypeIsPromo').value === 'true'
+    document.getElementById('promoTextGroup').style.display = isPromo ? 'block' : 'none'
+}
+
+document.getElementById('vehicleTypeForm').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    
+    const featuresStr = document.getElementById('vehicleTypeFeatures').value
+    const features = featuresStr ? featuresStr.split(',').map(f => f.trim()).filter(f => f) : []
+    
+    const payload = {
+        code: document.getElementById('vehicleTypeCode').value.toUpperCase(),
+        name: document.getElementById('vehicleTypeName').value,
+        description: document.getElementById('vehicleTypeDescription').value,
+        icon: document.getElementById('vehicleTypeIcon').value || '🚗',
+        capacity: parseInt(document.getElementById('vehicleTypeCapacity').value) || 4,
+        baseFare: parseFloat(document.getElementById('vehicleTypeBaseFare').value) || 2.50,
+        perKmRate: parseFloat(document.getElementById('vehicleTypePerKm').value) || 1.20,
+        perMinuteRate: parseFloat(document.getElementById('vehicleTypePerMin').value) || 0.15,
+        minimumFare: parseFloat(document.getElementById('vehicleTypeMinFare').value) || 5.00,
+        features: features,
+        sortOrder: parseInt(document.getElementById('vehicleTypeSortOrder').value) || 0,
+        isActive: document.getElementById('vehicleTypeActive').value === 'true',
+        isPromo: document.getElementById('vehicleTypeIsPromo').value === 'true',
+        promoText: document.getElementById('vehicleTypePromoText').value || null
+    }
+    
+    try {
+        const id = document.getElementById('vehicleTypeId').value
+        const url = id ? `${API_BASE}/api/vehicle-types/${id}` : `${API_BASE}/api/vehicle-types`
+        const method = id ? 'PATCH' : 'POST'
+        
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        
+        const data = await res.json()
+        
+        if (data.success) {
+            closeVehicleTypeModal()
+            showMessage('vehicleTypesMessage', id ? 'Vehicle type updated!' : 'Vehicle type created!', 'success')
+            loadVehicleTypes()
+        } else {
+            showMessage('vehicleTypesMessage', 'Error: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMessage('vehicleTypesMessage', 'Error: ' + error.message, 'error')
+    }
+})
+
+async function deleteVehicleType(id, name) {
+    if (!confirm(`Delete vehicle type "${name}"? This cannot be undone.`)) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/vehicle-types/${id}`, { method: 'DELETE' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('vehicleTypesMessage', 'Vehicle type deleted!', 'success')
+            loadVehicleTypes()
+        } else {
+            showMessage('vehicleTypesMessage', 'Error: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMessage('vehicleTypesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+async function seedVehicleTypes() {
+    if (!confirm('This will create default vehicle types. Existing ones will be skipped. Continue?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/vehicle-types/seed`, { method: 'POST' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('vehicleTypesMessage', data.message, 'success')
+            loadVehicleTypes()
+        } else {
+            showMessage('vehicleTypesMessage', 'Error: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMessage('vehicleTypesMessage', 'Error: ' + error.message, 'error')
+    }
+}
 
 // ============================================================================
 // Utilities

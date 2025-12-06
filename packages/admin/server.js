@@ -600,6 +600,223 @@ app.delete('/api/orders/:id', async (req, res) => {
 })
 
 // ============================================================================
+// Vehicle Type Configuration CRUD Endpoints
+// ============================================================================
+
+/**
+ * GET /api/vehicle-types
+ * List all vehicle types
+ */
+app.get('/api/vehicle-types', async (req, res) => {
+  try {
+    const activeOnly = req.query.active === 'true'
+    
+    const vehicleTypes = await prisma.vehicleTypeConfig.findMany({
+      where: activeOnly ? { isActive: true } : {},
+      orderBy: { sortOrder: 'asc' }
+    })
+
+    res.json({
+      success: true,
+      data: vehicleTypes
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * GET /api/vehicle-types/:id
+ * Get vehicle type by ID
+ */
+app.get('/api/vehicle-types/:id', async (req, res) => {
+  try {
+    const vehicleType = await prisma.vehicleTypeConfig.findUnique({
+      where: { id: req.params.id }
+    })
+
+    if (!vehicleType) {
+      return res.status(404).json({
+        success: false,
+        error: 'Vehicle type not found'
+      })
+    }
+
+    res.json({ success: true, data: vehicleType })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * POST /api/vehicle-types
+ * Create new vehicle type
+ */
+app.post('/api/vehicle-types', async (req, res) => {
+  try {
+    const { 
+      code, name, description, icon,
+      capacity, baseFare, perKmRate, perMinuteRate, minimumFare,
+      features, sortOrder, isActive, isPromo, promoText, vehicleClass
+    } = req.body
+
+    if (!code || !name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Code and name are required'
+      })
+    }
+
+    const vehicleType = await prisma.vehicleTypeConfig.create({
+      data: {
+        code: code.toUpperCase(),
+        name,
+        description: description || '',
+        icon: icon || '🚗',
+        capacity: capacity || 4,
+        baseFare: baseFare || 2.50,
+        perKmRate: perKmRate || 1.20,
+        perMinuteRate: perMinuteRate || 0.15,
+        minimumFare: minimumFare || 5.00,
+        features: features || [],
+        sortOrder: sortOrder || 0,
+        isActive: isActive !== false,
+        isPromo: isPromo || false,
+        promoText,
+        vehicleClass
+      }
+    })
+
+    res.json({ success: true, data: vehicleType })
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'Vehicle type code already exists'
+      })
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * PATCH /api/vehicle-types/:id
+ * Update vehicle type
+ */
+app.patch('/api/vehicle-types/:id', async (req, res) => {
+  try {
+    const { 
+      code, name, description, icon,
+      capacity, baseFare, perKmRate, perMinuteRate, minimumFare,
+      features, sortOrder, isActive, isPromo, promoText, vehicleClass
+    } = req.body
+
+    const vehicleType = await prisma.vehicleTypeConfig.update({
+      where: { id: req.params.id },
+      data: {
+        ...(code && { code: code.toUpperCase() }),
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+        ...(icon && { icon }),
+        ...(capacity !== undefined && { capacity }),
+        ...(baseFare !== undefined && { baseFare }),
+        ...(perKmRate !== undefined && { perKmRate }),
+        ...(perMinuteRate !== undefined && { perMinuteRate }),
+        ...(minimumFare !== undefined && { minimumFare }),
+        ...(features !== undefined && { features }),
+        ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive }),
+        ...(isPromo !== undefined && { isPromo }),
+        ...(promoText !== undefined && { promoText }),
+        ...(vehicleClass !== undefined && { vehicleClass })
+      }
+    })
+
+    res.json({ success: true, data: vehicleType })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * DELETE /api/vehicle-types/:id
+ * Delete vehicle type
+ */
+app.delete('/api/vehicle-types/:id', async (req, res) => {
+  try {
+    await prisma.vehicleTypeConfig.delete({
+      where: { id: req.params.id }
+    })
+
+    res.json({
+      success: true,
+      message: 'Vehicle type deleted successfully'
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * POST /api/vehicle-types/seed
+ * Seed default vehicle types
+ */
+app.post('/api/vehicle-types/seed', async (req, res) => {
+  try {
+    const defaults = [
+      { code: 'ECONOMY', name: 'Go', description: 'Affordable, everyday rides', icon: '🚗', capacity: 4, baseFare: 2.50, perKmRate: 1.20, perMinuteRate: 0.15, minimumFare: 5.00, features: ['4 seats', 'AC'], sortOrder: 1, isPromo: true, promoText: 'Most popular' },
+      { code: 'COMFORT', name: 'Comfort', description: 'Newer cars with extra legroom', icon: '🚙', capacity: 4, baseFare: 3.50, perKmRate: 1.80, perMinuteRate: 0.25, minimumFare: 7.00, features: ['4 seats', 'Extra legroom', 'Top-rated drivers'], sortOrder: 2 },
+      { code: 'GREEN', name: 'Green', description: 'Electric & hybrid vehicles', icon: '🍃', capacity: 4, baseFare: 2.80, perKmRate: 1.40, perMinuteRate: 0.18, minimumFare: 5.50, features: ['4 seats', 'Zero emissions', 'Eco-friendly'], sortOrder: 3 },
+      { code: 'XL', name: 'XL', description: 'SUVs for groups up to 6', icon: '🚐', capacity: 6, baseFare: 5.00, perKmRate: 2.20, perMinuteRate: 0.35, minimumFare: 10.00, features: ['6 seats', 'Extra space', 'Luggage room'], sortOrder: 4 },
+      { code: 'PREMIUM', name: 'Black', description: 'Premium rides in luxury cars', icon: '✨', capacity: 4, baseFare: 8.00, perKmRate: 3.50, perMinuteRate: 0.55, minimumFare: 15.00, features: ['4 seats', 'Luxury vehicles', 'Professional drivers'], sortOrder: 5 },
+      { code: 'MOTO', name: 'Moto', description: 'Quick motorcycle rides', icon: '🏍️', capacity: 1, baseFare: 1.50, perKmRate: 0.80, perMinuteRate: 0.10, minimumFare: 3.00, features: ['1 passenger', 'Fastest option', 'Beat traffic'], sortOrder: 6 },
+      { code: 'BIKE', name: 'Bike', description: 'Bicycle courier', icon: '🚲', capacity: 1, baseFare: 1.00, perKmRate: 0.50, perMinuteRate: 0.08, minimumFare: 2.00, features: ['1 passenger', 'Eco-friendly', 'Short distances'], sortOrder: 7 }
+    ]
+
+    let created = 0
+    let skipped = 0
+
+    for (const vt of defaults) {
+      try {
+        await prisma.vehicleTypeConfig.create({ data: vt })
+        created++
+      } catch (e) {
+        if (e.code === 'P2002') {
+          skipped++ // Already exists
+        } else {
+          throw e
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Seeded ${created} vehicle types, skipped ${skipped} existing`
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 

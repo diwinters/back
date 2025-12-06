@@ -295,6 +295,42 @@ model MiniApp {
 }
 
 // =============================================================================
+// GO SERVICE: Vehicle Type Configuration (Admin-managed ride types)
+// =============================================================================
+
+model VehicleTypeConfig {
+  id            String   @id @default(cuid())
+  code          String   @unique // ECONOMY, COMFORT, PREMIUM, XL, MOTO, BIKE, GREEN, etc.
+  name          String   // Display name: "Go", "Comfort", "Black", etc.
+  description   String   // Short description
+  icon          String   // Emoji or icon identifier
+  
+  // Capacity
+  capacity      Int      @default(4) // Number of passengers
+  
+  // Pricing
+  baseFare      Float    @default(2.50)
+  perKmRate     Float    @default(1.20)
+  perMinuteRate Float    @default(0.15)
+  minimumFare   Float    @default(5.00)
+  
+  // Display settings
+  features      String[] @default([]) // ["4 seats", "AC", "Extra legroom"]
+  sortOrder     Int      @default(0)  // Display order in UI
+  isActive      Boolean  @default(true)
+  isPromo       Boolean  @default(false)
+  promoText     String?  // "Most popular", "New!", etc.
+  
+  // Vehicle requirements
+  vehicleClass  String?  // For driver filtering: "sedan", "suv", "luxury", etc.
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+// =============================================================================
 // PLATFORM: Push Notification Log (For debugging & analytics)
 // =============================================================================
 

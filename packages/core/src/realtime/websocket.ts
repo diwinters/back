@@ -216,13 +216,33 @@ export class WebSocketServer {
     radiusKm: number,
     message: WSMessage
   ): Promise<string[]> {
+    // Try to get nearby drivers from Redis geo index
     const nearbyDriverDids = await this.redis.getNearbyDrivers(latitude, longitude, radiusKm)
     
-    for (const did of nearbyDriverDids) {
-      this.sendToDid(did, message)
+    // If we found drivers in Redis, send to them
+    if (nearbyDriverDids.length > 0) {
+      for (const did of nearbyDriverDids) {
+        this.sendToDid(did, message)
+      }
+      logger.info('Broadcast to nearby drivers from Redis', { count: nearbyDriverDids.length })
+      return nearbyDriverDids
     }
     
-    return nearbyDriverDids
+    // Fallback: If no drivers in Redis (geo index empty), broadcast to ALL connected drivers
+    // This ensures drivers get orders even if location tracking hasn't populated Redis yet
+    const allDriverDids: string[] = []
+    for (const client of this.clients.values()) {
+      if (client.role === 'driver' && client.ws.readyState === WebSocket.OPEN) {
+        this.send(client.ws, message)
+        allDriverDids.push(client.did)
+      }
+    }
+    
+    if (allDriverDids.length > 0) {
+      logger.info('Broadcast to all connected drivers (fallback)', { count: allDriverDids.length })
+    }
+    
+    return allDriverDids
   }
 
   /**

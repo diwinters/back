@@ -18,6 +18,7 @@ import { userRouter } from './routes/user.routes'
 import { driverRouter } from './routes/driver.routes'
 import { orderRouter } from './routes/order.routes'
 import { healthRouter } from './routes/health.routes'
+import { configRouter } from './routes/config.routes'
 
 const app = express()
 const server = createServer(app)
@@ -66,6 +67,9 @@ app.use('/api/auth/', authLimiter)
 
 // Health check (no auth required)
 app.use('/health', healthRouter)
+
+// Public config endpoints (no auth required)
+app.use('/api/config', configRouter)
 
 // API routes
 app.use('/api/auth', authRouter)
