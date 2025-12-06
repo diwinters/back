@@ -42,8 +42,15 @@ export class WebSocketServer {
   }
 
   private verifyClient(info: { origin: string; req: any }, callback: (result: boolean, code?: number, message?: string) => void) {
+    // Try authorization header first
     const authHeader = info.req.headers.authorization
-    const did = extractDid(authHeader)
+    let did = extractDid(authHeader)
+    
+    // If no header, try query string (for React Native/browser clients)
+    if (!did) {
+      const url = new URL(info.req.url, 'ws://localhost')
+      did = url.searchParams.get('did') || undefined
+    }
     
     if (!did) {
       callback(false, 401, 'Unauthorized')
