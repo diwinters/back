@@ -1,0 +1,316 @@
+// GoMiniApp Database Schema
+// Scalable, multi-tenant architecture for ride-hailing and future mini-apps
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+// =============================================================================
+// SHARED: Users & Authentication
+// =============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  did           String    @unique // Bluesky DID (did:plc:xxx)
+  handle        String?   // Bluesky handle (@user.bsky.social)
+  pushToken     String?   // Expo push notification token
+  pushTokenUpdatedAt DateTime?
+  
+  // Profile (cached from Bluesky)
+  displayName   String?
+  avatarUrl     String?
+  
+  // Settings
+  defaultPaymentMethod String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  driver        Driver?
+  ordersAsUser  Order[]   @relation("UserOrders")
+  ordersAsDriver Order[]  @relation("DriverOrders")
+  ratings       Rating[]  @relation("RatingsGiven")
+  ratingsReceived Rating[] @relation("RatingsReceived")
+  savedPlaces   SavedPlace[]
+
+  @@index([did])
+  @@index([pushToken])
+}
+
+model SavedPlace {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label       String   // home, work, gym, etc.
+  name        String
+  address     String
+  latitude    Float
+  longitude   Float
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// =============================================================================
+// GO SERVICE: Drivers
+// =============================================================================
+
+model Driver {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Availability
+  isOnline        Boolean  @default(false)
+  availabilityType AvailabilityType @default(BOTH)
+  
+  // Current Location (updated in real-time)
+  currentLatitude  Float?
+  currentLongitude Float?
+  currentHeading   Float?   // Direction in degrees
+  lastLocationUpdate DateTime?
+  
+  // Vehicle Info
+  vehicleMake     String?
+  vehicleModel    String?
+  vehicleYear     Int?
+  vehicleColor    String?
+  licensePlate    String?
+  vehicleType     VehicleType @default(ECONOMY)
+  
+  // Stats
+  rating          Float    @default(5.0)
+  totalRides      Int      @default(0)
+  totalDeliveries Int      @default(0)
+  totalEarnings   Float    @default(0)
+  
+  // Verification
+  isVerified      Boolean  @default(false)
+  verifiedAt      DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isOnline, availabilityType])
+  @@index([currentLatitude, currentLongitude])
+}
+
+enum AvailabilityType {
+  RIDE
+  DELIVERY
+  BOTH
+}
+
+enum VehicleType {
+  ECONOMY
+  COMFORT
+  PREMIUM
+  XL
+  MOTO
+  BIKE
+}
+
+// =============================================================================
+// GO SERVICE: Orders (Rides & Deliveries)
+// =============================================================================
+
+model Order {
+  id              String      @id @default(cuid())
+  type            OrderType
+  status          OrderStatus @default(PENDING)
+  
+  // Participants
+  userId          String
+  user            User        @relation("UserOrders", fields: [userId], references: [id])
+  driverId        String?
+  driver          User?       @relation("DriverOrders", fields: [driverId], references: [id])
+  
+  // Locations
+  pickupLatitude  Float
+  pickupLongitude Float
+  pickupAddress   String
+  pickupName      String?
+  
+  dropoffLatitude Float
+  dropoffLongitude Float
+  dropoffAddress  String
+  dropoffName     String?
+  
+  // Route Info
+  distanceKm      Float?
+  durationMinutes Int?
+  polyline        String?     // Encoded polyline for route display
+  
+  // Pricing
+  vehicleType     VehicleType @default(ECONOMY)
+  estimatedFare   Float
+  finalFare       Float?
+  surgeMultiplier Float       @default(1.0)
+  
+  // Delivery-specific
+  packageSize     PackageSize?
+  packageDescription String?
+  isFragile       Boolean     @default(false)
+  requiresSignature Boolean   @default(false)
+  recipientName   String?
+  recipientPhone  String?
+  deliveryInstructions String?
+  
+  // Bluesky DM Integration
+  conversationId  String?     // Bluesky conversation ID for order updates
+  
+  // Timestamps
+  requestedAt     DateTime    @default(now())
+  acceptedAt      DateTime?
+  arrivedAt       DateTime?   // Driver arrived at pickup
+  startedAt       DateTime?   // Trip/delivery started
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  cancelledBy     String?     // 'user' | 'driver' | 'system'
+  
+  // Relations
+  events          OrderEvent[]
+  rating          Rating?
+
+  @@index([userId, status])
+  @@index([driverId, status])
+  @@index([status, requestedAt])
+  @@index([pickupLatitude, pickupLongitude])
+}
+
+enum OrderType {
+  RIDE
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING           // Just created, searching for driver
+  DRIVER_ASSIGNED   // Driver accepted
+  DRIVER_ARRIVING   // Driver en route to pickup
+  ARRIVED           // Driver at pickup location
+  IN_PROGRESS       // Trip/delivery in progress
+  COMPLETED         // Successfully completed
+  CANCELLED         // Cancelled by user, driver, or system
+}
+
+enum PackageSize {
+  SMALL       // Fits in hand
+  MEDIUM      // Fits in backpack
+  LARGE       // Needs car trunk
+  EXTRA_LARGE // Needs van/truck
+}
+
+// =============================================================================
+// GO SERVICE: Order Events (Real-time Tracking)
+// =============================================================================
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  eventType OrderEventType
+  
+  // Location at time of event
+  latitude  Float?
+  longitude Float?
+  
+  // Additional data
+  metadata  Json?    // Flexible storage for event-specific data
+  
+  createdAt DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([eventType])
+}
+
+enum OrderEventType {
+  CREATED
+  DRIVER_ASSIGNED
+  DRIVER_LOCATION_UPDATE
+  DRIVER_ARRIVING
+  DRIVER_ARRIVED
+  TRIP_STARTED
+  TRIP_LOCATION_UPDATE
+  TRIP_COMPLETED
+  CANCELLED
+  PAYMENT_PROCESSED
+  RATING_SUBMITTED
+}
+
+// =============================================================================
+// GO SERVICE: Ratings
+// =============================================================================
+
+model Rating {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  fromUserId  String
+  fromUser    User     @relation("RatingsGiven", fields: [fromUserId], references: [id])
+  
+  toUserId    String
+  toUser      User     @relation("RatingsReceived", fields: [toUserId], references: [id])
+  
+  rating      Int      // 1-5 stars
+  comment     String?
+  tipAmount   Float?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([toUserId])
+  @@index([fromUserId])
+}
+
+// =============================================================================
+// PLATFORM: Mini-App Configurations (Future Extensibility)
+// =============================================================================
+
+model MiniApp {
+  id          String   @id @default(cuid())
+  appId       String   @unique // e.g., "go", "shop", "pay"
+  name        String
+  description String?
+  iconUrl     String?
+  isActive    Boolean  @default(true)
+  
+  // Settings stored as JSON for flexibility
+  settings    Json?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =============================================================================
+// PLATFORM: Push Notification Log (For debugging & analytics)
+// =============================================================================
+
+model PushNotificationLog {
+  id          String   @id @default(cuid())
+  userId      String
+  
+  title       String
+  body        String
+  data        Json?
+  
+  status      String   // 'sent', 'delivered', 'failed'
+  errorMessage String?
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([status])
+}

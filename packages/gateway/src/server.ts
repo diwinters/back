@@ -1,0 +1,131 @@
+/**
+ * Express Server Entry Point
+ */
+
+import express from 'express'
+import cors from 'cors'
+import helmet from 'helmet'
+import compression from 'compression'
+import morgan from 'morgan'
+import rateLimit from 'express-rate-limit'
+import { createServer } from 'http'
+
+import { logger, errorHandler, WSServer, getRedis } from '@gominiapp/core'
+
+// Routes
+import { authRouter } from './routes/auth.routes'
+import { userRouter } from './routes/user.routes'
+import { driverRouter } from './routes/driver.routes'
+import { orderRouter } from './routes/order.routes'
+import { healthRouter } from './routes/health.routes'
+
+const app = express()
+const server = createServer(app)
+
+// Trust proxy for rate limiting behind reverse proxy
+app.set('trust proxy', 1)
+
+// Security middleware
+app.use(helmet())
+app.use(cors({
+  origin: process.env.CORS_ORIGIN?.split(',') || '*',
+  credentials: true,
+}))
+
+// Compression
+app.use(compression())
+
+// Body parsing
+app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true }))
+
+// Request logging
+app.use(morgan('combined', {
+  stream: {
+    write: (message) => logger.info(message.trim()),
+  },
+}))
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests' } },
+})
+app.use('/api/', limiter)
+
+// Stricter rate limit for auth
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // 20 auth attempts per hour
+  message: { error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Too many auth attempts' } },
+})
+app.use('/api/auth/', authLimiter)
+
+// Health check (no auth required)
+app.use('/health', healthRouter)
+
+// API routes
+app.use('/api/auth', authRouter)
+app.use('/api/users', userRouter)
+app.use('/api/drivers', driverRouter)
+app.use('/api/orders', orderRouter)
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      code: 'NOT_FOUND',
+      message: `Route ${req.method} ${req.path} not found`,
+    },
+  })
+})
+
+// Error handler
+app.use(errorHandler)
+
+// Initialize WebSocket server
+const wsServer = new WSServer(server)
+
+// Initialize Redis connection
+const redis = getRedis()
+
+// Graceful shutdown
+const shutdown = async () => {
+  logger.info('Shutting down server...')
+  
+  wsServer.close()
+  await redis.disconnect()
+  
+  server.close(() => {
+    logger.info('Server shut down')
+    process.exit(0)
+  })
+
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown')
+    process.exit(1)
+  }, 10000)
+}
+
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
+
+// Start server
+const PORT = process.env.PORT || 3001
+
+redis.connect().then(() => {
+  server.listen(PORT, () => {
+    logger.info(`🚀 GoMiniApp Gateway running on port ${PORT}`)
+    logger.info(`📡 WebSocket server ready`)
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`)
+  })
+}).catch((error) => {
+  logger.error('Failed to connect to Redis', { error })
+  process.exit(1)
+})
+
+export { app, server }

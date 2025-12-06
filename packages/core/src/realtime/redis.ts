@@ -1,0 +1,263 @@
+/**
+ * Redis Service
+ * Handles real-time driver locations, caching, and pub/sub
+ */
+
+import Redis from 'ioredis'
+import { logger } from '../utils/logger'
+
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
+
+// Key prefixes
+const KEYS = {
+  DRIVER_LOCATION: 'driver:location:',
+  DRIVER_GEO: 'drivers:geo',
+  ORDER_CACHE: 'order:',
+  SESSION: 'session:',
+}
+
+// TTLs in seconds
+const TTL = {
+  DRIVER_LOCATION: 300, // 5 minutes - stale if not updated
+  ORDER_CACHE: 3600,    // 1 hour
+  SESSION: 86400 * 7,   // 7 days
+}
+
+export class RedisService {
+  private client: Redis
+  private subscriber: Redis
+
+  constructor() {
+    this.client = new Redis(REDIS_URL, {
+      retryDelayOnFailover: 100,
+      maxRetriesPerRequest: 3,
+    })
+
+    this.subscriber = new Redis(REDIS_URL)
+
+    this.client.on('error', (error) => {
+      logger.error('Redis client error', { error })
+    })
+
+    this.client.on('connect', () => {
+      logger.info('Redis connected')
+    })
+  }
+
+  // ==========================================================================
+  // Driver Location Management
+  // ==========================================================================
+
+  /**
+   * Update driver's current location
+   */
+  async setDriverLocation(
+    did: string,
+    latitude: number,
+    longitude: number,
+    heading?: number
+  ): Promise<void> {
+    const key = KEYS.DRIVER_LOCATION + did
+    const data = {
+      latitude,
+      longitude,
+      heading: heading ?? 0,
+      updatedAt: Date.now(),
+    }
+
+    // Store location data
+    await this.client.setex(key, TTL.DRIVER_LOCATION, JSON.stringify(data))
+
+    // Add to geo index for proximity searches
+    await this.client.geoadd(KEYS.DRIVER_GEO, longitude, latitude, did)
+  }
+
+  /**
+   * Get driver's current location
+   */
+  async getDriverLocation(did: string): Promise<{
+    latitude: number
+    longitude: number
+    heading: number
+    updatedAt: number
+  } | null> {
+    const key = KEYS.DRIVER_LOCATION + did
+    const data = await this.client.get(key)
+    
+    if (!data) return null
+    return JSON.parse(data)
+  }
+
+  /**
+   * Remove driver from location tracking (went offline)
+   */
+  async removeDriverLocation(did: string): Promise<void> {
+    await this.client.del(KEYS.DRIVER_LOCATION + did)
+    await this.client.zrem(KEYS.DRIVER_GEO, did)
+  }
+
+  /**
+   * Find drivers within radius (km) of a point
+   */
+  async getNearbyDrivers(
+    latitude: number,
+    longitude: number,
+    radiusKm: number,
+    limit: number = 20
+  ): Promise<string[]> {
+    const results = await this.client.georadius(
+      KEYS.DRIVER_GEO,
+      longitude,
+      latitude,
+      radiusKm,
+      'km',
+      'ASC',
+      'COUNT',
+      limit
+    )
+    
+    return results as string[]
+  }
+
+  /**
+   * Get distance between driver and a point
+   */
+  async getDriverDistance(
+    did: string,
+    latitude: number,
+    longitude: number
+  ): Promise<number | null> {
+    // Add temporary point to calculate distance
+    const tempKey = `temp:${Date.now()}`
+    await this.client.geoadd(KEYS.DRIVER_GEO, longitude, latitude, tempKey)
+    
+    const distance = await this.client.geodist(KEYS.DRIVER_GEO, did, tempKey, 'km')
+    
+    // Clean up temp point
+    await this.client.zrem(KEYS.DRIVER_GEO, tempKey)
+    
+    return distance ? parseFloat(distance) : null
+  }
+
+  // ==========================================================================
+  // Order Caching
+  // ==========================================================================
+
+  /**
+   * Cache order data for quick access
+   */
+  async cacheOrder(orderId: string, orderData: any): Promise<void> {
+    const key = KEYS.ORDER_CACHE + orderId
+    await this.client.setex(key, TTL.ORDER_CACHE, JSON.stringify(orderData))
+  }
+
+  /**
+   * Get cached order data
+   */
+  async getCachedOrder(orderId: string): Promise<any | null> {
+    const key = KEYS.ORDER_CACHE + orderId
+    const data = await this.client.get(key)
+    return data ? JSON.parse(data) : null
+  }
+
+  /**
+   * Invalidate order cache
+   */
+  async invalidateOrderCache(orderId: string): Promise<void> {
+    await this.client.del(KEYS.ORDER_CACHE + orderId)
+  }
+
+  // ==========================================================================
+  // Pub/Sub for Real-time Events
+  // ==========================================================================
+
+  /**
+   * Publish event to a channel
+   */
+  async publish(channel: string, message: any): Promise<void> {
+    await this.client.publish(channel, JSON.stringify(message))
+  }
+
+  /**
+   * Subscribe to a channel
+   */
+  async subscribe(channel: string, callback: (message: any) => void): Promise<void> {
+    await this.subscriber.subscribe(channel)
+    
+    this.subscriber.on('message', (ch, message) => {
+      if (ch === channel) {
+        callback(JSON.parse(message))
+      }
+    })
+  }
+
+  /**
+   * Unsubscribe from a channel
+   */
+  async unsubscribe(channel: string): Promise<void> {
+    await this.subscriber.unsubscribe(channel)
+  }
+
+  // ==========================================================================
+  // Generic Cache Operations
+  // ==========================================================================
+
+  async get(key: string): Promise<string | null> {
+    return this.client.get(key)
+  }
+
+  async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+    if (ttlSeconds) {
+      await this.client.setex(key, ttlSeconds, value)
+    } else {
+      await this.client.set(key, value)
+    }
+  }
+
+  async del(key: string): Promise<void> {
+    await this.client.del(key)
+  }
+
+  async incr(key: string): Promise<number> {
+    return this.client.incr(key)
+  }
+
+  async expire(key: string, seconds: number): Promise<void> {
+    await this.client.expire(key, seconds)
+  }
+
+  // ==========================================================================
+  // Health & Stats
+  // ==========================================================================
+
+  async ping(): Promise<boolean> {
+    try {
+      const result = await this.client.ping()
+      return result === 'PONG'
+    } catch {
+      return false
+    }
+  }
+
+  async getOnlineDriverCount(): Promise<number> {
+    return this.client.zcard(KEYS.DRIVER_GEO)
+  }
+
+  /**
+   * Clean shutdown
+   */
+  async close(): Promise<void> {
+    await this.subscriber.quit()
+    await this.client.quit()
+  }
+}
+
+// Singleton instance
+let redisInstance: RedisService | null = null
+
+export function getRedisService(): RedisService {
+  if (!redisInstance) {
+    redisInstance = new RedisService()
+  }
+  return redisInstance
+}

@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "@gominiapp/core": ["packages/core/src"],
+      "@gominiapp/core/*": ["packages/core/src/*"],
+      "@gominiapp/go-service": ["packages/go-service/src"],
+      "@gominiapp/go-service/*": ["packages/go-service/src/*"],
+      "@gominiapp/gateway": ["packages/gateway/src"],
+      "@gominiapp/gateway/*": ["packages/gateway/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}
