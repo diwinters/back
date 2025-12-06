@@ -8,7 +8,7 @@ import { prisma, logger, AppError, ErrorCode, NotFoundError, ConflictError } fro
 
 // Validation schemas
 export const registerDriverSchema = z.object({
-  vehicleType: z.enum(['ECONOMY', 'COMFORT', 'PREMIUM', 'XL', 'MOTO', 'BIKE']),
+  vehicleType: z.string().min(1), // Dynamic - accepts any configured vehicle type
   licensePlate: z.string().min(1),
   vehicleModel: z.string().optional(),
   vehicleColor: z.string().optional(),

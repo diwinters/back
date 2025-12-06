@@ -18,7 +18,7 @@ export const createOrderSchema = z.object({
   dropoffLongitude: z.number().min(-180).max(180),
   dropoffAddress: z.string().min(1),
   dropoffName: z.string().optional(),
-  vehicleType: z.enum(['ECONOMY', 'COMFORT', 'PREMIUM', 'XL', 'MOTO', 'BIKE']).default('ECONOMY'),
+  vehicleType: z.string().default('ECONOMY'), // Dynamic - accepts any configured vehicle type
   // Delivery specific
   packageSize: z.enum(['SMALL', 'MEDIUM', 'LARGE', 'EXTRA_LARGE']).optional(),
   recipientName: z.string().optional(),
