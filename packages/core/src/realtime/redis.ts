@@ -29,13 +29,13 @@ export class RedisService {
 
   constructor() {
     this.client = new Redis(REDIS_URL, {
-      retryDelayOnFailover: 100,
       maxRetriesPerRequest: 3,
+      retryStrategy: (times) => Math.min(times * 100, 3000),
     })
 
     this.subscriber = new Redis(REDIS_URL)
 
-    this.client.on('error', (error) => {
+    this.client.on('error', (error: any) => {
       logger.error('Redis client error', { error })
     })
 
@@ -131,7 +131,7 @@ export class RedisService {
     const tempKey = `temp:${Date.now()}`
     await this.client.geoadd(KEYS.DRIVER_GEO, longitude, latitude, tempKey)
     
-    const distance = await this.client.geodist(KEYS.DRIVER_GEO, did, tempKey, 'km')
+    const distance = await this.client.geodist(KEYS.DRIVER_GEO, did, tempKey, 'km' as any)
     
     // Clean up temp point
     await this.client.zrem(KEYS.DRIVER_GEO, tempKey)

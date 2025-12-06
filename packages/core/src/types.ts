@@ -8,7 +8,7 @@ export type {
   User,
   Driver,
   Order,
-  OrderEvent,
+  OrderEvent as PrismaOrderEvent,
   Rating,
   SavedPlace,
   MiniApp,
