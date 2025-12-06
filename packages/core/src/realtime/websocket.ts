@@ -78,7 +78,11 @@ export class WebSocketServer {
       // Store client by DID
       this.clients.set(did, client)
       
-      logger.info('WebSocket client connected', { did, role })
+      logger.info('WebSocket client connected', { did, role, totalClients: this.clients.size })
+      
+      // Log all connected clients for debugging
+      const connectedDids = Array.from(this.clients.keys())
+      logger.debug('Connected clients', { connectedDids })
 
       // Send welcome message
       this.send(ws, {
@@ -188,11 +192,15 @@ export class WebSocketServer {
    */
   sendToDid(did: string, message: WSMessage): boolean {
     const client = this.clients.get(did)
+    logger.debug('sendToDid called', { did, hasClient: !!client, clientState: client?.ws?.readyState })
+    
     if (!client || client.ws.readyState !== WebSocket.OPEN) {
+      logger.warn('Cannot send to DID - client not found or not connected', { did })
       return false
     }
     
     this.send(client.ws, message)
+    logger.info('Message sent to DID', { did, type: message.type })
     return true
   }
 
