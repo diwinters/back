@@ -12,7 +12,7 @@ const ratingService = new RatingService()
 const driverService = new DriverService()
 
 // All routes require authentication
-router.use(authMiddleware)
+router.use(authMiddleware())
 
 /**
  * POST /api/orders/estimate

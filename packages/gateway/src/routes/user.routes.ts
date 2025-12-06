@@ -10,7 +10,7 @@ const router = Router()
 const userService = new UserService()
 
 // All routes require authentication
-router.use(authMiddleware)
+router.use(authMiddleware())
 
 /**
  * GET /api/users/me
