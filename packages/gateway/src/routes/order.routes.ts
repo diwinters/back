@@ -20,16 +20,31 @@ router.use(authMiddleware)
  */
 router.post('/estimate', async (req: any, res, next) => {
   try {
-    const { type, pickupLocation, dropoffLocation, vehicleType, packageSize } = req.body
+    const { 
+      type, 
+      pickupLatitude, 
+      pickupLongitude, 
+      pickupAddress,
+      dropoffLatitude, 
+      dropoffLongitude, 
+      dropoffAddress,
+      vehicleType, 
+      packageSize 
+    } = req.body
     
-    if (!type || !pickupLocation || !dropoffLocation) {
-      throw new AppError('type, pickupLocation, and dropoffLocation are required', ErrorCode.INVALID_INPUT, 400)
+    if (!type || pickupLatitude === undefined || pickupLongitude === undefined || 
+        dropoffLatitude === undefined || dropoffLongitude === undefined) {
+      throw new AppError('type, pickup/dropoff coordinates are required', ErrorCode.INVALID_INPUT, 400)
     }
     
     const estimate = await orderService.getEstimate({
       type,
-      pickupLocation,
-      dropoffLocation,
+      pickupLatitude,
+      pickupLongitude,
+      pickupAddress: pickupAddress || '',
+      dropoffLatitude,
+      dropoffLongitude,
+      dropoffAddress: dropoffAddress || '',
       vehicleType,
       packageSize,
     })
@@ -157,9 +172,7 @@ router.patch('/:id/status', async (req: any, res, next) => {
     const order = await orderService.updateOrderStatus(
       req.params.id,
       status,
-      req.user.id,
-      location,
-      otp
+      location
     )
     
     res.json({
@@ -199,8 +212,17 @@ router.post('/:id/rate', async (req: any, res, next) => {
       throw new AppError('rating must be between 1 and 5', ErrorCode.INVALID_INPUT, 400)
     }
     
-    await ratingService.rateOrder(req.user.id, {
+    // Get order to find the other user
+    const order = await orderService.getActiveOrderForUser(req.user.id)
+    if (!order || order.id !== req.params.id) {
+      throw new AppError('Order not found', ErrorCode.ORDER_NOT_FOUND, 404)
+    }
+    
+    const toUserId = order.userId === req.user.id ? order.driverId : order.userId
+    
+    await ratingService.createRating(req.user.id, {
       orderId: req.params.id,
+      toUserId: toUserId!,
       rating,
       comment,
     })

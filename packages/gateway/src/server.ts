@@ -86,11 +86,11 @@ app.use((req, res) => {
 // Error handler
 app.use(errorHandler)
 
-// Initialize WebSocket server
-const wsServer = new WebSocketServer(server)
-
 // Initialize Redis connection
 const redis = getRedisService()
+
+// Initialize WebSocket server
+const wsServer = new WebSocketServer(server, redis)
 
 // Graceful shutdown
 const shutdown = async () => {

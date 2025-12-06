@@ -39,13 +39,18 @@ router.post('/login', async (req, res, next) => {
     }
 
     // Get or create user
-    const user = await userService.registerOrUpdateUser({
-      did,
-      handle,
-      displayName,
-      avatarUrl,
-      pushToken,
-    })
+    const user = await userService.getOrCreateUser(did, handle)
+    
+    // Update profile if provided
+    if (displayName || avatarUrl || pushToken) {
+      await userService.updateUser(user.id, {
+        displayName,
+        avatarUrl,
+      })
+      if (pushToken) {
+        await userService.updatePushToken(user.id, pushToken)
+      }
+    }
 
     // Generate JWT
     const token = jwt.sign(
@@ -55,7 +60,7 @@ router.post('/login', async (req, res, next) => {
         handle: user.handle,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      { expiresIn: JWT_EXPIRES_IN as string }
     )
 
     logger.info('User authenticated', { userId: user.id, did })
@@ -96,7 +101,7 @@ router.post('/refresh', async (req, res, next) => {
     }
 
     // Get fresh user data
-    const user = await userService.getUserById(payload.sub)
+    const user = await userService.getUser(payload.sub)
 
     // Generate new token
     const token = jwt.sign(
@@ -106,7 +111,7 @@ router.post('/refresh', async (req, res, next) => {
         handle: user.handle,
       },
       JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
+      { expiresIn: JWT_EXPIRES_IN as string }
     )
 
     res.json({

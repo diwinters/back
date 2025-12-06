@@ -18,13 +18,15 @@ router.use(authMiddleware)
  */
 router.post('/register', async (req: any, res, next) => {
   try {
-    const { vehicleType, vehiclePlate, vehicleModel, vehicleColor, availabilityType } = req.body
+    const { vehicleType, licensePlate, vehicleModel, vehicleColor, vehicleMake, vehicleYear, availabilityType } = req.body
     
     const driver = await driverService.registerDriver(req.user.id, {
       vehicleType,
-      vehiclePlate,
+      licensePlate,
       vehicleModel,
       vehicleColor,
+      vehicleMake,
+      vehicleYear,
       availabilityType,
     })
     
@@ -101,7 +103,7 @@ router.patch('/me/availability', async (req: any, res, next) => {
  */
 router.post('/me/location', async (req: any, res, next) => {
   try {
-    const { latitude, longitude, heading, speed } = req.body
+    const { latitude, longitude, heading } = req.body
     
     if (latitude === undefined || longitude === undefined) {
       throw new AppError('latitude and longitude are required', ErrorCode.INVALID_INPUT, 400)
@@ -112,7 +114,6 @@ router.post('/me/location', async (req: any, res, next) => {
       latitude,
       longitude,
       heading,
-      speed,
     })
     
     res.json({
@@ -137,11 +138,12 @@ router.get('/nearby', async (req: any, res, next) => {
     }
     
     const drivers = await driverService.findNearbyDrivers(
-      { latitude: parseFloat(latitude), longitude: parseFloat(longitude) },
+      parseFloat(latitude),
+      parseFloat(longitude),
       {
         radiusKm: radius ? parseFloat(radius) : undefined,
         availabilityType: type as any,
-        vehicleType: vehicleType as string,
+        vehicleType: vehicleType as any,
         limit: limit ? parseInt(limit) : undefined,
       }
     )

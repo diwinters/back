@@ -18,7 +18,7 @@ router.use(authMiddleware)
  */
 router.get('/me', async (req: any, res, next) => {
   try {
-    const user = await userService.getUserById(req.user.id)
+    const user = await userService.getUser(req.user.id)
     
     res.json({
       success: true,
@@ -35,13 +35,13 @@ router.get('/me', async (req: any, res, next) => {
  */
 router.patch('/me', async (req: any, res, next) => {
   try {
-    const { handle, displayName, avatarUrl, pushToken } = req.body
+    const { displayName, avatarUrl, phone, defaultPaymentMethod } = req.body
     
     const user = await userService.updateUser(req.user.id, {
-      handle,
       displayName,
       avatarUrl,
-      pushToken,
+      phone,
+      defaultPaymentMethod,
     })
     
     res.json({
