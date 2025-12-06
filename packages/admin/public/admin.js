@@ -285,6 +285,53 @@ function closeEditDriver() {
     currentDriverId = null
 }
 
+// Create Driver
+function showCreateDriver() {
+    document.getElementById('createDriverModal').classList.add('show')
+}
+
+function closeCreateDriver() {
+    document.getElementById('createDriverModal').classList.remove('show')
+    document.getElementById('createDriverForm').reset()
+}
+
+document.getElementById('createDriverForm').addEventListener('submit', async (e) => {
+    e.preventDefault()
+    
+    const driverData = {
+        did: document.getElementById('createDriverDid').value,
+        handle: document.getElementById('createDriverHandle').value,
+        displayName: document.getElementById('createDriverDisplayName').value || undefined,
+        vehicleType: document.getElementById('createDriverVehicleType').value,
+        licensePlate: document.getElementById('createDriverPlate').value,
+        vehicleMake: document.getElementById('createDriverMake').value || undefined,
+        vehicleModel: document.getElementById('createDriverModel').value || undefined,
+        vehicleColor: document.getElementById('createDriverColor').value || undefined,
+        vehicleYear: document.getElementById('createDriverYear').value ? parseInt(document.getElementById('createDriverYear').value) : undefined,
+        availabilityType: document.getElementById('createDriverAvailability').value
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/drivers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(driverData)
+        })
+        
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('driversMessage', '✓ Driver created successfully', 'success')
+            closeCreateDriver()
+            loadDrivers()
+        } else {
+            showMessage('driversMessage', `✗ ${data.error}`, 'error')
+        }
+    } catch (error) {
+        showMessage('driversMessage', `✗ Failed to create driver: ${error.message}`, 'error')
+    }
+})
+
 async function deleteDriver(driverId) {
     if (!confirm('Are you sure you want to delete this driver?')) {
         return

@@ -240,6 +240,63 @@ app.get('/api/drivers', async (req, res) => {
 })
 
 /**
+ * POST /api/drivers
+ * Create new driver
+ */
+app.post('/api/drivers', async (req, res) => {
+  try {
+    const { did, handle, displayName, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleYear, availabilityType } = req.body
+
+    // Create or get user first
+    let user = await prisma.user.findUnique({ where: { did } })
+    
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          did,
+          handle: handle || `user_${did.slice(-8)}`,
+          displayName: displayName || handle || 'Driver'
+        }
+      })
+    }
+
+    // Check if already a driver
+    const existingDriver = await prisma.driver.findUnique({
+      where: { userId: user.id }
+    })
+
+    if (existingDriver) {
+      return res.status(400).json({
+        success: false,
+        error: 'User is already registered as a driver'
+      })
+    }
+
+    // Create driver
+    const driver = await prisma.driver.create({
+      data: {
+        userId: user.id,
+        vehicleType: vehicleType || 'ECONOMY',
+        licensePlate,
+        vehicleMake,
+        vehicleModel,
+        vehicleColor,
+        vehicleYear,
+        availabilityType: availabilityType || 'BOTH'
+      },
+      include: { user: true }
+    })
+
+    res.json({ success: true, data: driver })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
  * PATCH /api/drivers/:id
  * Update driver
  */

@@ -456,6 +456,7 @@
             <div id="driversMessage" class="message"></div>
             
             <div class="toolbar">
+                <button class="btn btn-success" onclick="showCreateDriver()">➕ Create Driver</button>
                 <select id="driverFilter" onchange="loadDrivers()">
                     <option value="">All Drivers</option>
                     <option value="true">Online Only</option>
@@ -532,6 +533,71 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeEditDriver()">Cancel</button>
                     <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Driver Modal -->
+    <div id="createDriverModal" class="modal">
+        <div class="modal-content">
+            <h3>Create New Driver</h3>
+            <form id="createDriverForm">
+                <div class="form-group">
+                    <label>DID (Bluesky)</label>
+                    <input type="text" id="createDriverDid" placeholder="did:plc:..." required>
+                    <small style="color: #6b7280;">e.g., did:plc:cakurfpvnvbtgzwazeriujxn</small>
+                </div>
+                <div class="form-group">
+                    <label>Handle (Bluesky)</label>
+                    <input type="text" id="createDriverHandle" placeholder="username.bsky.social" required>
+                </div>
+                <div class="form-group">
+                    <label>Display Name</label>
+                    <input type="text" id="createDriverDisplayName" placeholder="John Doe">
+                </div>
+                <div class="form-group">
+                    <label>Vehicle Type</label>
+                    <select id="createDriverVehicleType" required>
+                        <option value="ECONOMY">Economy</option>
+                        <option value="COMFORT">Comfort</option>
+                        <option value="PREMIUM">Premium</option>
+                        <option value="XL">XL</option>
+                        <option value="MOTO">Moto</option>
+                        <option value="BIKE">Bike</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>License Plate</label>
+                    <input type="text" id="createDriverPlate" required>
+                </div>
+                <div class="form-group">
+                    <label>Vehicle Make</label>
+                    <input type="text" id="createDriverMake" placeholder="Toyota">
+                </div>
+                <div class="form-group">
+                    <label>Vehicle Model</label>
+                    <input type="text" id="createDriverModel" placeholder="Camry">
+                </div>
+                <div class="form-group">
+                    <label>Vehicle Color</label>
+                    <input type="text" id="createDriverColor" placeholder="Silver">
+                </div>
+                <div class="form-group">
+                    <label>Vehicle Year</label>
+                    <input type="number" id="createDriverYear" min="1990" max="2099" placeholder="2024">
+                </div>
+                <div class="form-group">
+                    <label>Availability Type</label>
+                    <select id="createDriverAvailability">
+                        <option value="fulltime">Full Time</option>
+                        <option value="parttime">Part Time</option>
+                        <option value="occasional">Occasional</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateDriver()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Create Driver</button>
                 </div>
             </form>
         </div>
