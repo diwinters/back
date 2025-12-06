@@ -150,7 +150,8 @@ export class OrderService {
 
     logger.info('Order created', { orderId: order.id, userId, type: validated.type })
 
-    // Notify nearby drivers via WebSocket
+    // Notify nearby drivers via WebSocket (non-blocking)
+    // Don't await this - we don't want Redis issues to block order creation
     const wsServer = getWebSocketServer()
     if (wsServer) {
       const orderData = {
@@ -171,7 +172,7 @@ export class OrderService {
         },
       }
       
-      // Broadcast to drivers within 5km radius
+      // Broadcast to drivers within 5km radius (fire and forget)
       wsServer.broadcastToNearbyDrivers(
         validated.pickupLatitude,
         validated.pickupLongitude,
@@ -180,9 +181,11 @@ export class OrderService {
           type: 'new_order',
           payload: orderData,
         }
-      )
-      
-      logger.info('Order broadcast to nearby drivers', { orderId: order.id })
+      ).then(() => {
+        logger.info('Order broadcast to nearby drivers', { orderId: order.id })
+      }).catch((err) => {
+        logger.error('Failed to broadcast order to drivers', { orderId: order.id, error: err.message })
+      })
     }
 
     return order

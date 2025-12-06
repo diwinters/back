@@ -57,19 +57,30 @@ export class RedisService {
     longitude: number,
     heading?: number
   ): Promise<void> {
-    const key = KEYS.DRIVER_LOCATION + did
-    const data = {
-      latitude,
-      longitude,
-      heading: heading ?? 0,
-      updatedAt: Date.now(),
+    try {
+      const key = KEYS.DRIVER_LOCATION + did
+      const data = {
+        latitude,
+        longitude,
+        heading: heading ?? 0,
+        updatedAt: Date.now(),
+      }
+
+      // Store location data with timeout
+      const timeoutPromise = new Promise<void>((_, reject) => 
+        setTimeout(() => reject(new Error('Redis setDriverLocation timeout')), 3000)
+      )
+      
+      const setPromise = (async () => {
+        await this.client.setex(key, TTL.DRIVER_LOCATION, JSON.stringify(data))
+        await this.client.geoadd(KEYS.DRIVER_GEO, longitude, latitude, did)
+      })()
+      
+      await Promise.race([setPromise, timeoutPromise])
+    } catch (error) {
+      logger.error('Redis setDriverLocation failed', { did, error })
+      // Don't throw - location update failure shouldn't crash the app
     }
-
-    // Store location data
-    await this.client.setex(key, TTL.DRIVER_LOCATION, JSON.stringify(data))
-
-    // Add to geo index for proximity searches
-    await this.client.geoadd(KEYS.DRIVER_GEO, longitude, latitude, did)
   }
 
   /**
@@ -105,18 +116,29 @@ export class RedisService {
     radiusKm: number,
     limit: number = 20
   ): Promise<string[]> {
-    const results = await this.client.georadius(
-      KEYS.DRIVER_GEO,
-      longitude,
-      latitude,
-      radiusKm,
-      'km',
-      'ASC',
-      'COUNT',
-      limit
-    )
-    
-    return results as string[]
+    try {
+      // Add timeout to prevent hanging if Redis is unresponsive
+      const timeoutPromise = new Promise<string[]>((_, reject) => 
+        setTimeout(() => reject(new Error('Redis getNearbyDrivers timeout')), 5000)
+      )
+      
+      const queryPromise = this.client.georadius(
+        KEYS.DRIVER_GEO,
+        longitude,
+        latitude,
+        radiusKm,
+        'km',
+        'ASC',
+        'COUNT',
+        limit
+      )
+      
+      const results = await Promise.race([queryPromise, timeoutPromise])
+      return results as string[]
+    } catch (error) {
+      logger.error('Redis getNearbyDrivers failed', { error })
+      return [] // Return empty array on failure instead of throwing
+    }
   }
 
   /**
