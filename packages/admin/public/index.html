@@ -379,6 +379,59 @@
             justify-content: flex-end;
             margin-top: 24px;
         }
+
+        /* Upload Zone Styles */
+        .upload-zone {
+            border: 2px dashed #d1d5db;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #f9fafb;
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-zone:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .upload-zone.has-image {
+            border-style: solid;
+            border-color: #10b981;
+            padding: 8px;
+        }
+
+        .upload-preview {
+            text-align: center;
+            color: #6b7280;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-preview img {
+            max-width: 100%;
+            max-height: 130px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .upload-icon {
+            font-size: 40px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .upload-preview span {
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -509,43 +562,69 @@
 
     <!-- Edit Driver Modal -->
     <div id="editDriverModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 700px;">
             <h3>Edit Driver</h3>
             <form id="editDriverForm">
-                <div class="form-group">
-                    <label>Status</label>
-                    <select id="editDriverOnline">
-                        <option value="true">Online</option>
-                        <option value="false">Offline</option>
-                    </select>
+                <input type="hidden" id="editDriverDid">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Left Column - Basic Info -->
+                    <div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="editDriverOnline">
+                                <option value="true">Online</option>
+                                <option value="false">Offline</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Type</label>
+                            <select id="editDriverVehicleType">
+                                <!-- Dynamic options populated via JS -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>License Plate</label>
+                            <input type="text" id="editDriverPlate">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Make</label>
+                            <input type="text" id="editDriverMake">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Model</label>
+                            <input type="text" id="editDriverModel">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Color</label>
+                            <input type="text" id="editDriverColor">
+                        </div>
+                    </div>
+
+                    <!-- Right Column - Photos -->
+                    <div>
+                        <div class="form-group">
+                            <label>Profile Photo</label>
+                            <div class="upload-zone" id="editDriverAvatarZone" onclick="document.getElementById('editDriverAvatarInput').click()">
+                                <input type="file" id="editDriverAvatarInput" accept="image/*" style="display:none" onchange="previewImage(this, 'editDriverAvatarPreview')">
+                                <div id="editDriverAvatarPreview" class="upload-preview">
+                                    <span class="upload-icon">📷</span>
+                                    <span>Click to upload profile photo</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Photo</label>
+                            <div class="upload-zone" id="editDriverVehicleZone" onclick="document.getElementById('editDriverVehicleInput').click()">
+                                <input type="file" id="editDriverVehicleInput" accept="image/*" style="display:none" onchange="previewImage(this, 'editDriverVehiclePreview')">
+                                <div id="editDriverVehiclePreview" class="upload-preview">
+                                    <span class="upload-icon">🚗</span>
+                                    <span>Click to upload vehicle photo</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Vehicle Type</label>
-                    <select id="editDriverVehicleType">
-                        <option value="ECONOMY">Economy</option>
-                        <option value="COMFORT">Comfort</option>
-                        <option value="PREMIUM">Premium</option>
-                        <option value="XL">XL</option>
-                        <option value="MOTO">Moto</option>
-                        <option value="BIKE">Bike</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>License Plate</label>
-                    <input type="text" id="editDriverPlate">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Make</label>
-                    <input type="text" id="editDriverMake">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Model</label>
-                    <input type="text" id="editDriverModel">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Color</label>
-                    <input type="text" id="editDriverColor">
-                </div>
+
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeEditDriver()">Cancel</button>
                     <button type="submit" class="btn btn-success">Save Changes</button>
@@ -556,61 +635,86 @@
 
     <!-- Create Driver Modal -->
     <div id="createDriverModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 700px;">
             <h3>Create New Driver</h3>
             <form id="createDriverForm">
-                <div class="form-group">
-                    <label>DID (Bluesky)</label>
-                    <input type="text" id="createDriverDid" placeholder="did:plc:..." required>
-                    <small style="color: #6b7280;">e.g., did:plc:cakurfpvnvbtgzwazeriujxn</small>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Left Column - Basic Info -->
+                    <div>
+                        <div class="form-group">
+                            <label>DID (Bluesky)</label>
+                            <input type="text" id="createDriverDid" placeholder="did:plc:..." required>
+                            <small style="color: #6b7280;">e.g., did:plc:cakurfpvnvbtgzwazeriujxn</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Handle (Bluesky)</label>
+                            <input type="text" id="createDriverHandle" placeholder="username.bsky.social" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Display Name</label>
+                            <input type="text" id="createDriverDisplayName" placeholder="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Type</label>
+                            <select id="createDriverVehicleType" required>
+                                <!-- Dynamic options populated via JS -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>License Plate</label>
+                            <input type="text" id="createDriverPlate" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Make</label>
+                            <input type="text" id="createDriverMake" placeholder="Toyota">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Model</label>
+                            <input type="text" id="createDriverModel" placeholder="Camry">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Color</label>
+                            <input type="text" id="createDriverColor" placeholder="Silver">
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Year</label>
+                            <input type="number" id="createDriverYear" min="1990" max="2099" placeholder="2024">
+                        </div>
+                        <div class="form-group">
+                            <label>Service Type</label>
+                            <select id="createDriverAvailability">
+                                <option value="BOTH">Ride & Delivery</option>
+                                <option value="RIDE">Ride Only</option>
+                                <option value="DELIVERY">Delivery Only</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Right Column - Photos -->
+                    <div>
+                        <div class="form-group">
+                            <label>Profile Photo</label>
+                            <div class="upload-zone" id="createDriverAvatarZone" onclick="document.getElementById('createDriverAvatarInput').click()">
+                                <input type="file" id="createDriverAvatarInput" accept="image/*" style="display:none" onchange="previewImage(this, 'createDriverAvatarPreview')">
+                                <div id="createDriverAvatarPreview" class="upload-preview">
+                                    <span class="upload-icon">📷</span>
+                                    <span>Click to upload profile photo</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Vehicle Photo</label>
+                            <div class="upload-zone" id="createDriverVehicleZone" onclick="document.getElementById('createDriverVehicleInput').click()">
+                                <input type="file" id="createDriverVehicleInput" accept="image/*" style="display:none" onchange="previewImage(this, 'createDriverVehiclePreview')">
+                                <div id="createDriverVehiclePreview" class="upload-preview">
+                                    <span class="upload-icon">🚗</span>
+                                    <span>Click to upload vehicle photo</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Handle (Bluesky)</label>
-                    <input type="text" id="createDriverHandle" placeholder="username.bsky.social" required>
-                </div>
-                <div class="form-group">
-                    <label>Display Name</label>
-                    <input type="text" id="createDriverDisplayName" placeholder="John Doe">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Type</label>
-                    <select id="createDriverVehicleType" required>
-                        <option value="ECONOMY">Economy</option>
-                        <option value="COMFORT">Comfort</option>
-                        <option value="PREMIUM">Premium</option>
-                        <option value="XL">XL</option>
-                        <option value="MOTO">Moto</option>
-                        <option value="BIKE">Bike</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>License Plate</label>
-                    <input type="text" id="createDriverPlate" required>
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Make</label>
-                    <input type="text" id="createDriverMake" placeholder="Toyota">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Model</label>
-                    <input type="text" id="createDriverModel" placeholder="Camry">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Color</label>
-                    <input type="text" id="createDriverColor" placeholder="Silver">
-                </div>
-                <div class="form-group">
-                    <label>Vehicle Year</label>
-                    <input type="number" id="createDriverYear" min="1990" max="2099" placeholder="2024">
-                </div>
-                <div class="form-group">
-                    <label>Service Type</label>
-                    <select id="createDriverAvailability">
-                        <option value="BOTH">Ride & Delivery</option>
-                        <option value="RIDE">Ride Only</option>
-                        <option value="DELIVERY">Delivery Only</option>
-                    </select>
-                </div>
+
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeCreateDriver()">Cancel</button>
                     <button type="submit" class="btn btn-success">Create Driver</button>

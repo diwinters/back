@@ -5,6 +5,8 @@
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
+const fs = require('fs')
+const multer = require('multer')
 const { PrismaClient } = require('@prisma/client')
 
 const app = express()
@@ -12,10 +14,88 @@ const prisma = new PrismaClient()
 
 const PORT = process.env.ADMIN_PORT || 8080
 
+// ============================================================================
+// File Upload Configuration
+// ============================================================================
+
+// Base uploads directory
+const UPLOADS_DIR = path.join(__dirname, 'uploads')
+
+// Ensure base uploads directory exists
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+}
+
+/**
+ * Storage configuration with organized folder structure:
+ * uploads/
+ *   {did}/
+ *     avatar/       - Profile photos
+ *     vehicle/      - Vehicle images
+ *     documents/    - License, registration, etc.
+ */
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Get DID from request body or params
+    const did = req.body.did || req.params.did || 'unknown'
+    // Sanitize DID for folder name (replace colons with underscores)
+    const safeDid = did.replace(/:/g, '_')
+    
+    // Determine subfolder based on field name
+    let subfolder = 'misc'
+    if (file.fieldname === 'avatar' || file.fieldname === 'profilePhoto') {
+      subfolder = 'avatar'
+    } else if (file.fieldname === 'vehicleImage' || file.fieldname.startsWith('vehicle')) {
+      subfolder = 'vehicle'
+    } else if (file.fieldname === 'license' || file.fieldname === 'registration' || file.fieldname === 'insurance') {
+      subfolder = 'documents'
+    }
+    
+    const uploadPath = path.join(UPLOADS_DIR, safeDid, subfolder)
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true })
+    }
+    
+    cb(null, uploadPath)
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename with timestamp
+    const ext = path.extname(file.originalname).toLowerCase()
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).substring(2, 8)
+    cb(null, `${file.fieldname}_${timestamp}_${random}${ext}`)
+  }
+})
+
+// File filter for images only
+const imageFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true)
+  } else {
+    cb(new Error('Only JPEG, PNG, WebP, and GIF images are allowed'), false)
+  }
+}
+
+// Multer upload instance
+const upload = multer({
+  storage,
+  fileFilter: imageFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+    files: 5 // Max 5 files per upload
+  }
+})
+
 // Middleware
 app.use(cors())
 app.use(express.json())
 app.use(express.static(path.join(__dirname, 'public')))
+
+// Serve uploaded files statically
+app.use('/uploads', express.static(UPLOADS_DIR))
 
 // ============================================================================
 // Database Debug Endpoints
@@ -91,6 +171,202 @@ app.get('/api/debug/stats', async (req, res) => {
         orders: orderCount,
         ratings: ratingCount
       }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+// ============================================================================
+// File Upload Endpoints
+// ============================================================================
+
+/**
+ * POST /api/upload/avatar/:did
+ * Upload a profile avatar for a user
+ */
+app.post('/api/upload/avatar/:did', upload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      })
+    }
+
+    const { did } = req.params
+    const safeDid = did.replace(/:/g, '_')
+    const fileUrl = `/uploads/${safeDid}/avatar/${req.file.filename}`
+
+    // Update user's avatarUrl in database
+    await prisma.user.updateMany({
+      where: { did },
+      data: { avatarUrl: fileUrl }
+    })
+
+    res.json({
+      success: true,
+      data: {
+        filename: req.file.filename,
+        url: fileUrl,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * POST /api/upload/vehicle/:did
+ * Upload vehicle image(s) for a driver
+ */
+app.post('/api/upload/vehicle/:did', upload.array('vehicleImage', 5), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No files uploaded'
+      })
+    }
+
+    const { did } = req.params
+    const safeDid = did.replace(/:/g, '_')
+    
+    const files = req.files.map(file => ({
+      filename: file.filename,
+      url: `/uploads/${safeDid}/vehicle/${file.filename}`,
+      size: file.size,
+      mimetype: file.mimetype
+    }))
+
+    // If only one image, update the driver's primary vehicle image
+    if (files.length === 1) {
+      const user = await prisma.user.findUnique({ where: { did } })
+      if (user) {
+        await prisma.driver.updateMany({
+          where: { userId: user.id },
+          data: { vehicleImageUrl: files[0].url }
+        })
+      }
+    }
+
+    res.json({
+      success: true,
+      data: files
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * POST /api/upload/document/:did
+ * Upload document (license, registration, etc.) for a driver
+ */
+app.post('/api/upload/document/:did', upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      })
+    }
+
+    const { did } = req.params
+    const { documentType } = req.body // 'license', 'registration', 'insurance'
+    const safeDid = did.replace(/:/g, '_')
+    const fileUrl = `/uploads/${safeDid}/documents/${req.file.filename}`
+
+    res.json({
+      success: true,
+      data: {
+        filename: req.file.filename,
+        url: fileUrl,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        documentType: documentType || 'unknown'
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * GET /api/uploads/:did
+ * List all uploaded files for a user
+ */
+app.get('/api/uploads/:did', async (req, res) => {
+  try {
+    const { did } = req.params
+    const safeDid = did.replace(/:/g, '_')
+    const userDir = path.join(UPLOADS_DIR, safeDid)
+
+    if (!fs.existsSync(userDir)) {
+      return res.json({
+        success: true,
+        data: { avatar: [], vehicle: [], documents: [] }
+      })
+    }
+
+    const result = { avatar: [], vehicle: [], documents: [] }
+
+    for (const subdir of ['avatar', 'vehicle', 'documents']) {
+      const subdirPath = path.join(userDir, subdir)
+      if (fs.existsSync(subdirPath)) {
+        const files = fs.readdirSync(subdirPath)
+        result[subdir] = files.map(filename => ({
+          filename,
+          url: `/uploads/${safeDid}/${subdir}/${filename}`
+        }))
+      }
+    }
+
+    res.json({ success: true, data: result })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    })
+  }
+})
+
+/**
+ * DELETE /api/uploads/:did/:type/:filename
+ * Delete a specific uploaded file
+ */
+app.delete('/api/uploads/:did/:type/:filename', async (req, res) => {
+  try {
+    const { did, type, filename } = req.params
+    const safeDid = did.replace(/:/g, '_')
+    const filePath = path.join(UPLOADS_DIR, safeDid, type, filename)
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      })
+    }
+
+    fs.unlinkSync(filePath)
+
+    res.json({
+      success: true,
+      message: 'File deleted successfully'
     })
   } catch (error) {
     res.status(500).json({
@@ -302,7 +578,7 @@ app.post('/api/drivers', async (req, res) => {
  */
 app.patch('/api/drivers/:id', async (req, res) => {
   try {
-    const { isOnline, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor } = req.body
+    const { isOnline, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleImageUrl } = req.body
 
     const driver = await prisma.driver.update({
       where: { id: req.params.id },
@@ -312,7 +588,8 @@ app.patch('/api/drivers/:id', async (req, res) => {
         ...(licensePlate && { licensePlate }),
         ...(vehicleMake && { vehicleMake }),
         ...(vehicleModel && { vehicleModel }),
-        ...(vehicleColor && { vehicleColor })
+        ...(vehicleColor && { vehicleColor }),
+        ...(vehicleImageUrl && { vehicleImageUrl })
       },
       include: { user: true }
     })

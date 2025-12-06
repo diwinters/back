@@ -88,6 +88,7 @@ model Driver {
   vehicleColor    String?
   licensePlate    String?
   vehicleType     VehicleType @default(ECONOMY)
+  vehicleImageUrl String?   // Primary vehicle image URL
   
   // Stats
   rating          Float    @default(5.0)

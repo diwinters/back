@@ -3,7 +3,154 @@
 const API_BASE = window.location.origin
 
 let currentDriverId = null
+let currentDriverDid = null
 let currentPage = { users: 1, drivers: 1, orders: 1 }
+let vehicleTypesCache = [] // Cache for vehicle types
+
+// ============================================================================
+// Vehicle Types Management (Dynamic)
+// ============================================================================
+
+async function loadVehicleTypesForDropdown() {
+    try {
+        const res = await fetch(`${API_BASE}/api/vehicle-types`)
+        const data = await res.json()
+        
+        if (data.success && data.data.length > 0) {
+            vehicleTypesCache = data.data
+        } else {
+            // Fallback to defaults if no vehicle types configured
+            vehicleTypesCache = [
+                { code: 'ECONOMY', name: 'Economy' },
+                { code: 'COMFORT', name: 'Comfort' },
+                { code: 'PREMIUM', name: 'Premium' },
+                { code: 'XL', name: 'XL' },
+                { code: 'MOTO', name: 'Moto' },
+                { code: 'BIKE', name: 'Bike' }
+            ]
+        }
+        
+        populateVehicleTypeDropdowns()
+    } catch (error) {
+        console.error('Failed to load vehicle types:', error)
+        // Use fallback
+        vehicleTypesCache = [
+            { code: 'ECONOMY', name: 'Economy' },
+            { code: 'COMFORT', name: 'Comfort' },
+            { code: 'PREMIUM', name: 'Premium' },
+            { code: 'XL', name: 'XL' },
+            { code: 'MOTO', name: 'Moto' },
+            { code: 'BIKE', name: 'Bike' }
+        ]
+        populateVehicleTypeDropdowns()
+    }
+}
+
+function populateVehicleTypeDropdowns() {
+    const dropdowns = [
+        'createDriverVehicleType',
+        'editDriverVehicleType',
+        'createOrderVehicleType'
+    ]
+    
+    const optionsHtml = vehicleTypesCache.map(vt => 
+        `<option value="${vt.code}">${vt.icon || ''} ${vt.name}</option>`
+    ).join('')
+    
+    dropdowns.forEach(id => {
+        const el = document.getElementById(id)
+        if (el) {
+            el.innerHTML = optionsHtml
+        }
+    })
+}
+
+// ============================================================================
+// File Upload Functions
+// ============================================================================
+
+function previewImage(input, previewId) {
+    const preview = document.getElementById(previewId)
+    const zone = input.closest('.upload-zone')
+    
+    if (input.files && input.files[0]) {
+        const reader = new FileReader()
+        
+        reader.onload = function(e) {
+            preview.innerHTML = `<img src="${e.target.result}" alt="Preview">`
+            zone.classList.add('has-image')
+        }
+        
+        reader.readAsDataURL(input.files[0])
+    }
+}
+
+async function uploadAvatar(did, fileInput) {
+    if (!fileInput.files || !fileInput.files[0]) return null
+    
+    const formData = new FormData()
+    formData.append('avatar', fileInput.files[0])
+    formData.append('did', did)
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/upload/avatar/${encodeURIComponent(did)}`, {
+            method: 'POST',
+            body: formData
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            return data.data.url
+        } else {
+            console.error('Avatar upload failed:', data.error)
+            return null
+        }
+    } catch (error) {
+        console.error('Avatar upload error:', error)
+        return null
+    }
+}
+
+async function uploadVehicleImage(did, fileInput) {
+    if (!fileInput.files || !fileInput.files[0]) return null
+    
+    const formData = new FormData()
+    formData.append('vehicleImage', fileInput.files[0])
+    formData.append('did', did)
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/upload/vehicle/${encodeURIComponent(did)}`, {
+            method: 'POST',
+            body: formData
+        })
+        const data = await res.json()
+        
+        if (data.success && data.data.length > 0) {
+            return data.data[0].url
+        } else {
+            console.error('Vehicle image upload failed:', data.error)
+            return null
+        }
+    } catch (error) {
+        console.error('Vehicle image upload error:', error)
+        return null
+    }
+}
+
+function resetUploadPreview(previewId, defaultIcon, defaultText) {
+    const preview = document.getElementById(previewId)
+    const zone = preview?.closest('.upload-zone')
+    
+    if (preview) {
+        preview.innerHTML = `
+            <span class="upload-icon">${defaultIcon}</span>
+            <span>${defaultText}</span>
+        `
+    }
+    if (zone) {
+        zone.classList.remove('has-image')
+    }
+}
 
 // ============================================================================
 // Tab Management
@@ -195,7 +342,7 @@ function renderDriversTable(drivers) {
         <table>
             <thead>
                 <tr>
-                    <th>DID</th>
+                    <th>Photo</th>
                     <th>Handle</th>
                     <th>Vehicle</th>
                     <th>License Plate</th>
@@ -208,9 +355,26 @@ function renderDriversTable(drivers) {
             <tbody>
                 ${drivers.map(driver => `
                     <tr>
-                        <td><code style="font-size: 11px;">${driver.user.did}</code></td>
-                        <td>${driver.user.handle || '-'}</td>
-                        <td>${driver.vehicleMake || ''} ${driver.vehicleModel || ''} ${driver.vehicleColor || ''}</td>
+                        <td>
+                            ${driver.user.avatarUrl 
+                                ? `<img src="${driver.user.avatarUrl}" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">` 
+                                : '<span style="display: inline-block; width: 40px; height: 40px; border-radius: 50%; background: #e5e7eb; text-align: center; line-height: 40px;">👤</span>'}
+                        </td>
+                        <td>
+                            <div><strong>${driver.user.handle || '-'}</strong></div>
+                            <div style="font-size: 10px; color: #6b7280;">${driver.user.did.substring(0, 20)}...</div>
+                        </td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                ${driver.vehicleImageUrl 
+                                    ? `<img src="${driver.vehicleImageUrl}" alt="Vehicle" style="width: 50px; height: 35px; border-radius: 4px; object-fit: cover;">` 
+                                    : ''}
+                                <div>
+                                    <div>${driver.vehicleMake || ''} ${driver.vehicleModel || ''}</div>
+                                    <div style="font-size: 11px; color: #6b7280;">${driver.vehicleColor || ''}</div>
+                                </div>
+                            </div>
+                        </td>
                         <td><strong>${driver.licensePlate || '-'}</strong></td>
                         <td><span class="badge badge-info">${driver.vehicleType}</span></td>
                         <td>${driver.isOnline ? '<span class="badge badge-success">Online</span>' : '<span class="badge badge-danger">Offline</span>'}</td>
@@ -236,12 +400,35 @@ async function editDriver(driverId) {
         if (!driver) return
         
         currentDriverId = driverId
+        currentDriverDid = driver.user.did
+        
+        document.getElementById('editDriverDid').value = driver.user.did
         document.getElementById('editDriverOnline').value = driver.isOnline.toString()
         document.getElementById('editDriverVehicleType').value = driver.vehicleType
         document.getElementById('editDriverPlate').value = driver.licensePlate || ''
         document.getElementById('editDriverMake').value = driver.vehicleMake || ''
         document.getElementById('editDriverModel').value = driver.vehicleModel || ''
         document.getElementById('editDriverColor').value = driver.vehicleColor || ''
+        
+        // Reset and show existing images
+        resetUploadPreview('editDriverAvatarPreview', '📷', 'Click to upload profile photo')
+        resetUploadPreview('editDriverVehiclePreview', '🚗', 'Click to upload vehicle photo')
+        
+        // Show existing avatar if available
+        if (driver.user.avatarUrl) {
+            const avatarPreview = document.getElementById('editDriverAvatarPreview')
+            const avatarZone = avatarPreview?.closest('.upload-zone')
+            avatarPreview.innerHTML = `<img src="${driver.user.avatarUrl}" alt="Profile">`
+            avatarZone?.classList.add('has-image')
+        }
+        
+        // Show existing vehicle image if available
+        if (driver.vehicleImageUrl) {
+            const vehiclePreview = document.getElementById('editDriverVehiclePreview')
+            const vehicleZone = vehiclePreview?.closest('.upload-zone')
+            vehiclePreview.innerHTML = `<img src="${driver.vehicleImageUrl}" alt="Vehicle">`
+            vehicleZone?.classList.add('has-image')
+        }
         
         document.getElementById('editDriverModal').classList.add('show')
     } catch (error) {
@@ -252,6 +439,25 @@ async function editDriver(driverId) {
 document.getElementById('editDriverForm').addEventListener('submit', async (e) => {
     e.preventDefault()
     
+    const did = document.getElementById('editDriverDid').value
+    
+    // Upload images if selected
+    const avatarInput = document.getElementById('editDriverAvatarInput')
+    const vehicleInput = document.getElementById('editDriverVehicleInput')
+    
+    let avatarUrl = null
+    let vehicleImageUrl = null
+    
+    if (avatarInput.files && avatarInput.files[0]) {
+        showMessage('driversMessage', 'Uploading avatar...', 'success')
+        avatarUrl = await uploadAvatar(did, avatarInput)
+    }
+    
+    if (vehicleInput.files && vehicleInput.files[0]) {
+        showMessage('driversMessage', 'Uploading vehicle image...', 'success')
+        vehicleImageUrl = await uploadVehicleImage(did, vehicleInput)
+    }
+    
     const updates = {
         isOnline: document.getElementById('editDriverOnline').value === 'true',
         vehicleType: document.getElementById('editDriverVehicleType').value,
@@ -259,6 +465,11 @@ document.getElementById('editDriverForm').addEventListener('submit', async (e) =
         vehicleMake: document.getElementById('editDriverMake').value,
         vehicleModel: document.getElementById('editDriverModel').value,
         vehicleColor: document.getElementById('editDriverColor').value
+    }
+    
+    // Add vehicleImageUrl if uploaded
+    if (vehicleImageUrl) {
+        updates.vehicleImageUrl = vehicleImageUrl
     }
     
     try {
@@ -284,23 +495,44 @@ document.getElementById('editDriverForm').addEventListener('submit', async (e) =
 function closeEditDriver() {
     document.getElementById('editDriverModal').classList.remove('show')
     currentDriverId = null
+    currentDriverDid = null
+    
+    // Reset file inputs
+    document.getElementById('editDriverAvatarInput').value = ''
+    document.getElementById('editDriverVehicleInput').value = ''
+    
+    // Reset previews
+    resetUploadPreview('editDriverAvatarPreview', '📷', 'Click to upload profile photo')
+    resetUploadPreview('editDriverVehiclePreview', '🚗', 'Click to upload vehicle photo')
 }
 
 // Create Driver
 function showCreateDriver() {
+    // Load vehicle types before showing modal
+    loadVehicleTypesForDropdown()
     document.getElementById('createDriverModal').classList.add('show')
 }
 
 function closeCreateDriver() {
     document.getElementById('createDriverModal').classList.remove('show')
     document.getElementById('createDriverForm').reset()
+    
+    // Reset file inputs
+    document.getElementById('createDriverAvatarInput').value = ''
+    document.getElementById('createDriverVehicleInput').value = ''
+    
+    // Reset previews
+    resetUploadPreview('createDriverAvatarPreview', '📷', 'Click to upload profile photo')
+    resetUploadPreview('createDriverVehiclePreview', '🚗', 'Click to upload vehicle photo')
 }
 
 document.getElementById('createDriverForm').addEventListener('submit', async (e) => {
     e.preventDefault()
     
+    const did = document.getElementById('createDriverDid').value
+    
     const driverData = {
-        did: document.getElementById('createDriverDid').value,
+        did: did,
         handle: document.getElementById('createDriverHandle').value,
         displayName: document.getElementById('createDriverDisplayName').value || undefined,
         vehicleType: document.getElementById('createDriverVehicleType').value,
@@ -313,6 +545,7 @@ document.getElementById('createDriverForm').addEventListener('submit', async (e)
     }
     
     try {
+        // First create the driver
         const res = await fetch(`${API_BASE}/api/drivers`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -322,6 +555,29 @@ document.getElementById('createDriverForm').addEventListener('submit', async (e)
         const data = await res.json()
         
         if (data.success) {
+            // Now upload images if provided
+            const avatarInput = document.getElementById('createDriverAvatarInput')
+            const vehicleInput = document.getElementById('createDriverVehicleInput')
+            
+            if (avatarInput.files && avatarInput.files[0]) {
+                showMessage('driversMessage', 'Uploading avatar...', 'success')
+                await uploadAvatar(did, avatarInput)
+            }
+            
+            if (vehicleInput.files && vehicleInput.files[0]) {
+                showMessage('driversMessage', 'Uploading vehicle image...', 'success')
+                const vehicleImageUrl = await uploadVehicleImage(did, vehicleInput)
+                
+                // Update driver with vehicle image URL
+                if (vehicleImageUrl && data.data.id) {
+                    await fetch(`${API_BASE}/api/drivers/${data.data.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ vehicleImageUrl })
+                    })
+                }
+            }
+            
             showMessage('driversMessage', '✓ Driver created successfully', 'success')
             closeCreateDriver()
             loadDrivers()
@@ -785,3 +1041,4 @@ function renderPagination(elementId, meta, loadFunction) {
 
 // Initialize
 loadDashboard()
+loadVehicleTypesForDropdown() // Load vehicle types for dropdowns
