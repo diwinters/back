@@ -390,18 +390,31 @@ app.post('/api/orders', async (req, res) => {
       deliveryInstructions
     } = req.body
 
-    // Find user by ID or DID
+    // Find or create user by DID
     let user
     if (userId) {
       user = await prisma.user.findUnique({ where: { id: userId } })
     } else if (userDid) {
+      // Try to find existing user
       user = await prisma.user.findUnique({ where: { did: userDid } })
+      
+      // If not found, create a new user with just the DID
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            did: userDid,
+            handle: `user_${userDid.slice(-8)}`,
+            displayName: 'New User'
+          }
+        })
+        console.log(`Created new user for DID: ${userDid}`)
+      }
     }
 
     if (!user) {
       return res.status(400).json({
         success: false,
-        error: 'User not found. Provide valid userId or userDid.'
+        error: 'User DID is required.'
       })
     }
 
