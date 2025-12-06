@@ -17,12 +17,14 @@ export type {
 // Enums
 export {
   AvailabilityType,
-  VehicleType,
   OrderType,
   OrderStatus,
   PackageSize,
   OrderEventType,
 } from '@prisma/client'
+
+// VehicleType is now a string (dynamic, configured via VehicleTypeConfig table)
+export type VehicleType = string
 
 // Coordinates
 export interface Coordinates {
