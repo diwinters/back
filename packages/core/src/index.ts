@@ -7,7 +7,7 @@
 export { prisma } from './db/prisma'
 
 // Authentication
-export { validateDid, resolveDid, extractDid, authMiddleware } from './auth/did'
+export { validateDid, resolveDid, extractDid, extractUserFromToken, authMiddleware } from './auth/did'
 export type { AuthenticatedRequest } from './auth/did'
 
 // Push Notifications

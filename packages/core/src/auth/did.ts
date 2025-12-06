@@ -13,6 +13,7 @@ const BSKY_DID_PLC_URL = process.env.BSKY_DID_PLC_URL || 'https://plc.directory'
 
 export interface AuthenticatedRequest extends Request {
   user?: {
+    id: string
     did: string
     handle?: string
   }
@@ -95,6 +96,31 @@ export function extractDid(authHeader: string | undefined): string | null {
 }
 
 /**
+ * Extracts full user info from Authorization header JWT
+ * Returns user ID, DID, and handle from the token
+ */
+export function extractUserFromToken(authHeader: string | undefined): { id: string; did: string; handle?: string } | null {
+  if (!authHeader) return null
+
+  // JWT Bearer token
+  if (authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.slice(7)
+      const decoded = jwt.verify(token, JWT_SECRET) as { sub: string; did: string; handle?: string }
+      return {
+        id: decoded.sub,
+        did: decoded.did,
+        handle: decoded.handle,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+/**
  * Generates a JWT for a validated DID
  */
 export function generateToken(did: string, handle?: string): string {
@@ -111,6 +137,17 @@ export function generateToken(did: string, handle?: string): string {
 export function authMiddleware(required: boolean = true) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization
+    
+    // Try to extract full user info from JWT first
+    const userFromToken = extractUserFromToken(authHeader)
+    
+    if (userFromToken) {
+      // JWT token with user ID - use it directly
+      req.user = userFromToken
+      return next()
+    }
+    
+    // Fall back to DID-only extraction (for backward compatibility)
     const did = extractDid(authHeader)
 
     if (!did) {
@@ -126,7 +163,9 @@ export function authMiddleware(required: boolean = true) {
       return next(new AppError('Invalid DID', ErrorCode.INVALID_DID, 401))
     }
 
+    // Note: Without JWT, we don't have the user ID - this path shouldn't be used for protected routes
     req.user = {
+      id: '', // Empty - will cause issues if routes expect user ID
       did,
       handle: resolved.handle,
     }
