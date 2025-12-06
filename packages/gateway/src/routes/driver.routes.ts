@@ -18,7 +18,7 @@ router.use(authMiddleware)
  */
 router.post('/register', async (req: any, res, next) => {
   try {
-    const { vehicleType, licensePlate, vehicleModel, vehicleColor, vehicleMake, vehicleYear, availabilityType } = req.body
+    const { vehicleType, licensePlate, vehicleModel, vehicleColor, vehicleMake, availabilityType } = req.body
     
     const driver = await driverService.registerDriver(req.user.id, {
       vehicleType,
@@ -26,7 +26,6 @@ router.post('/register', async (req: any, res, next) => {
       vehicleModel,
       vehicleColor,
       vehicleMake,
-      vehicleYear,
       availabilityType,
     })
     

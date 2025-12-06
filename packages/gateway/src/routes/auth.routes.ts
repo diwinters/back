@@ -59,8 +59,8 @@ router.post('/login', async (req, res, next) => {
         did: user.did,
         handle: user.handle,
       },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN as string }
+      JWT_SECRET as jwt.Secret,
+      { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
     )
 
     logger.info('User authenticated', { userId: user.id, did })
@@ -110,8 +110,8 @@ router.post('/refresh', async (req, res, next) => {
         did: user.did,
         handle: user.handle,
       },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN as string }
+      JWT_SECRET as jwt.Secret,
+      { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
     )
 
     res.json({
