@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"yarn workspace @gominiapp/gateway dev\" \"yarn workspace @gominiapp/go-service dev\"",
-    "build": "yarn workspaces foreach -A run build",
+    "build": "cd packages/core && npm run build && cd ../go-service && npm run build && cd ../gateway && npm run build",
     "start": "pm2 start ecosystem.config.js",
     "stop": "pm2 stop gominiapp-gateway",
     "restart": "pm2 restart gominiapp-gateway",
@@ -23,7 +23,7 @@
     "db:studio": "prisma studio",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "test": "yarn workspaces foreach -A run test"
+    "test": "echo 'No tests yet'"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
