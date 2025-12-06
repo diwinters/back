@@ -17,6 +17,7 @@
     "logs": "pm2 logs gominiapp-gateway",
     "monit": "pm2 monit",
     "status": "pm2 status",
+    "admin": "cd packages/admin && npm install && npm start",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
