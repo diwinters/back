@@ -1463,6 +1463,267 @@ app.post('/api/cities/:id/seed-pricing', async (req, res) => {
 })
 
 // ============================================================================
+// City Walkthrough Management
+// ============================================================================
+
+/**
+ * GET /api/admin/walkthroughs
+ * List all walkthroughs with their cities
+ */
+app.get('/api/admin/walkthroughs', async (req, res) => {
+  try {
+    const walkthroughs = await prisma.cityWalkthrough.findMany({
+      include: {
+        city: {
+          select: { id: true, name: true, code: true }
+        },
+        points: {
+          orderBy: { order: 'asc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    res.json({
+      success: true,
+      data: walkthroughs.map(w => ({
+        id: w.id,
+        cityId: w.cityId,
+        city: w.city,
+        name: w.name,
+        isActive: w.isActive,
+        defaultDurationMs: w.defaultDurationMs,
+        pointCount: w.points.length,
+        points: w.points.map(p => ({
+          id: p.id,
+          order: p.order,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          zoom: p.zoom,
+          pitch: p.pitch,
+          bearing: p.bearing,
+          durationMs: p.durationMs,
+          label: p.label,
+        })),
+        createdAt: w.createdAt,
+        updatedAt: w.updatedAt,
+      }))
+    })
+  } catch (error) {
+    console.error('Failed to list walkthroughs', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/walkthroughs/:id
+ * Get a specific walkthrough with all details
+ */
+app.get('/api/admin/walkthroughs/:id', async (req, res) => {
+  try {
+    const walkthrough = await prisma.cityWalkthrough.findUnique({
+      where: { id: req.params.id },
+      include: {
+        city: {
+          select: { id: true, name: true, code: true, centerLatitude: true, centerLongitude: true }
+        },
+        points: {
+          orderBy: { order: 'asc' }
+        }
+      }
+    })
+
+    if (!walkthrough) {
+      return res.status(404).json({
+        success: false,
+        error: 'Walkthrough not found'
+      })
+    }
+
+    res.json({
+      success: true,
+      data: walkthrough
+    })
+  } catch (error) {
+    console.error('Failed to get walkthrough', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/walkthroughs
+ * Create a new walkthrough for a city
+ */
+app.post('/api/admin/walkthroughs', async (req, res) => {
+  try {
+    const { cityId, name, isActive, defaultDurationMs, points } = req.body
+
+    if (!cityId) {
+      return res.status(400).json({
+        success: false,
+        error: 'cityId is required'
+      })
+    }
+
+    // Check if city exists
+    const city = await prisma.city.findUnique({ where: { id: cityId } })
+    if (!city) {
+      return res.status(404).json({
+        success: false,
+        error: 'City not found'
+      })
+    }
+
+    // Check if walkthrough already exists for this city
+    const existing = await prisma.cityWalkthrough.findUnique({
+      where: { cityId }
+    })
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: 'A walkthrough already exists for this city. Use PUT to update.'
+      })
+    }
+
+    // Create walkthrough with points
+    const walkthrough = await prisma.cityWalkthrough.create({
+      data: {
+        cityId,
+        name: name || `${city.name} Tour`,
+        isActive: isActive ?? true,
+        defaultDurationMs: defaultDurationMs || 3000,
+        points: points && points.length > 0 ? {
+          create: points.map((p, index) => ({
+            order: p.order ?? index,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            zoom: p.zoom ?? 14,
+            pitch: p.pitch ?? 45,
+            bearing: p.bearing ?? 0,
+            durationMs: p.durationMs,
+            label: p.label,
+          }))
+        } : undefined
+      },
+      include: {
+        city: { select: { id: true, name: true, code: true } },
+        points: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    res.status(201).json({
+      success: true,
+      data: walkthrough
+    })
+  } catch (error) {
+    console.error('Failed to create walkthrough', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/admin/walkthroughs/:id
+ * Update an existing walkthrough
+ */
+app.put('/api/admin/walkthroughs/:id', async (req, res) => {
+  try {
+    const { name, isActive, defaultDurationMs, points } = req.body
+
+    // Check if walkthrough exists
+    const existing = await prisma.cityWalkthrough.findUnique({
+      where: { id: req.params.id }
+    })
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Walkthrough not found'
+      })
+    }
+
+    // Update walkthrough
+    const updateData = {}
+    if (name !== undefined) updateData.name = name
+    if (isActive !== undefined) updateData.isActive = isActive
+    if (defaultDurationMs !== undefined) updateData.defaultDurationMs = defaultDurationMs
+
+    // If points are provided, delete existing and create new
+    if (points && Array.isArray(points)) {
+      await prisma.walkthroughPoint.deleteMany({
+        where: { walkthroughId: req.params.id }
+      })
+
+      if (points.length > 0) {
+        await prisma.walkthroughPoint.createMany({
+          data: points.map((p, index) => ({
+            walkthroughId: req.params.id,
+            order: p.order ?? index,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            zoom: p.zoom ?? 14,
+            pitch: p.pitch ?? 45,
+            bearing: p.bearing ?? 0,
+            durationMs: p.durationMs,
+            label: p.label,
+          }))
+        })
+      }
+    }
+
+    const walkthrough = await prisma.cityWalkthrough.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: {
+        city: { select: { id: true, name: true, code: true } },
+        points: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    res.json({
+      success: true,
+      data: walkthrough
+    })
+  } catch (error) {
+    console.error('Failed to update walkthrough', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/admin/walkthroughs/:id
+ * Delete a walkthrough and all its points
+ */
+app.delete('/api/admin/walkthroughs/:id', async (req, res) => {
+  try {
+    // Check if walkthrough exists
+    const existing = await prisma.cityWalkthrough.findUnique({
+      where: { id: req.params.id }
+    })
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Walkthrough not found'
+      })
+    }
+
+    // Delete walkthrough (points will cascade delete)
+    await prisma.cityWalkthrough.delete({
+      where: { id: req.params.id }
+    })
+
+    res.json({
+      success: true,
+      message: 'Walkthrough deleted'
+    })
+  } catch (error) {
+    console.error('Failed to delete walkthrough', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 
