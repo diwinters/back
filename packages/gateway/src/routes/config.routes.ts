@@ -4,17 +4,92 @@
  */
 
 import { Router } from 'express'
-import { prisma, logger } from '@gominiapp/core'
+import { prisma, logger, GeoService } from '@gominiapp/core'
 
 const router = Router()
+
+/**
+ * Detect which city a location is in based on distance from city center
+ */
+async function detectCity(latitude: number, longitude: number): Promise<{ id: string; name: string; currency: string } | null> {
+  const activeCities = await prisma.city.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      name: true,
+      currency: true,
+      centerLatitude: true,
+      centerLongitude: true,
+      radiusKm: true,
+    }
+  })
+
+  for (const city of activeCities) {
+    const distanceKm = GeoService.calculateDistance(
+      { latitude, longitude },
+      { latitude: city.centerLatitude, longitude: city.centerLongitude }
+    )
+    
+    if (distanceKm <= city.radiusKm) {
+      return { id: city.id, name: city.name, currency: city.currency }
+    }
+  }
+
+  return null
+}
 
 /**
  * GET /api/config/vehicle-types
  * Get active vehicle types for client display
  * Public endpoint - no auth required
+ * 
+ * Query params:
+ * - lat: latitude of user location (optional)
+ * - lng: longitude of user location (optional)
+ * 
+ * If lat/lng provided, returns city-specific pricing
+ * If user is outside all cities, returns available: false
  */
 router.get('/vehicle-types', async (req, res, next) => {
   try {
+    const { lat, lng } = req.query
+    const hasCoordinates = lat && lng
+    const latitude = hasCoordinates ? parseFloat(lat as string) : null
+    const longitude = hasCoordinates ? parseFloat(lng as string) : null
+
+    // Check city if coordinates provided
+    let city: { id: string; name: string; currency: string } | null = null
+    let cityPricing: Map<string, { baseFare: number; perKmRate: number; perMinuteRate: number; minimumFare: number; surgeMultiplier: number }> = new Map()
+
+    if (latitude !== null && longitude !== null && !isNaN(latitude) && !isNaN(longitude)) {
+      city = await detectCity(latitude, longitude)
+      
+      if (!city) {
+        // User is outside all service areas
+        return res.json({
+          success: true,
+          available: false,
+          message: 'Service is not available in your area',
+          data: [],
+        })
+      }
+
+      // Get city-specific pricing
+      const pricing = await prisma.cityVehiclePricing.findMany({
+        where: { cityId: city.id }
+      })
+      
+      for (const p of pricing) {
+        cityPricing.set(p.vehicleTypeCode, {
+          baseFare: p.baseFare,
+          perKmRate: p.perKmRate,
+          perMinuteRate: p.perMinuteRate,
+          minimumFare: p.minimumFare,
+          surgeMultiplier: p.surgeMultiplier,
+        })
+      }
+    }
+
     const vehicleTypes = await prisma.vehicleTypeConfig.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
@@ -36,32 +111,50 @@ router.get('/vehicle-types', async (req, res, next) => {
       }
     })
 
-    // Transform to client-friendly format
-    const clientVehicleTypes = vehicleTypes.map(vt => ({
-      id: vt.code.toLowerCase(),
-      type: vt.code.toLowerCase(),
-      code: vt.code,
-      name: vt.name,
-      description: vt.description,
-      icon: vt.icon,
-      capacity: vt.capacity,
-      eta: Math.floor(Math.random() * 8) + 2, // Random 2-10 min ETA (would be real in production)
-      price: {
-        base: vt.baseFare,
-        perKm: vt.perKmRate,
-        perMile: vt.perKmRate * 1.60934, // Convert to miles for display
-        perMinute: vt.perMinuteRate,
-        minimum: vt.minimumFare,
-      },
-      estimatedFare: vt.baseFare + (vt.perKmRate * 5), // Base + ~5km estimate
-      features: vt.features,
-      available: true,
-      isPromo: vt.isPromo,
-      promoText: vt.promoText,
-    }))
+    // Transform to client-friendly format with city-specific pricing
+    const clientVehicleTypes = vehicleTypes.map(vt => {
+      const cityPrice = cityPricing.get(vt.code)
+      const baseFare = cityPrice?.baseFare ?? vt.baseFare
+      const perKmRate = cityPrice?.perKmRate ?? vt.perKmRate
+      const perMinuteRate = cityPrice?.perMinuteRate ?? vt.perMinuteRate
+      const minimumFare = cityPrice?.minimumFare ?? vt.minimumFare
+      const surgeMultiplier = cityPrice?.surgeMultiplier ?? 1.0
+      
+      return {
+        id: vt.code.toLowerCase(),
+        type: vt.code.toLowerCase(),
+        code: vt.code,
+        name: vt.name,
+        description: vt.description,
+        icon: vt.icon,
+        capacity: vt.capacity,
+        eta: Math.floor(Math.random() * 8) + 2, // Random 2-10 min ETA (would be real in production)
+        price: {
+          base: baseFare,
+          perKm: perKmRate,
+          perMile: perKmRate * 1.60934, // Convert to miles for display
+          perMinute: perMinuteRate,
+          minimum: minimumFare,
+          surgeMultiplier,
+        },
+        estimatedFare: Math.round((baseFare + (perKmRate * 5)) * surgeMultiplier * 100) / 100, // Base + ~5km estimate with surge
+        features: vt.features,
+        available: true,
+        isPromo: vt.isPromo,
+        promoText: vt.promoText,
+      }
+    })
 
     res.json({
       success: true,
+      available: true,
+      ...(city && { 
+        city: {
+          id: city.id,
+          name: city.name,
+          currency: city.currency,
+        }
+      }),
       data: clientVehicleTypes,
     })
   } catch (error) {

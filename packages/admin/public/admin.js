@@ -168,6 +168,7 @@ function showTab(tabName) {
     if (tabName === 'drivers') loadDrivers()
     if (tabName === 'orders') loadOrders()
     if (tabName === 'vehicleTypes') loadVehicleTypes()
+    if (tabName === 'cities') loadCities()
 }
 
 // ============================================================================
@@ -409,6 +410,7 @@ async function editDriver(driverId) {
         document.getElementById('editDriverMake').value = driver.vehicleMake || ''
         document.getElementById('editDriverModel').value = driver.vehicleModel || ''
         document.getElementById('editDriverColor').value = driver.vehicleColor || ''
+        document.getElementById('editDriverCity').value = driver.cityId || ''
         
         // Reset and show existing images
         resetUploadPreview('editDriverAvatarPreview', '📷', 'Click to upload profile photo')
@@ -464,7 +466,8 @@ document.getElementById('editDriverForm').addEventListener('submit', async (e) =
         licensePlate: document.getElementById('editDriverPlate').value,
         vehicleMake: document.getElementById('editDriverMake').value,
         vehicleModel: document.getElementById('editDriverModel').value,
-        vehicleColor: document.getElementById('editDriverColor').value
+        vehicleColor: document.getElementById('editDriverColor').value,
+        cityId: document.getElementById('editDriverCity').value || null
     }
     
     // Add vehicleImageUrl if uploaded
@@ -541,7 +544,8 @@ document.getElementById('createDriverForm').addEventListener('submit', async (e)
         vehicleModel: document.getElementById('createDriverModel').value || undefined,
         vehicleColor: document.getElementById('createDriverColor').value || undefined,
         vehicleYear: document.getElementById('createDriverYear').value ? parseInt(document.getElementById('createDriverYear').value) : undefined,
-        availabilityType: document.getElementById('createDriverAvailability').value
+        availabilityType: document.getElementById('createDriverAvailability').value,
+        cityId: document.getElementById('createDriverCity').value || null
     }
     
     try {
@@ -1042,3 +1046,471 @@ function renderPagination(elementId, meta, loadFunction) {
 // Initialize
 loadDashboard()
 loadVehicleTypesForDropdown() // Load vehicle types for dropdowns
+loadCitiesForDropdown() // Load cities for driver dropdowns
+
+// ============================================================================
+// Cities Management
+// ============================================================================
+
+let cityMap = null
+let cityMarker = null
+let citiesCache = []
+
+const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGl3aW50ZXIiLCJhIjoiY21pYndocXRqMHpuZjJpc2F0d2ppdXYwOCJ9.5SLdcEQmHoGpNKnzJ5Oq7A'
+
+async function loadCitiesForDropdown() {
+    try {
+        const res = await fetch(`${API_BASE}/api/cities`)
+        citiesCache = await res.json()
+        populateCityDropdowns()
+    } catch (error) {
+        console.error('Failed to load cities:', error)
+    }
+}
+
+function populateCityDropdowns() {
+    const dropdowns = ['createDriverCity', 'editDriverCity']
+    
+    const optionsHtml = '<option value="">-- No City (Global) --</option>' + 
+        citiesCache
+            .filter(c => c.isActive)
+            .map(c => `<option value="${c.id}">${c.name} (${c.code})</option>`)
+            .join('')
+    
+    dropdowns.forEach(id => {
+        const el = document.getElementById(id)
+        if (el) el.innerHTML = optionsHtml
+    })
+}
+
+async function loadCities() {
+    try {
+        const res = await fetch(`${API_BASE}/api/cities`)
+        const cities = await res.json()
+        citiesCache = cities
+        
+        const tbody = document.getElementById('citiesBody')
+        if (!tbody) return
+        
+        tbody.innerHTML = cities.map(city => `
+            <tr>
+                <td>
+                    ${city.imageUrl 
+                        ? `<img src="${city.imageUrl}" style="width: 60px; height: 40px; object-fit: cover; border-radius: 4px;">` 
+                        : '<span style="color: #999; font-size: 12px;">No image</span>'}
+                </td>
+                <td><code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">${city.code}</code></td>
+                <td><strong>${city.name}</strong></td>
+                <td>${city.country}</td>
+                <td style="font-size: 11px; font-family: monospace;">${city.centerLatitude.toFixed(4)}, ${city.centerLongitude.toFixed(4)}</td>
+                <td>${city.radiusKm} km</td>
+                <td>${city._count?.drivers || 0}</td>
+                <td>${city._count?.orders || 0}</td>
+                <td>
+                    <span class="badge ${city.isActive ? 'badge-success' : 'badge-danger'}">
+                        ${city.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-primary" style="padding: 6px 10px; font-size: 12px;" onclick="editCity('${city.id}')">✏️ Edit</button>
+                    <button class="btn btn-success" style="padding: 6px 10px; font-size: 12px;" onclick="showCityPricing('${city.id}', '${city.name}')">💰 Pricing</button>
+                    <button class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;" onclick="deleteCity('${city.id}')">🗑️</button>
+                </td>
+            </tr>
+        `).join('')
+        
+        showMessage('citiesMessage', `Loaded ${cities.length} cities`, 'success')
+        populateCityDropdowns()
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+async function seedCities() {
+    if (!confirm('Seed default Moroccan cities (Dakhla, Laâyoune, Casablanca, Rabat, Marrakech, Agadir)?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/cities/seed`, { method: 'POST' })
+        const result = await res.json()
+        
+        if (result.success) {
+            const created = result.cities.filter(c => c.status === 'created').length
+            const existing = result.cities.filter(c => c.status === 'exists').length
+            showMessage('citiesMessage', `Seeded ${created} new cities, ${existing} already existed`, 'success')
+            loadCities()
+        } else {
+            showMessage('citiesMessage', 'Error: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+function showCityForm(cityData = null) {
+    document.getElementById('cityFormModal').style.display = 'flex'
+    document.getElementById('cityFormTitle').textContent = cityData ? '✏️ Edit City' : '➕ Add City'
+    
+    // Reset form
+    document.getElementById('cityId').value = cityData?.id || ''
+    document.getElementById('cityCode').value = cityData?.code || ''
+    document.getElementById('cityName').value = cityData?.name || ''
+    document.getElementById('cityCountry').value = cityData?.country || 'MA'
+    document.getElementById('cityCurrency').value = cityData?.currency || 'MAD'
+    document.getElementById('cityTimezone').value = cityData?.timezone || 'Africa/Casablanca'
+    document.getElementById('cityLat').value = cityData?.centerLatitude || ''
+    document.getElementById('cityLng').value = cityData?.centerLongitude || ''
+    document.getElementById('cityRadius').value = cityData?.radiusKm || 50
+    document.getElementById('cityActive').value = cityData?.isActive !== false ? 'true' : 'false'
+    document.getElementById('cityImage').value = ''
+    updateRadiusDisplay()
+    
+    // Initialize map after a short delay to ensure modal is visible
+    setTimeout(() => initCityMapPicker(cityData), 150)
+}
+
+function hideCityForm() {
+    document.getElementById('cityFormModal').style.display = 'none'
+    if (cityMap) {
+        cityMap.remove()
+        cityMap = null
+    }
+}
+
+function initCityMapPicker(cityData) {
+    const container = document.getElementById('cityMapPicker')
+    if (!container) return
+    
+    // Clear any existing map
+    if (cityMap) {
+        cityMap.remove()
+        cityMap = null
+    }
+    
+    mapboxgl.accessToken = MAPBOX_TOKEN
+    
+    const defaultCenter = cityData 
+        ? [cityData.centerLongitude, cityData.centerLatitude]
+        : [-7.5898, 33.5731] // Morocco center (Casablanca)
+    
+    cityMap = new mapboxgl.Map({
+        container: 'cityMapPicker',
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: defaultCenter,
+        zoom: cityData ? 9 : 5
+    })
+    
+    cityMap.addControl(new mapboxgl.NavigationControl())
+    
+    // Add marker if editing
+    if (cityData) {
+        addCityMarkerAndCircle(defaultCenter, cityData.radiusKm)
+    }
+    
+    // Click handler
+    cityMap.on('click', (e) => {
+        const { lng, lat } = e.lngLat
+        document.getElementById('cityLat').value = lat.toFixed(6)
+        document.getElementById('cityLng').value = lng.toFixed(6)
+        addCityMarkerAndCircle([lng, lat], parseFloat(document.getElementById('cityRadius').value))
+    })
+}
+
+function addCityMarkerAndCircle(center, radiusKm) {
+    if (!cityMap) return
+    
+    // Remove existing marker
+    if (cityMarker) {
+        cityMarker.remove()
+    }
+    
+    // Add new marker
+    cityMarker = new mapboxgl.Marker({ color: '#667eea' })
+        .setLngLat(center)
+        .addTo(cityMap)
+    
+    // Add/update radius circle
+    const circle = createGeoJSONCircle(center, radiusKm)
+    
+    if (cityMap.getSource('city-radius')) {
+        cityMap.getSource('city-radius').setData(circle)
+    } else {
+        cityMap.on('load', () => {
+            if (!cityMap.getSource('city-radius')) {
+                cityMap.addSource('city-radius', { type: 'geojson', data: circle })
+                cityMap.addLayer({
+                    id: 'city-radius-fill',
+                    type: 'fill',
+                    source: 'city-radius',
+                    paint: { 'fill-color': '#667eea', 'fill-opacity': 0.15 }
+                })
+                cityMap.addLayer({
+                    id: 'city-radius-outline',
+                    type: 'line',
+                    source: 'city-radius',
+                    paint: { 'line-color': '#667eea', 'line-width': 2, 'line-dasharray': [2, 2] }
+                })
+            }
+        })
+        
+        // If map already loaded
+        if (cityMap.isStyleLoaded()) {
+            if (!cityMap.getSource('city-radius')) {
+                cityMap.addSource('city-radius', { type: 'geojson', data: circle })
+                cityMap.addLayer({
+                    id: 'city-radius-fill',
+                    type: 'fill',
+                    source: 'city-radius',
+                    paint: { 'fill-color': '#667eea', 'fill-opacity': 0.15 }
+                })
+                cityMap.addLayer({
+                    id: 'city-radius-outline',
+                    type: 'line',
+                    source: 'city-radius',
+                    paint: { 'line-color': '#667eea', 'line-width': 2, 'line-dasharray': [2, 2] }
+                })
+            }
+        }
+    }
+}
+
+function createGeoJSONCircle(center, radiusKm) {
+    const points = 64
+    const coords = []
+    for (let i = 0; i < points; i++) {
+        const angle = (i / points) * 2 * Math.PI
+        const dx = radiusKm * Math.cos(angle)
+        const dy = radiusKm * Math.sin(angle)
+        const lat = center[1] + (dy / 111.32)
+        const lng = center[0] + (dx / (111.32 * Math.cos(center[1] * Math.PI / 180)))
+        coords.push([lng, lat])
+    }
+    coords.push(coords[0]) // Close the polygon
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } }
+}
+
+function updateRadiusDisplay() {
+    const radius = document.getElementById('cityRadius').value
+    document.getElementById('radiusValue').textContent = radius
+    
+    // Update circle on map if coordinates exist
+    const lat = parseFloat(document.getElementById('cityLat').value)
+    const lng = parseFloat(document.getElementById('cityLng').value)
+    if (cityMap && !isNaN(lat) && !isNaN(lng)) {
+        addCityMarkerAndCircle([lng, lat], parseFloat(radius))
+    }
+}
+
+async function saveCity() {
+    const id = document.getElementById('cityId').value
+    const data = {
+        code: document.getElementById('cityCode').value.toUpperCase(),
+        name: document.getElementById('cityName').value,
+        country: document.getElementById('cityCountry').value,
+        currency: document.getElementById('cityCurrency').value,
+        timezone: document.getElementById('cityTimezone').value,
+        centerLatitude: parseFloat(document.getElementById('cityLat').value),
+        centerLongitude: parseFloat(document.getElementById('cityLng').value),
+        radiusKm: parseFloat(document.getElementById('cityRadius').value),
+        isActive: document.getElementById('cityActive').value === 'true'
+    }
+    
+    if (!data.code || !data.name || isNaN(data.centerLatitude) || isNaN(data.centerLongitude)) {
+        showMessage('citiesMessage', 'Please fill in all required fields and select a location on the map', 'error')
+        return
+    }
+    
+    try {
+        const url = id ? `${API_BASE}/api/cities/${id}` : `${API_BASE}/api/cities`
+        const method = id ? 'PUT' : 'POST'
+        
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        
+        const city = await response.json()
+        if (city.error) throw new Error(city.error)
+        
+        // Upload image if selected
+        const imageInput = document.getElementById('cityImage')
+        if (imageInput.files.length > 0) {
+            showMessage('citiesMessage', 'Uploading city image...', 'success')
+            
+            const formData = new FormData()
+            formData.append('cityImage', imageInput.files[0])
+            
+            const uploadResponse = await fetch(`${API_BASE}/api/upload/city-image/${city.code}`, {
+                method: 'POST',
+                body: formData
+            })
+            const uploadResult = await uploadResponse.json()
+            
+            if (uploadResult.imageUrl) {
+                // Update city with image URL
+                await fetch(`${API_BASE}/api/cities/${city.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imageUrl: uploadResult.imageUrl })
+                })
+            }
+        }
+        
+        showMessage('citiesMessage', `City ${id ? 'updated' : 'created'} successfully`, 'success')
+        hideCityForm()
+        loadCities()
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+async function editCity(cityId) {
+    const city = citiesCache.find(c => c.id === cityId)
+    if (city) {
+        showCityForm(city)
+    } else {
+        // Fetch fresh if not in cache
+        try {
+            const res = await fetch(`${API_BASE}/api/cities`)
+            const cities = await res.json()
+            citiesCache = cities
+            const found = cities.find(c => c.id === cityId)
+            if (found) showCityForm(found)
+        } catch (error) {
+            showMessage('citiesMessage', 'Error loading city: ' + error.message, 'error')
+        }
+    }
+}
+
+async function deleteCity(cityId) {
+    const city = citiesCache.find(c => c.id === cityId)
+    if (!confirm(`Delete city "${city?.name || cityId}"? This will unlink associated drivers and orders.`)) return
+    
+    try {
+        await fetch(`${API_BASE}/api/cities/${cityId}`, { method: 'DELETE' })
+        showMessage('citiesMessage', 'City deleted successfully', 'success')
+        loadCities()
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+// City Pricing Modal
+async function showCityPricing(cityId, cityName) {
+    document.getElementById('cityPricingModal').style.display = 'flex'
+    document.getElementById('pricingCityId').value = cityId
+    document.getElementById('pricingCityName').textContent = cityName
+    
+    // Load vehicle types and existing pricing
+    try {
+        const [vehicleTypesRes, citiesRes] = await Promise.all([
+            fetch(`${API_BASE}/api/vehicle-types`),
+            fetch(`${API_BASE}/api/cities`)
+        ])
+        
+        const vehicleTypesData = await vehicleTypesRes.json()
+        const vehicleTypes = vehicleTypesData.success ? vehicleTypesData.data : vehicleTypesData
+        const cities = await citiesRes.json()
+        const city = cities.find(c => c.id === cityId)
+        const existingPricing = city?.pricing || []
+        
+        const container = document.getElementById('pricingVehicleTypes')
+        container.innerHTML = vehicleTypes.map(vt => {
+            const pricing = existingPricing.find(p => p.vehicleTypeCode === vt.code) || {
+                baseFare: vt.baseFare,
+                perKmRate: vt.perKmRate,
+                perMinuteRate: vt.perMinuteRate,
+                minimumFare: vt.minimumFare,
+                surgeMultiplier: 1.0
+            }
+            
+            return `
+                <div style="border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; margin-bottom: 10px; background: #fafafa;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <strong>${vt.icon || '🚗'} ${vt.name} <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 11px;">${vt.code}</code></strong>
+                        <button class="btn btn-success" style="padding: 6px 12px; font-size: 12px;" onclick="saveCityPricing('${cityId}', '${vt.code}')">💾 Save</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+                        <div>
+                            <label style="font-size: 11px; color: #666;">Base Fare</label>
+                            <input type="number" id="price_${vt.code}_base" value="${pricing.baseFare}" step="0.01" style="width: 100%; padding: 6px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; color: #666;">Per Km</label>
+                            <input type="number" id="price_${vt.code}_km" value="${pricing.perKmRate}" step="0.01" style="width: 100%; padding: 6px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; color: #666;">Per Minute</label>
+                            <input type="number" id="price_${vt.code}_min" value="${pricing.perMinuteRate}" step="0.01" style="width: 100%; padding: 6px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; color: #666;">Minimum</label>
+                            <input type="number" id="price_${vt.code}_minimum" value="${pricing.minimumFare}" step="0.01" style="width: 100%; padding: 6px;">
+                        </div>
+                        <div>
+                            <label style="font-size: 11px; color: #666;">Surge ×</label>
+                            <input type="number" id="price_${vt.code}_surge" value="${pricing.surgeMultiplier}" step="0.1" min="1" style="width: 100%; padding: 6px;">
+                        </div>
+                    </div>
+                </div>
+            `
+        }).join('')
+    } catch (error) {
+        showMessage('citiesMessage', 'Error loading pricing: ' + error.message, 'error')
+    }
+}
+
+function hideCityPricingModal() {
+    document.getElementById('cityPricingModal').style.display = 'none'
+}
+
+async function saveCityPricing(cityId, vehicleTypeCode) {
+    const data = {
+        vehicleTypeCode,
+        baseFare: document.getElementById(`price_${vehicleTypeCode}_base`).value,
+        perKmRate: document.getElementById(`price_${vehicleTypeCode}_km`).value,
+        perMinuteRate: document.getElementById(`price_${vehicleTypeCode}_min`).value,
+        minimumFare: document.getElementById(`price_${vehicleTypeCode}_minimum`).value,
+        surgeMultiplier: document.getElementById(`price_${vehicleTypeCode}_surge`).value,
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/cities/${cityId}/pricing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        const result = await response.json()
+        if (result.error) throw new Error(result.error)
+        showMessage('citiesMessage', `Pricing for ${vehicleTypeCode} saved!`, 'success')
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+async function seedCityPricing() {
+    const cityId = document.getElementById('pricingCityId').value
+    const cityName = document.getElementById('pricingCityName').textContent
+    
+    if (!confirm(`Seed default pricing for ${cityName} based on global vehicle types?`)) return
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/cities/${cityId}/seed-pricing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ multiplier: 1.0 })
+        })
+        const result = await response.json()
+        
+        if (result.success) {
+            const created = result.pricing.filter(p => p.status === 'created').length
+            showMessage('citiesMessage', `Seeded ${created} pricing configurations`, 'success')
+            // Refresh the pricing modal
+            showCityPricing(cityId, cityName)
+        } else {
+            showMessage('citiesMessage', 'Error: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}

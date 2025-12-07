@@ -4,8 +4,19 @@
  */
 
 import { z } from 'zod'
-import { prisma, logger, AppError, ErrorCode, NotFoundError, ValidationError, getWebSocketServer } from '@gominiapp/core'
+import { prisma, logger, AppError, ErrorCode, NotFoundError, ValidationError, getWebSocketServer, GeoService } from '@gominiapp/core'
 import { DriverService } from './driver.service'
+
+// City detection result
+interface CityPricing {
+  cityId: string
+  cityName: string
+  baseFare: number
+  perKmRate: number
+  perMinuteRate: number
+  minimumFare: number
+  surgeMultiplier: number
+}
 
 // Validation schemas
 export const createOrderSchema = z.object({
@@ -43,7 +54,7 @@ export const updateOrderStatusSchema = z.object({
   ]),
 })
 
-// Fare configuration
+// Fare configuration (fallback when city pricing not found)
 const FARE_CONFIG: Record<string, { baseFare: number; perKm: number; perMin: number; minimum: number }> = {
   ECONOMY: { baseFare: 2.50, perKm: 1.20, perMin: 0.20, minimum: 5.00 },
   COMFORT: { baseFare: 3.50, perKm: 1.50, perMin: 0.25, minimum: 7.00 },
@@ -52,6 +63,9 @@ const FARE_CONFIG: Record<string, { baseFare: number; perKm: number; perMin: num
   MOTO: { baseFare: 1.50, perKm: 0.80, perMin: 0.15, minimum: 3.00 },
   BIKE: { baseFare: 1.00, perKm: 0.50, perMin: 0.10, minimum: 2.00 },
 }
+
+// Service unavailable error code
+const SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE'
 
 // Order timeout configuration (in milliseconds)
 const ORDER_TIMEOUT_MS = 30000 // 30 seconds
@@ -64,6 +78,98 @@ export class OrderService {
 
   constructor() {
     this.driverService = new DriverService()
+  }
+
+  /**
+   * Detect which city a location is in based on distance from city center
+   * Returns the closest city where the location is within the radius
+   */
+  async detectCity(latitude: number, longitude: number): Promise<{ cityId: string; cityName: string } | null> {
+    const activeCities = await prisma.city.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        centerLatitude: true,
+        centerLongitude: true,
+        radiusKm: true,
+      }
+    })
+
+    for (const city of activeCities) {
+      const distanceKm = GeoService.calculateDistance(
+        { latitude, longitude },
+        { latitude: city.centerLatitude, longitude: city.centerLongitude }
+      )
+      
+      if (distanceKm <= city.radiusKm) {
+        return { cityId: city.id, cityName: city.name }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Get city-specific pricing for a vehicle type
+   * Returns null if no city pricing exists
+   */
+  async getCityPricing(cityId: string, vehicleTypeCode: string): Promise<CityPricing | null> {
+    const cityPricing = await prisma.cityVehiclePricing.findUnique({
+      where: {
+        cityId_vehicleTypeCode: {
+          cityId,
+          vehicleTypeCode,
+        }
+      },
+      include: {
+        city: {
+          select: { name: true }
+        }
+      }
+    })
+
+    if (!cityPricing) {
+      return null
+    }
+
+    return {
+      cityId: cityPricing.cityId,
+      cityName: cityPricing.city.name,
+      baseFare: cityPricing.baseFare,
+      perKmRate: cityPricing.perKmRate,
+      perMinuteRate: cityPricing.perMinuteRate,
+      minimumFare: cityPricing.minimumFare,
+      surgeMultiplier: cityPricing.surgeMultiplier,
+    }
+  }
+
+  /**
+   * Calculate fare using city-specific pricing or fallback
+   */
+  calculateFare(
+    distanceKm: number, 
+    durationMinutes: number, 
+    vehicleType: string,
+    cityPricing: CityPricing | null
+  ): number {
+    if (cityPricing) {
+      // Use city-specific pricing
+      const baseFare = cityPricing.baseFare + 
+        (distanceKm * cityPricing.perKmRate) + 
+        (durationMinutes * cityPricing.perMinuteRate)
+      const fare = Math.max(baseFare, cityPricing.minimumFare)
+      // Apply surge multiplier
+      return Math.round(fare * cityPricing.surgeMultiplier * 100) / 100
+    } else {
+      // Use fallback config
+      const config = FARE_CONFIG[vehicleType] || FARE_CONFIG.ECONOMY
+      const fare = Math.max(
+        config.baseFare + (distanceKm * config.perKm) + (durationMinutes * config.perMin),
+        config.minimum
+      )
+      return Math.round(fare * 100) / 100
+    }
   }
 
   /**
@@ -126,8 +232,21 @@ export class OrderService {
     durationMinutes: number
     fare: number
     nearbyDrivers: number
+    cityId?: string
+    cityName?: string
+    surgeMultiplier?: number
   }> {
     const validated = createOrderSchema.parse(data)
+
+    // Detect city from pickup location
+    const city = await this.detectCity(validated.pickupLatitude, validated.pickupLongitude)
+    
+    if (!city) {
+      throw new AppError(SERVICE_UNAVAILABLE, 'Service is not available in your area', 400)
+    }
+
+    // Get city-specific pricing
+    const cityPricing = await this.getCityPricing(city.cityId, validated.vehicleType)
 
     // Calculate distance
     const distanceKm = this.calculateDistance(
@@ -140,12 +259,8 @@ export class OrderService {
     // Estimate duration (assume 30 km/h average)
     const durationMinutes = Math.ceil(distanceKm / 30 * 60)
 
-    // Calculate fare
-    const config = FARE_CONFIG[validated.vehicleType] || FARE_CONFIG.ECONOMY
-    const fare = Math.max(
-      config.baseFare + (distanceKm * config.perKm) + (durationMinutes * config.perMin),
-      config.minimum
-    )
+    // Calculate fare using city pricing
+    const fare = this.calculateFare(distanceKm, durationMinutes, validated.vehicleType, cityPricing)
 
     // Count nearby drivers
     const nearbyDrivers = await this.driverService.findNearbyDrivers(
@@ -157,8 +272,11 @@ export class OrderService {
     return {
       distanceKm: Math.round(distanceKm * 10) / 10,
       durationMinutes,
-      fare: Math.round(fare * 100) / 100,
+      fare,
       nearbyDrivers: nearbyDrivers.length,
+      cityId: city.cityId,
+      cityName: city.cityName,
+      surgeMultiplier: cityPricing?.surgeMultiplier ?? 1.0,
     }
   }
 
@@ -182,6 +300,7 @@ export class OrderService {
         userId,
         driverId: assignedDriver ? assignedDriver.userId : undefined,
         acceptedAt: assignedDriver ? new Date() : undefined,
+        cityId: estimate.cityId, // Link order to detected city
         pickupLatitude: validated.pickupLatitude,
         pickupLongitude: validated.pickupLongitude,
         pickupAddress: validated.pickupAddress,

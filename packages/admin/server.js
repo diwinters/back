@@ -525,13 +525,16 @@ app.get('/api/drivers', async (req, res) => {
     const page = parseInt(req.query.page) || 1
     const pageSize = parseInt(req.query.pageSize) || 20
     const isOnline = req.query.isOnline
+    const cityId = req.query.cityId
 
-    const where = isOnline !== undefined ? { isOnline: isOnline === 'true' } : {}
+    const where = {}
+    if (isOnline !== undefined) where.isOnline = isOnline === 'true'
+    if (cityId) where.cityId = cityId
 
     const [drivers, total] = await Promise.all([
       prisma.driver.findMany({
         where,
-        include: { user: true },
+        include: { user: true, city: true },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize
@@ -558,7 +561,7 @@ app.get('/api/drivers', async (req, res) => {
  */
 app.post('/api/drivers', async (req, res) => {
   try {
-    const { did, handle, displayName, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleYear, availabilityType } = req.body
+    const { did, handle, displayName, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleYear, availabilityType, cityId } = req.body
 
     // Create or get user first
     let user = await prisma.user.findUnique({ where: { did } })
@@ -595,9 +598,10 @@ app.post('/api/drivers', async (req, res) => {
         vehicleModel,
         vehicleColor,
         vehicleYear,
-        availabilityType: availabilityType || 'BOTH'
+        availabilityType: availabilityType || 'BOTH',
+        cityId: cityId || null
       },
-      include: { user: true }
+      include: { user: true, city: true }
     })
 
     res.json({ success: true, data: driver })
@@ -615,7 +619,7 @@ app.post('/api/drivers', async (req, res) => {
  */
 app.patch('/api/drivers/:id', async (req, res) => {
   try {
-    const { isOnline, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleImageUrl } = req.body
+    const { isOnline, vehicleType, licensePlate, vehicleMake, vehicleModel, vehicleColor, vehicleImageUrl, cityId } = req.body
 
     const driver = await prisma.driver.update({
       where: { id: req.params.id },
@@ -626,9 +630,10 @@ app.patch('/api/drivers/:id', async (req, res) => {
         ...(vehicleMake && { vehicleMake }),
         ...(vehicleModel && { vehicleModel }),
         ...(vehicleColor && { vehicleColor }),
-        ...(vehicleImageUrl && { vehicleImageUrl })
+        ...(vehicleImageUrl && { vehicleImageUrl }),
+        ...(cityId !== undefined && { cityId: cityId || null })
       },
-      include: { user: true }
+      include: { user: true, city: true }
     })
 
     res.json({ success: true, data: driver })
@@ -1130,6 +1135,330 @@ app.post('/api/vehicle-types/seed', async (req, res) => {
       success: false,
       error: error.message
     })
+  }
+})
+
+// ============================================================================
+// City Management Endpoints
+// ============================================================================
+
+/**
+ * City image storage configuration
+ */
+const cityStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(UPLOADS_DIR, 'cities')
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true })
+    }
+    cb(null, uploadPath)
+  },
+  filename: (req, file, cb) => {
+    const cityCode = req.params.code || 'unknown'
+    const ext = path.extname(file.originalname).toLowerCase()
+    const timestamp = Date.now()
+    cb(null, `${cityCode.toLowerCase()}_${timestamp}${ext}`)
+  }
+})
+
+const cityUpload = multer({ 
+  storage: cityStorage, 
+  fileFilter: imageFilter, 
+  limits: { fileSize: 10 * 1024 * 1024 } 
+})
+
+/**
+ * POST /api/upload/city-image/:code
+ * Upload city banner/background image
+ */
+app.post('/api/upload/city-image/:code', cityUpload.single('cityImage'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' })
+    }
+    const imageUrl = `/uploads/cities/${req.file.filename}`
+    res.json({ success: true, imageUrl })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/cities
+ * List all cities with pricing and stats
+ */
+app.get('/api/cities', async (req, res) => {
+  try {
+    const cities = await prisma.city.findMany({
+      include: {
+        pricing: true,
+        _count: { select: { drivers: true, orders: true } }
+      },
+      orderBy: { name: 'asc' }
+    })
+    res.json(cities)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/cities
+ * Create a new city
+ */
+app.post('/api/cities', async (req, res) => {
+  try {
+    const { code, name, country, timezone, currency, centerLatitude, centerLongitude, radiusKm, imageUrl, isActive } = req.body
+    const city = await prisma.city.create({
+      data: { 
+        code: code.toUpperCase(), 
+        name, 
+        country: country || 'MA', 
+        timezone: timezone || 'Africa/Casablanca', 
+        currency: currency || 'MAD', 
+        centerLatitude: parseFloat(centerLatitude), 
+        centerLongitude: parseFloat(centerLongitude), 
+        radiusKm: parseFloat(radiusKm) || 50, 
+        imageUrl,
+        isActive: isActive !== false
+      }
+    })
+    res.json(city)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * PUT /api/cities/:id
+ * Update a city
+ */
+app.put('/api/cities/:id', async (req, res) => {
+  try {
+    const updateData = { ...req.body }
+    if (updateData.code) updateData.code = updateData.code.toUpperCase()
+    if (updateData.centerLatitude) updateData.centerLatitude = parseFloat(updateData.centerLatitude)
+    if (updateData.centerLongitude) updateData.centerLongitude = parseFloat(updateData.centerLongitude)
+    if (updateData.radiusKm) updateData.radiusKm = parseFloat(updateData.radiusKm)
+    
+    const city = await prisma.city.update({
+      where: { id: req.params.id },
+      data: updateData
+    })
+    res.json(city)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/cities/:id
+ * Delete a city (will cascade to pricing, unlink drivers/orders)
+ */
+app.delete('/api/cities/:id', async (req, res) => {
+  try {
+    // First unlink drivers and orders
+    await prisma.driver.updateMany({
+      where: { cityId: req.params.id },
+      data: { cityId: null }
+    })
+    await prisma.order.updateMany({
+      where: { cityId: req.params.id },
+      data: { cityId: null }
+    })
+    // Then delete city (pricing will cascade)
+    await prisma.city.delete({ where: { id: req.params.id } })
+    res.json({ success: true })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/cities/:id/pricing
+ * Get all vehicle pricing for a city
+ */
+app.get('/api/cities/:id/pricing', async (req, res) => {
+  try {
+    const pricing = await prisma.cityVehiclePricing.findMany({
+      where: { cityId: req.params.id },
+      orderBy: { vehicleTypeCode: 'asc' }
+    })
+    res.json(pricing)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/cities/:id/pricing
+ * Create or update vehicle pricing for a city
+ */
+app.post('/api/cities/:id/pricing', async (req, res) => {
+  try {
+    const { vehicleTypeCode, baseFare, perKmRate, perMinuteRate, minimumFare, surgeMultiplier } = req.body
+    const pricing = await prisma.cityVehiclePricing.upsert({
+      where: { cityId_vehicleTypeCode: { cityId: req.params.id, vehicleTypeCode } },
+      create: { 
+        cityId: req.params.id, 
+        vehicleTypeCode, 
+        baseFare: parseFloat(baseFare), 
+        perKmRate: parseFloat(perKmRate), 
+        perMinuteRate: parseFloat(perMinuteRate), 
+        minimumFare: parseFloat(minimumFare), 
+        surgeMultiplier: parseFloat(surgeMultiplier) || 1.0 
+      },
+      update: { 
+        baseFare: parseFloat(baseFare), 
+        perKmRate: parseFloat(perKmRate), 
+        perMinuteRate: parseFloat(perMinuteRate), 
+        minimumFare: parseFloat(minimumFare), 
+        surgeMultiplier: parseFloat(surgeMultiplier) || 1.0 
+      }
+    })
+    res.json(pricing)
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/cities/:id/pricing/:vehicleTypeCode
+ * Delete vehicle pricing for a city
+ */
+app.delete('/api/cities/:id/pricing/:vehicleTypeCode', async (req, res) => {
+  try {
+    await prisma.cityVehiclePricing.delete({
+      where: { cityId_vehicleTypeCode: { cityId: req.params.id, vehicleTypeCode: req.params.vehicleTypeCode } }
+    })
+    res.json({ success: true })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/cities/seed
+ * Seed default Moroccan cities (Dakhla, Laâyoune, Casablanca, Rabat)
+ */
+app.post('/api/cities/seed', async (req, res) => {
+  try {
+    const cities = [
+      {
+        code: 'DAKHLA',
+        name: 'Dakhla',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 23.6848,
+        centerLongitude: -15.9580,
+        radiusKm: 30,
+      },
+      {
+        code: 'LAAYOUNE',
+        name: 'Laâyoune',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 27.1536,
+        centerLongitude: -13.2033,
+        radiusKm: 40,
+      },
+      {
+        code: 'CASA',
+        name: 'Casablanca',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 33.5731,
+        centerLongitude: -7.5898,
+        radiusKm: 50,
+      },
+      {
+        code: 'RABAT',
+        name: 'Rabat',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 34.0209,
+        centerLongitude: -6.8416,
+        radiusKm: 35,
+      },
+      {
+        code: 'MARRAKECH',
+        name: 'Marrakech',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 31.6295,
+        centerLongitude: -7.9811,
+        radiusKm: 40,
+      },
+      {
+        code: 'AGADIR',
+        name: 'Agadir',
+        country: 'MA',
+        timezone: 'Africa/Casablanca',
+        currency: 'MAD',
+        centerLatitude: 30.4278,
+        centerLongitude: -9.5981,
+        radiusKm: 35,
+      },
+    ]
+
+    const results = []
+    for (const city of cities) {
+      const existing = await prisma.city.findUnique({ where: { code: city.code } })
+      if (!existing) {
+        const created = await prisma.city.create({ data: city })
+        results.push({ ...created, status: 'created' })
+      } else {
+        results.push({ ...existing, status: 'exists' })
+      }
+    }
+
+    res.json({ success: true, cities: results })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/cities/:id/seed-pricing
+ * Seed default pricing for a city based on global vehicle types
+ */
+app.post('/api/cities/:id/seed-pricing', async (req, res) => {
+  try {
+    const { multiplier = 1.0 } = req.body // Optional multiplier for this city
+    const vehicleTypes = await prisma.vehicleTypeConfig.findMany({ where: { isActive: true } })
+    
+    const results = []
+    for (const vt of vehicleTypes) {
+      const existing = await prisma.cityVehiclePricing.findUnique({
+        where: { cityId_vehicleTypeCode: { cityId: req.params.id, vehicleTypeCode: vt.code } }
+      })
+      
+      if (!existing) {
+        const pricing = await prisma.cityVehiclePricing.create({
+          data: {
+            cityId: req.params.id,
+            vehicleTypeCode: vt.code,
+            baseFare: vt.baseFare * multiplier,
+            perKmRate: vt.perKmRate * multiplier,
+            perMinuteRate: vt.perMinuteRate * multiplier,
+            minimumFare: vt.minimumFare * multiplier,
+            surgeMultiplier: 1.0
+          }
+        })
+        results.push({ ...pricing, status: 'created' })
+      } else {
+        results.push({ ...existing, status: 'exists' })
+      }
+    }
+
+    res.json({ success: true, pricing: results })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
   }
 })
 

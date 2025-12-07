@@ -63,6 +63,61 @@ model SavedPlace {
 }
 
 // =============================================================================
+// GO SERVICE: Cities & Regional Pricing
+// =============================================================================
+
+model City {
+  id          String   @id @default(cuid())
+  code        String   @unique  // e.g., "DAKHLA", "LAAYOUNE", "CASA"
+  name        String             // "Dakhla", "Laâyoune", "Casablanca"
+  country     String   @default("MA")
+  timezone    String?  @default("Africa/Casablanca")
+  currency    String   @default("MAD")
+  isActive    Boolean  @default(true)
+  
+  // Geofencing
+  centerLatitude  Float
+  centerLongitude Float
+  radiusKm        Float    @default(50)  // Service radius from center
+  
+  // Display
+  imageUrl    String?  // City banner/background image
+  
+  // Relations
+  pricing     CityVehiclePricing[]
+  drivers     Driver[]
+  orders      Order[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([centerLatitude, centerLongitude])
+}
+
+model CityVehiclePricing {
+  id              String   @id @default(cuid())
+  cityId          String
+  city            City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  vehicleTypeCode String   // References VehicleTypeConfig.code (ECONOMY, COMFORT, etc.)
+  
+  // Pricing overrides for this city
+  baseFare        Float
+  perKmRate       Float
+  perMinuteRate   Float
+  minimumFare     Float
+  surgeMultiplier Float    @default(1.0)  // Dynamic pricing multiplier
+  
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([cityId, vehicleTypeCode])
+  @@index([cityId, isActive])
+}
+
+// =============================================================================
 // GO SERVICE: Drivers
 // =============================================================================
 
@@ -70,6 +125,10 @@ model Driver {
   id              String   @id @default(cuid())
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // City assignment
+  cityId          String?
+  city            City?    @relation(fields: [cityId], references: [id])
   
   // Availability
   isOnline        Boolean  @default(false)
@@ -105,6 +164,7 @@ model Driver {
 
   @@index([isOnline, availabilityType])
   @@index([currentLatitude, currentLongitude])
+  @@index([cityId])
 }
 
 enum AvailabilityType {
@@ -123,6 +183,10 @@ model Order {
   id              String      @id @default(cuid())
   type            OrderType
   status          OrderStatus @default(PENDING)
+  
+  // City
+  cityId          String?
+  city            City?       @relation(fields: [cityId], references: [id])
   
   // Participants
   userId          String
@@ -182,6 +246,7 @@ model Order {
   @@index([driverId, status])
   @@index([status, requestedAt])
   @@index([pickupLatitude, pickupLongitude])
+  @@index([cityId])
 }
 
 enum OrderType {
