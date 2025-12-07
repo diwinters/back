@@ -273,23 +273,31 @@ export class WebSocketServer {
 
   /**
    * Broadcast to all drivers in a geographic area
+   * @param excludeDriverIds - Array of driver user IDs to exclude (e.g., drivers who declined)
    */
   async broadcastToNearbyDrivers(
     latitude: number,
     longitude: number,
     radiusKm: number,
-    message: WSMessage
+    message: WSMessage,
+    excludeDriverIds: string[] = []
   ): Promise<string[]> {
     // Try to get nearby drivers from Redis geo index
     const nearbyDriverDids = await this.redis.getNearbyDrivers(latitude, longitude, radiusKm)
     
+    // Filter out excluded drivers
+    const filteredDids = nearbyDriverDids.filter(did => !excludeDriverIds.includes(did))
+    
     // If we found drivers in Redis, send to them
-    if (nearbyDriverDids.length > 0) {
-      for (const did of nearbyDriverDids) {
+    if (filteredDids.length > 0) {
+      for (const did of filteredDids) {
         await this.sendToDid(did, message)
       }
-      logger.info('Broadcast to nearby drivers from Redis', { count: nearbyDriverDids.length })
-      return nearbyDriverDids
+      logger.info('Broadcast to nearby drivers from Redis', { 
+        count: filteredDids.length, 
+        excluded: excludeDriverIds.length 
+      })
+      return filteredDids
     }
     
     // Fallback: If no drivers in Redis (geo index empty), broadcast to ALL connected drivers
@@ -297,13 +305,19 @@ export class WebSocketServer {
     const allDriverDids: string[] = []
     for (const client of this.clients.values()) {
       if (client.role === 'driver' && client.ws.readyState === WebSocket.OPEN) {
+        // Skip excluded drivers
+        if (excludeDriverIds.includes(client.did)) continue
+        
         this.send(client.ws, message)
         allDriverDids.push(client.did)
       }
     }
     
     if (allDriverDids.length > 0) {
-      logger.info('Broadcast to all connected drivers (fallback)', { count: allDriverDids.length })
+      logger.info('Broadcast to all connected drivers (fallback)', { 
+        count: allDriverDids.length,
+        excluded: excludeDriverIds.length 
+      })
     }
     
     return allDriverDids

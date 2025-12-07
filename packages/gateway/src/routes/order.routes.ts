@@ -156,6 +156,21 @@ router.post('/:id/accept', async (req: any, res, next) => {
 })
 
 /**
+ * POST /api/orders/:id/decline
+ * Driver declines an order
+ */
+router.post('/:id/decline', async (req: any, res, next) => {
+  try {
+    const driver = await driverService.getDriverByUserId(req.user.id)
+    await orderService.declineOrder(driver.id, req.params.id)
+    
+    res.json({ success: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
  * PATCH /api/orders/:id/status
  * Update order status
  */

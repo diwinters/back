@@ -232,6 +232,7 @@ model OrderEvent {
 
 enum OrderEventType {
   CREATED
+  DECLINED
   DRIVER_ASSIGNED
   DRIVER_LOCATION_UPDATE
   DRIVER_ARRIVING
@@ -242,6 +243,7 @@ enum OrderEventType {
   CANCELLED
   PAYMENT_PROCESSED
   RATING_SUBMITTED
+  TIMEOUT
 }
 
 // =============================================================================

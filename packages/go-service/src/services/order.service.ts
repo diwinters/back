@@ -51,11 +51,69 @@ const FARE_CONFIG: Record<string, { baseFare: number; perKm: number; perMin: num
   BIKE: { baseFare: 1.00, perKm: 0.50, perMin: 0.10, minimum: 2.00 },
 }
 
+// Order timeout configuration (in milliseconds)
+const ORDER_TIMEOUT_MS = 30000 // 30 seconds
+
+// Track pending orders with their broadcast timestamps
+const pendingOrderTimeouts: Map<string, NodeJS.Timeout> = new Map()
+
 export class OrderService {
   private driverService: DriverService
 
   constructor() {
     this.driverService = new DriverService()
+  }
+
+  /**
+   * Start a timeout for an order - if no driver accepts within 30s, re-broadcast
+   */
+  startOrderTimeout(orderId: string, order: any, excludedDriverIds: string[] = []): void {
+    // Clear any existing timeout
+    this.clearOrderTimeout(orderId)
+
+    const timeout = setTimeout(async () => {
+      try {
+        // Check if order is still pending
+        const currentOrder = await prisma.order.findUnique({
+          where: { id: orderId },
+          include: { user: true },
+        })
+
+        if (currentOrder && currentOrder.status === 'PENDING') {
+          logger.info('Order timed out, re-broadcasting', { orderId, excludedCount: excludedDriverIds.length })
+
+          // Record timeout event
+          await prisma.orderEvent.create({
+            data: {
+              orderId,
+              eventType: 'TIMEOUT',
+              metadata: { excludedDriverIds, attempt: excludedDriverIds.length + 1 },
+            },
+          })
+
+          // Re-broadcast to other drivers
+          await this.rebroadcastOrder(currentOrder, excludedDriverIds)
+
+          // Start new timeout (with same excluded drivers - they already timed out)
+          this.startOrderTimeout(orderId, currentOrder, excludedDriverIds)
+        }
+      } catch (error) {
+        logger.error('Error handling order timeout', { orderId, error })
+      }
+    }, ORDER_TIMEOUT_MS)
+
+    pendingOrderTimeouts.set(orderId, timeout)
+  }
+
+  /**
+   * Clear timeout for an order (when accepted or cancelled)
+   */
+  clearOrderTimeout(orderId: string): void {
+    const timeout = pendingOrderTimeouts.get(orderId)
+    if (timeout) {
+      clearTimeout(timeout)
+      pendingOrderTimeouts.delete(orderId)
+    }
   }
 
   /**
@@ -183,6 +241,8 @@ export class OrderService {
         }
       ).then(() => {
         logger.info('Order broadcast to nearby drivers', { orderId: order.id })
+        // Start timeout for auto-rebroadcast if no driver accepts
+        this.startOrderTimeout(order.id, order)
       }).catch((err) => {
         logger.error('Failed to broadcast order to drivers', { orderId: order.id, error: err.message })
       })
@@ -208,6 +268,9 @@ export class OrderService {
     if (order.status !== 'PENDING') {
       throw new ValidationError('Order is no longer available')
     }
+
+    // Clear the timeout since order is being accepted
+    this.clearOrderTimeout(orderId)
 
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
@@ -259,6 +322,90 @@ export class OrderService {
     }
 
     return updatedOrder
+  }
+
+  /**
+   * Decline an order (driver)
+   * Records decline event and re-broadcasts to other drivers
+   */
+  async declineOrder(driverId: string, orderId: string): Promise<void> {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { user: true },
+    })
+
+    if (!order || order.status !== 'PENDING') {
+      // Order already assigned or doesn't exist, ignore silently
+      return
+    }
+
+    // Record the decline event
+    await prisma.orderEvent.create({
+      data: {
+        orderId,
+        eventType: 'DECLINED',
+        metadata: { driverId },
+      },
+    })
+
+    logger.info('Order declined by driver', { orderId, driverId })
+
+    // Re-broadcast to other nearby drivers (excluding this one)
+    await this.rebroadcastOrder(order, [driverId])
+  }
+
+  /**
+   * Re-broadcast an order to nearby drivers, excluding specific drivers
+   */
+  async rebroadcastOrder(order: any, excludeDriverIds: string[]): Promise<void> {
+    const wsServer = getWebSocketServer()
+    if (!wsServer) return
+
+    const orderData = {
+      id: order.id,
+      type: order.type,
+      pickupLatitude: order.pickupLatitude,
+      pickupLongitude: order.pickupLongitude,
+      pickupAddress: order.pickupAddress,
+      dropoffLatitude: order.dropoffLatitude,
+      dropoffLongitude: order.dropoffLongitude,
+      dropoffAddress: order.dropoffAddress,
+      estimatedFare: order.estimatedFare,
+      vehicleType: order.vehicleType,
+      user: order.user ? {
+        displayName: order.user.displayName,
+      } : undefined,
+    }
+
+    // Get all declined driver DIDs for this order
+    const declinedEvents = await prisma.orderEvent.findMany({
+      where: {
+        orderId: order.id,
+        eventType: 'DECLINED',
+      },
+    })
+    
+    const allExcludedDriverIds = [...excludeDriverIds]
+    for (const event of declinedEvents) {
+      const metadata = event.metadata as any
+      if (metadata?.driverId && !allExcludedDriverIds.includes(metadata.driverId)) {
+        allExcludedDriverIds.push(metadata.driverId)
+      }
+    }
+
+    // Broadcast to nearby drivers, excluding those who already declined
+    await wsServer.broadcastToNearbyDrivers(
+      order.pickupLatitude,
+      order.pickupLongitude,
+      5000, // 5km radius
+      {
+        type: 'new_order',
+        payload: orderData,
+      },
+      allExcludedDriverIds
+    )
+
+    logger.info('Order re-broadcast to drivers', { orderId: order.id, excludedCount: allExcludedDriverIds.length })
   }
 
   /**
