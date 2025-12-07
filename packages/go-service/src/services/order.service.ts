@@ -582,7 +582,7 @@ export class OrderService {
       where: {
         userId,
         status: {
-          in: ['PENDING', 'DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'ARRIVED', 'IN_PROGRESS'],
+          in: ['PENDING', 'DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'IN_PROGRESS'],
         },
       },
       include: {
@@ -602,7 +602,7 @@ export class OrderService {
       where: {
         driverId: driver.userId,
         status: {
-          in: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'ARRIVED', 'IN_PROGRESS'],
+          in: ['DRIVER_ASSIGNED', 'DRIVER_ARRIVING', 'DRIVER_ARRIVED', 'IN_PROGRESS'],
         },
       },
       include: {
