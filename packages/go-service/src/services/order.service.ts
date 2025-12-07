@@ -64,9 +64,6 @@ const FARE_CONFIG: Record<string, { baseFare: number; perKm: number; perMin: num
   BIKE: { baseFare: 1.00, perKm: 0.50, perMin: 0.10, minimum: 2.00 },
 }
 
-// Service unavailable error code
-const SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE'
-
 // Order timeout configuration (in milliseconds)
 const ORDER_TIMEOUT_MS = 30000 // 30 seconds
 
@@ -242,7 +239,7 @@ export class OrderService {
     const city = await this.detectCity(validated.pickupLatitude, validated.pickupLongitude)
     
     if (!city) {
-      throw new AppError(SERVICE_UNAVAILABLE, 'Service is not available in your area', 400)
+      throw new AppError('Service is not available in your area', ErrorCode.SERVICE_UNAVAILABLE, 400)
     }
 
     // Get city-specific pricing
