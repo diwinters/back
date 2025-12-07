@@ -201,63 +201,9 @@ router.get('/vehicle-types/:code', async (req, res, next) => {
 // =============================================================================
 
 /**
- * GET /api/config/walkthrough/:cityId
- * Get walkthrough configuration for a city (public, for client playback)
- */
-router.get('/walkthrough/:cityId', async (req, res, next) => {
-  try {
-    const { cityId } = req.params
-    
-    const walkthrough = await prisma.cityWalkthrough.findUnique({
-      where: { cityId },
-      include: {
-        city: {
-          select: { id: true, name: true, code: true }
-        },
-        points: {
-          orderBy: { order: 'asc' }
-        }
-      }
-    })
-
-    if (!walkthrough || !walkthrough.isActive) {
-      return res.json({
-        success: true,
-        available: false,
-        message: 'Walkthrough not available for this city'
-      })
-    }
-
-    res.json({
-      success: true,
-      available: true,
-      data: {
-        id: walkthrough.id,
-        name: walkthrough.name,
-        city: walkthrough.city,
-        defaultDurationMs: walkthrough.defaultDurationMs,
-        points: walkthrough.points.map(p => ({
-          id: p.id,
-          order: p.order,
-          latitude: p.latitude,
-          longitude: p.longitude,
-          zoom: p.zoom,
-          pitch: p.pitch,
-          bearing: p.bearing,
-          durationMs: p.durationMs || walkthrough.defaultDurationMs,
-          label: p.label,
-        }))
-      }
-    })
-  } catch (error) {
-    logger.error('Failed to fetch walkthrough', { error })
-    next(error)
-  }
-})
-
-/**
  * GET /api/config/walkthrough/by-location
  * Get walkthrough for user's current location
+ * NOTE: This route MUST be defined before /walkthrough/:cityId to avoid matching "by-location" as cityId
  */
 router.get('/walkthrough/by-location', async (req, res, next) => {
   try {
@@ -333,6 +279,61 @@ router.get('/walkthrough/by-location', async (req, res, next) => {
     })
   } catch (error) {
     logger.error('Failed to fetch walkthrough by location', { error })
+    next(error)
+  }
+})
+
+/**
+ * GET /api/config/walkthrough/:cityId
+ * Get walkthrough configuration for a city (public, for client playback)
+ */
+router.get('/walkthrough/:cityId', async (req, res, next) => {
+  try {
+    const { cityId } = req.params
+    
+    const walkthrough = await prisma.cityWalkthrough.findUnique({
+      where: { cityId },
+      include: {
+        city: {
+          select: { id: true, name: true, code: true }
+        },
+        points: {
+          orderBy: { order: 'asc' }
+        }
+      }
+    })
+
+    if (!walkthrough || !walkthrough.isActive) {
+      return res.json({
+        success: true,
+        available: false,
+        message: 'Walkthrough not available for this city'
+      })
+    }
+
+    res.json({
+      success: true,
+      available: true,
+      data: {
+        id: walkthrough.id,
+        name: walkthrough.name,
+        city: walkthrough.city,
+        defaultDurationMs: walkthrough.defaultDurationMs,
+        points: walkthrough.points.map(p => ({
+          id: p.id,
+          order: p.order,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          zoom: p.zoom,
+          pitch: p.pitch,
+          bearing: p.bearing,
+          durationMs: p.durationMs || walkthrough.defaultDurationMs,
+          label: p.label,
+        }))
+      }
+    })
+  } catch (error) {
+    logger.error('Failed to fetch walkthrough', { error })
     next(error)
   }
 })
