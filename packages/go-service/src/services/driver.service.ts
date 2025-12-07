@@ -264,6 +264,33 @@ export class DriverService {
   }
 
   /**
+   * Get all online drivers
+   */
+  async getOnlineDrivers(options: {
+    availabilityType?: 'RIDE' | 'DELIVERY' | 'BOTH'
+    vehicleType?: string
+  } = {}): Promise<any[]> {
+    const { availabilityType, vehicleType } = options
+
+    const drivers = await prisma.driver.findMany({
+      where: {
+        isOnline: true,
+        ...(availabilityType && availabilityType !== 'BOTH' ? {
+          OR: [
+            { availabilityType: availabilityType as any },
+            { availabilityType: 'BOTH' },
+          ],
+        } : {}),
+        ...(vehicleType ? { vehicleType: vehicleType as any } : {}),
+      },
+      include: { user: true },
+      orderBy: { lastLocationUpdate: 'desc' },
+    })
+
+    return drivers
+  }
+
+  /**
    * Calculate distance between two points in meters (Haversine formula)
    */
   private calculateDistance(

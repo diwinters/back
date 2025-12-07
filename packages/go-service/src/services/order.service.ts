@@ -24,6 +24,8 @@ export const createOrderSchema = z.object({
   recipientName: z.string().optional(),
   recipientPhone: z.string().optional(),
   packageDescription: z.string().optional(),
+  // Admin assignment
+  assignedDriverId: z.string().optional(),
 })
 
 export const acceptOrderSchema = z.object({
@@ -167,11 +169,19 @@ export class OrderService {
     const validated = createOrderSchema.parse(data)
     const estimate = await this.getEstimate(validated)
 
+    // Check assigned driver if provided
+    let assignedDriver = null
+    if (validated.assignedDriverId) {
+      assignedDriver = await this.driverService.getDriver(validated.assignedDriverId)
+    }
+
     const order = await prisma.order.create({
       data: {
         type: validated.type as any,
-        status: 'PENDING',
+        status: assignedDriver ? 'DRIVER_ASSIGNED' : 'PENDING',
         userId,
+        driverId: assignedDriver ? assignedDriver.userId : undefined,
+        acceptedAt: assignedDriver ? new Date() : undefined,
         pickupLatitude: validated.pickupLatitude,
         pickupLongitude: validated.pickupLongitude,
         pickupAddress: validated.pickupAddress,
@@ -193,6 +203,7 @@ export class OrderService {
       },
       include: {
         user: true,
+        driver: true,
       },
     })
 
@@ -206,46 +217,89 @@ export class OrderService {
       },
     })
 
-    logger.info('Order created', { orderId: order.id, userId, type: validated.type })
-
-    // Notify nearby drivers via WebSocket (non-blocking)
-    // Don't await this - we don't want Redis issues to block order creation
-    const wsServer = getWebSocketServer()
-    if (wsServer) {
-      const orderData = {
-        id: order.id,
-        type: order.type,
-        pickupLatitude: validated.pickupLatitude,
-        pickupLongitude: validated.pickupLongitude,
-        pickupAddress: validated.pickupAddress,
-        dropoffLatitude: validated.dropoffLatitude,
-        dropoffLongitude: validated.dropoffLongitude,
-        dropoffAddress: validated.dropoffAddress,
-        estimatedFare: order.estimatedFare,
-        estimatedDistance: (order as any).estimatedDistance,
-        estimatedDuration: (order as any).estimatedDuration,
-        vehicleType: order.vehicleType,
-        user: {
-          displayName: order.user?.displayName,
+    if (assignedDriver) {
+      // Record assignment event
+      await prisma.orderEvent.create({
+        data: {
+          orderId: order.id,
+          eventType: 'DRIVER_ASSIGNED',
+          latitude: assignedDriver.currentLatitude || validated.pickupLatitude,
+          longitude: assignedDriver.currentLongitude || validated.pickupLongitude,
         },
-      }
-      
-      // Broadcast to drivers within 5km radius (fire and forget)
-      wsServer.broadcastToNearbyDrivers(
-        validated.pickupLatitude,
-        validated.pickupLongitude,
-        5000, // 5km radius
-        {
-          type: 'new_order',
-          payload: orderData,
-        }
-      ).then(() => {
-        logger.info('Order broadcast to nearby drivers', { orderId: order.id })
-        // Start timeout for auto-rebroadcast if no driver accepts
-        this.startOrderTimeout(order.id, order)
-      }).catch((err) => {
-        logger.error('Failed to broadcast order to drivers', { orderId: order.id, error: err.message })
       })
+      logger.info('Order created and assigned to driver', { orderId: order.id, driverId: assignedDriver.id })
+
+      const wsServer = getWebSocketServer()
+      if (wsServer) {
+        // Notify Driver
+        if (assignedDriver.user?.did) {
+          wsServer.sendOrderUpdate(assignedDriver.user.did, order.id, 'DRIVER_ASSIGNED', {
+            pickupAddress: validated.pickupAddress,
+            dropoffAddress: validated.dropoffAddress,
+            estimatedFare: order.estimatedFare,
+            distanceKm: order.distanceKm,
+            durationMinutes: order.durationMinutes,
+          })
+        }
+
+        // Notify User
+        if (order.user?.did) {
+          wsServer.sendOrderUpdate(order.user.did, order.id, 'DRIVER_ASSIGNED', {
+            driver: {
+              displayName: assignedDriver.user?.displayName,
+              vehicleModel: assignedDriver.vehicleModel,
+              vehicleColor: assignedDriver.vehicleColor,
+              licensePlate: assignedDriver.licensePlate,
+              rating: assignedDriver.rating,
+              vehicleImageUrl: assignedDriver.vehicleImageUrl,
+              currentLatitude: assignedDriver.currentLatitude,
+              currentLongitude: assignedDriver.currentLongitude
+            }
+          })
+        }
+      }
+    } else {
+      logger.info('Order created', { orderId: order.id, userId, type: validated.type })
+
+      // Notify nearby drivers via WebSocket (non-blocking)
+      // Don't await this - we don't want Redis issues to block order creation
+      const wsServer = getWebSocketServer()
+      if (wsServer) {
+        const orderData = {
+          id: order.id,
+          type: order.type,
+          pickupLatitude: validated.pickupLatitude,
+          pickupLongitude: validated.pickupLongitude,
+          pickupAddress: validated.pickupAddress,
+          dropoffLatitude: validated.dropoffLatitude,
+          dropoffLongitude: validated.dropoffLongitude,
+          dropoffAddress: validated.dropoffAddress,
+          estimatedFare: order.estimatedFare,
+          estimatedDistance: (order as any).estimatedDistance,
+          estimatedDuration: (order as any).estimatedDuration,
+          vehicleType: order.vehicleType,
+          user: {
+            displayName: order.user?.displayName,
+          },
+        }
+        
+        // Broadcast to drivers within 5km radius (fire and forget)
+        wsServer.broadcastToNearbyDrivers(
+          validated.pickupLatitude,
+          validated.pickupLongitude,
+          5000, // 5km radius
+          {
+            type: 'new_order',
+            payload: orderData,
+          }
+        ).then(() => {
+          logger.info('Order broadcast to nearby drivers', { orderId: order.id })
+          // Start timeout for auto-rebroadcast if no driver accepts
+          this.startOrderTimeout(order.id, order)
+        }).catch((err) => {
+          logger.error('Failed to broadcast order to drivers', { orderId: order.id, error: err.message })
+        })
+      }
     }
 
     return order
