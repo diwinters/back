@@ -1467,6 +1467,62 @@ app.post('/api/cities/:id/seed-pricing', async (req, res) => {
 // ============================================================================
 
 /**
+ * GET /api/config/walkthrough/:cityId
+ * Public endpoint to get walkthrough by city ID (for admin panel loading)
+ */
+app.get('/api/config/walkthrough/:cityId', async (req, res) => {
+  try {
+    const { cityId } = req.params
+    
+    const walkthrough = await prisma.cityWalkthrough.findUnique({
+      where: { cityId },
+      include: {
+        city: {
+          select: { id: true, name: true, code: true }
+        },
+        points: {
+          orderBy: { order: 'asc' }
+        }
+      }
+    })
+
+    if (!walkthrough) {
+      return res.json({
+        success: true,
+        available: false,
+        message: 'Walkthrough not available for this city'
+      })
+    }
+
+    res.json({
+      success: true,
+      available: true,
+      data: {
+        id: walkthrough.id,
+        name: walkthrough.name,
+        isActive: walkthrough.isActive,
+        city: walkthrough.city,
+        defaultDurationMs: walkthrough.defaultDurationMs,
+        points: walkthrough.points.map(p => ({
+          id: p.id,
+          order: p.order,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          zoom: p.zoom,
+          pitch: p.pitch,
+          bearing: p.bearing,
+          durationMs: p.durationMs || walkthrough.defaultDurationMs,
+          label: p.label,
+        }))
+      }
+    })
+  } catch (error) {
+    console.error('Failed to fetch walkthrough by city', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/admin/walkthroughs
  * List all walkthroughs with their cities
  */
