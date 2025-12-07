@@ -1084,6 +1084,77 @@
         </div>
     </div>
 
+    <!-- Walkthrough (Cinematic Tour) Modal -->
+    <div id="walkthroughModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 1200px; max-height: 90vh; overflow-y: auto;">
+            <h3>🎬 City Tour for <span id="walkthroughCityName"></span></h3>
+            
+            <div style="display: grid; grid-template-columns: 1fr 400px; gap: 20px; margin-top: 20px;">
+                <!-- Map -->
+                <div>
+                    <div id="walkthroughMapPicker" style="width: 100%; height: 500px; border-radius: 8px; overflow: hidden;"></div>
+                    <p style="font-size: 12px; color: #666; margin-top: 8px;">Click on the map to add waypoints. Drag to explore.</p>
+                </div>
+                
+                <!-- Controls -->
+                <div>
+                    <!-- Tour Settings -->
+                    <div style="background: #f8f9fa; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                        <h4 style="margin-bottom: 12px; font-size: 14px;">Tour Settings</h4>
+                        <div style="margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: #666;">Tour Name</label>
+                            <input type="text" id="walkthroughName" placeholder="e.g. Discover Dakhla" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: #666;">Default Duration per Segment (ms)</label>
+                            <input type="number" id="walkthroughDuration" value="3000" min="1000" step="500" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="walkthroughActive" checked>
+                            <label for="walkthroughActive" style="font-size: 12px;">Active</label>
+                        </div>
+                    </div>
+                    
+                    <!-- Default Point Settings -->
+                    <div style="background: #f0f9ff; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                        <h4 style="margin-bottom: 12px; font-size: 14px;">Default for New Points</h4>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                            <div>
+                                <label style="font-size: 10px; color: #666;">Zoom</label>
+                                <input type="number" id="walkthroughPointZoom" value="14" min="8" max="20" step="0.5" style="width: 100%; padding: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 10px; color: #666;">Pitch</label>
+                                <input type="number" id="walkthroughPointPitch" value="60" min="0" max="85" step="5" style="width: 100%; padding: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 10px; color: #666;">Bearing</label>
+                                <input type="number" id="walkthroughPointBearing" value="0" min="0" max="360" step="15" style="width: 100%; padding: 6px; font-size: 12px;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Points List -->
+                    <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; max-height: 250px; overflow-y: auto;">
+                        <h4 style="margin-bottom: 12px; font-size: 14px;">Waypoints</h4>
+                        <div id="walkthroughPointsList"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-actions" style="margin-top: 20px; display: flex; justify-content: space-between;">
+                <div>
+                    <button class="btn" style="background: #8b5cf6; color: white;" onclick="previewWalkthrough()">▶️ Preview Tour</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-danger" onclick="deleteWalkthrough()">🗑️ Delete</button>
+                    <button class="btn btn-secondary" onclick="hideWalkthroughModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveWalkthrough()">💾 Save Tour</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="admin.js"></script>
 </body>
 </html>

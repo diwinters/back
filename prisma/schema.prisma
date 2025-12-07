@@ -27,6 +27,9 @@ model User {
   displayName   String?
   avatarUrl     String?
   
+  // Role
+  role          String    @default("USER") // USER, ADMIN
+  
   // Settings
   defaultPaymentMethod String?
   
@@ -87,12 +90,63 @@ model City {
   pricing     CityVehiclePricing[]
   drivers     Driver[]
   orders      Order[]
+  walkthrough CityWalkthrough?
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([isActive])
   @@index([centerLatitude, centerLongitude])
+}
+
+// =============================================================================
+// GO SERVICE: City Walkthrough (Cinematic Tour)
+// =============================================================================
+
+model CityWalkthrough {
+  id          String   @id @default(cuid())
+  cityId      String   @unique
+  city        City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  
+  name        String?  // Optional name for the tour, e.g., "Dakhla Discovery"
+  isActive    Boolean  @default(true)
+  
+  // Animation settings
+  defaultDurationMs Int @default(3000)  // Default time per segment if not specified per point
+  
+  // Waypoints
+  points      WalkthroughPoint[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WalkthroughPoint {
+  id              String   @id @default(cuid())
+  walkthroughId   String
+  walkthrough     CityWalkthrough @relation(fields: [walkthroughId], references: [id], onDelete: Cascade)
+  
+  // Position in sequence (1, 2, 3...)
+  order           Int
+  
+  // Camera position
+  latitude        Float
+  longitude       Float
+  zoom            Float    @default(14)
+  pitch           Float    @default(60)   // Tilt angle (0 = top-down, 60 = cinematic)
+  bearing         Float    @default(0)    // Rotation/heading in degrees
+  
+  // Animation to this point
+  durationMs      Int?     // Override walkthrough default if set
+  
+  // Optional label for admin reference
+  label           String?  // e.g., "Marina View", "Old Town"
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([walkthroughId, order])
+  @@index([walkthroughId])
 }
 
 model CityVehiclePricing {

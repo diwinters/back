@@ -19,6 +19,7 @@ import { driverRouter } from './routes/driver.routes'
 import { orderRouter } from './routes/order.routes'
 import { healthRouter } from './routes/health.routes'
 import { configRouter } from './routes/config.routes'
+import { adminRouter } from './routes/admin.routes'
 
 const app = express()
 const server = createServer(app)
@@ -76,6 +77,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/users', userRouter)
 app.use('/api/drivers', driverRouter)
 app.use('/api/orders', orderRouter)
+app.use('/api/admin', adminRouter)
 
 // 404 handler
 app.use((req, res) => {

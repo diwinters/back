@@ -1114,6 +1114,7 @@ async function loadCities() {
                 <td>
                     <button class="btn btn-primary" style="padding: 6px 10px; font-size: 12px;" onclick="editCity('${city.id}')">✏️ Edit</button>
                     <button class="btn btn-success" style="padding: 6px 10px; font-size: 12px;" onclick="showCityPricing('${city.id}', '${city.name}')">💰 Pricing</button>
+                    <button class="btn" style="padding: 6px 10px; font-size: 12px; background: #8b5cf6; color: white;" onclick="showWalkthroughConfig('${city.id}', '${city.name}', ${city.centerLatitude}, ${city.centerLongitude})">🎬 Tour</button>
                     <button class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;" onclick="deleteCity('${city.id}')">🗑️</button>
                 </td>
             </tr>
@@ -1512,5 +1513,365 @@ async function seedCityPricing() {
         }
     } catch (error) {
         showMessage('citiesMessage', 'Error: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Walkthrough (Cinematic City Tour) Management
+// ============================================================================
+
+let walkthroughMap = null
+let walkthroughMarkers = []
+let currentWalkthroughCityId = null
+let currentWalkthroughId = null
+let walkthroughPoints = []
+
+async function showWalkthroughConfig(cityId, cityName, centerLat, centerLng) {
+    currentWalkthroughCityId = cityId
+    document.getElementById('walkthroughCityName').textContent = cityName
+    document.getElementById('walkthroughModal').style.display = 'flex'
+    
+    // Initialize map
+    setTimeout(() => initWalkthroughMap(centerLng, centerLat), 150)
+    
+    // Load existing walkthrough if any
+    await loadWalkthrough(cityId)
+}
+
+function hideWalkthroughModal() {
+    document.getElementById('walkthroughModal').style.display = 'none'
+    if (walkthroughMap) {
+        walkthroughMap.remove()
+        walkthroughMap = null
+    }
+    walkthroughMarkers = []
+    walkthroughPoints = []
+    currentWalkthroughId = null
+    currentWalkthroughCityId = null
+}
+
+function initWalkthroughMap(centerLng, centerLat) {
+    const container = document.getElementById('walkthroughMapPicker')
+    if (!container) return
+    
+    if (walkthroughMap) {
+        walkthroughMap.remove()
+        walkthroughMap = null
+    }
+    
+    mapboxgl.accessToken = MAPBOX_TOKEN
+    
+    walkthroughMap = new mapboxgl.Map({
+        container: 'walkthroughMapPicker',
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [centerLng || -7.5898, centerLat || 33.5731],
+        zoom: 12,
+        pitch: 45
+    })
+    
+    // Click on map to add point
+    walkthroughMap.on('click', (e) => {
+        addWalkthroughPoint(e.lngLat.lat, e.lngLat.lng)
+    })
+    
+    // Render existing points
+    renderWalkthroughMarkers()
+}
+
+async function loadWalkthrough(cityId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/config/walkthrough/${cityId}`)
+        const data = await res.json()
+        
+        if (data.success && data.available && data.data) {
+            currentWalkthroughId = data.data.id
+            walkthroughPoints = data.data.points || []
+            document.getElementById('walkthroughName').value = data.data.name || ''
+            document.getElementById('walkthroughDuration').value = data.data.defaultDurationMs || 3000
+            document.getElementById('walkthroughActive').checked = true
+            
+            renderWalkthroughPointsList()
+            renderWalkthroughMarkers()
+            showMessage('citiesMessage', `Loaded walkthrough with ${walkthroughPoints.length} points`, 'success')
+        } else {
+            currentWalkthroughId = null
+            walkthroughPoints = []
+            document.getElementById('walkthroughName').value = ''
+            document.getElementById('walkthroughDuration').value = 3000
+            document.getElementById('walkthroughActive').checked = true
+            renderWalkthroughPointsList()
+        }
+    } catch (error) {
+        console.error('Failed to load walkthrough:', error)
+        walkthroughPoints = []
+        renderWalkthroughPointsList()
+    }
+}
+
+function addWalkthroughPoint(lat, lng) {
+    const newPoint = {
+        id: 'temp_' + Date.now(),
+        order: walkthroughPoints.length + 1,
+        latitude: lat,
+        longitude: lng,
+        zoom: parseFloat(document.getElementById('walkthroughPointZoom')?.value) || 14,
+        pitch: parseFloat(document.getElementById('walkthroughPointPitch')?.value) || 60,
+        bearing: parseFloat(document.getElementById('walkthroughPointBearing')?.value) || 0,
+        durationMs: null,
+        label: `Point ${walkthroughPoints.length + 1}`
+    }
+    
+    walkthroughPoints.push(newPoint)
+    renderWalkthroughPointsList()
+    renderWalkthroughMarkers()
+}
+
+function removeWalkthroughPoint(index) {
+    walkthroughPoints.splice(index, 1)
+    // Re-order remaining points
+    walkthroughPoints.forEach((p, i) => p.order = i + 1)
+    renderWalkthroughPointsList()
+    renderWalkthroughMarkers()
+}
+
+function moveWalkthroughPoint(index, direction) {
+    if (direction === 'up' && index > 0) {
+        [walkthroughPoints[index], walkthroughPoints[index - 1]] = [walkthroughPoints[index - 1], walkthroughPoints[index]]
+    } else if (direction === 'down' && index < walkthroughPoints.length - 1) {
+        [walkthroughPoints[index], walkthroughPoints[index + 1]] = [walkthroughPoints[index + 1], walkthroughPoints[index]]
+    }
+    // Re-order
+    walkthroughPoints.forEach((p, i) => p.order = i + 1)
+    renderWalkthroughPointsList()
+    renderWalkthroughMarkers()
+}
+
+function updateWalkthroughPointField(index, field, value) {
+    if (walkthroughPoints[index]) {
+        walkthroughPoints[index][field] = field === 'label' ? value : parseFloat(value)
+    }
+}
+
+function renderWalkthroughPointsList() {
+    const container = document.getElementById('walkthroughPointsList')
+    if (!container) return
+    
+    if (walkthroughPoints.length === 0) {
+        container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Click on the map to add waypoints for the tour</p>'
+        return
+    }
+    
+    container.innerHTML = walkthroughPoints.map((p, i) => `
+        <div class="walkthrough-point-item" style="background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong style="color: #333;">#${p.order} ${p.label || ''}</strong>
+                <div>
+                    <button onclick="moveWalkthroughPoint(${i}, 'up')" style="padding: 4px 8px; font-size: 10px;" ${i === 0 ? 'disabled' : ''}>⬆️</button>
+                    <button onclick="moveWalkthroughPoint(${i}, 'down')" style="padding: 4px 8px; font-size: 10px;" ${i === walkthroughPoints.length - 1 ? 'disabled' : ''}>⬇️</button>
+                    <button onclick="flyToPoint(${i})" style="padding: 4px 8px; font-size: 10px;">👁️</button>
+                    <button onclick="removeWalkthroughPoint(${i})" style="padding: 4px 8px; font-size: 10px; color: red;">🗑️</button>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px;">
+                <div>
+                    <label style="font-size: 10px; color: #666;">Label</label>
+                    <input type="text" value="${p.label || ''}" onchange="updateWalkthroughPointField(${i}, 'label', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
+                </div>
+                <div>
+                    <label style="font-size: 10px; color: #666;">Zoom</label>
+                    <input type="number" value="${p.zoom}" min="8" max="20" step="0.5" onchange="updateWalkthroughPointField(${i}, 'zoom', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
+                </div>
+                <div>
+                    <label style="font-size: 10px; color: #666;">Pitch</label>
+                    <input type="number" value="${p.pitch}" min="0" max="85" step="5" onchange="updateWalkthroughPointField(${i}, 'pitch', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
+                </div>
+                <div>
+                    <label style="font-size: 10px; color: #666;">Bearing</label>
+                    <input type="number" value="${p.bearing}" min="0" max="360" step="15" onchange="updateWalkthroughPointField(${i}, 'bearing', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
+                </div>
+                <div>
+                    <label style="font-size: 10px; color: #666;">Duration (ms)</label>
+                    <input type="number" value="${p.durationMs || ''}" placeholder="Default" min="1000" step="500" onchange="updateWalkthroughPointField(${i}, 'durationMs', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
+                </div>
+                <div style="font-size: 10px; color: #999; padding-top: 14px;">
+                    ${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}
+                </div>
+            </div>
+        </div>
+    `).join('')
+}
+
+function renderWalkthroughMarkers() {
+    // Clear existing markers
+    walkthroughMarkers.forEach(m => m.remove())
+    walkthroughMarkers = []
+    
+    if (!walkthroughMap) return
+    
+    walkthroughPoints.forEach((p, i) => {
+        const el = document.createElement('div')
+        el.className = 'walkthrough-marker'
+        el.innerHTML = `<div style="background: #22c55e; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">${p.order}</div>`
+        
+        const marker = new mapboxgl.Marker(el)
+            .setLngLat([p.longitude, p.latitude])
+            .addTo(walkthroughMap)
+        
+        walkthroughMarkers.push(marker)
+    })
+    
+    // Draw line connecting points
+    if (walkthroughPoints.length >= 2) {
+        const coordinates = walkthroughPoints.map(p => [p.longitude, p.latitude])
+        
+        if (walkthroughMap.getSource('walkthrough-route')) {
+            walkthroughMap.getSource('walkthrough-route').setData({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates }
+            })
+        } else {
+            walkthroughMap.on('load', () => {
+                if (!walkthroughMap.getSource('walkthrough-route')) {
+                    walkthroughMap.addSource('walkthrough-route', {
+                        type: 'geojson',
+                        data: {
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates }
+                        }
+                    })
+                    walkthroughMap.addLayer({
+                        id: 'walkthrough-route-line',
+                        type: 'line',
+                        source: 'walkthrough-route',
+                        paint: {
+                            'line-color': '#22c55e',
+                            'line-width': 3,
+                            'line-dasharray': [2, 2]
+                        }
+                    })
+                }
+            })
+        }
+    }
+}
+
+function flyToPoint(index) {
+    if (!walkthroughMap || !walkthroughPoints[index]) return
+    
+    const p = walkthroughPoints[index]
+    walkthroughMap.flyTo({
+        center: [p.longitude, p.latitude],
+        zoom: p.zoom,
+        pitch: p.pitch,
+        bearing: p.bearing,
+        duration: 2000
+    })
+}
+
+async function previewWalkthrough() {
+    if (walkthroughPoints.length < 2) {
+        alert('Add at least 2 points to preview')
+        return
+    }
+    
+    const duration = parseInt(document.getElementById('walkthroughDuration').value) || 3000
+    
+    for (let i = 0; i < walkthroughPoints.length; i++) {
+        const p = walkthroughPoints[i]
+        await new Promise(resolve => {
+            walkthroughMap.flyTo({
+                center: [p.longitude, p.latitude],
+                zoom: p.zoom,
+                pitch: p.pitch,
+                bearing: p.bearing,
+                duration: p.durationMs || duration
+            })
+            setTimeout(resolve, (p.durationMs || duration) + 500)
+        })
+    }
+}
+
+async function saveWalkthrough() {
+    if (!currentWalkthroughCityId) {
+        alert('No city selected')
+        return
+    }
+    
+    if (walkthroughPoints.length < 2) {
+        alert('Add at least 2 points for the walkthrough')
+        return
+    }
+    
+    const payload = {
+        cityId: currentWalkthroughCityId,
+        name: document.getElementById('walkthroughName').value || null,
+        isActive: document.getElementById('walkthroughActive').checked,
+        defaultDurationMs: parseInt(document.getElementById('walkthroughDuration').value) || 3000,
+        points: walkthroughPoints.map(p => ({
+            order: p.order,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            zoom: p.zoom,
+            pitch: p.pitch,
+            bearing: p.bearing,
+            durationMs: p.durationMs || null,
+            label: p.label || null
+        }))
+    }
+    
+    try {
+        let response
+        if (currentWalkthroughId) {
+            // Update existing
+            response = await fetch(`${API_BASE}/api/admin/walkthroughs/${currentWalkthroughId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+        } else {
+            // Create new
+            response = await fetch(`${API_BASE}/api/admin/walkthroughs`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+        }
+        
+        const result = await response.json()
+        
+        if (result.success) {
+            currentWalkthroughId = result.data.id
+            showMessage('citiesMessage', `Walkthrough saved with ${walkthroughPoints.length} points!`, 'success')
+            hideWalkthroughModal()
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'))
+        }
+    } catch (error) {
+        alert('Error saving walkthrough: ' + error.message)
+    }
+}
+
+async function deleteWalkthrough() {
+    if (!currentWalkthroughId) {
+        alert('No walkthrough to delete')
+        return
+    }
+    
+    if (!confirm('Delete this walkthrough? This cannot be undone.')) return
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/admin/walkthroughs/${currentWalkthroughId}`, {
+            method: 'DELETE'
+        })
+        const result = await response.json()
+        
+        if (result.success) {
+            showMessage('citiesMessage', 'Walkthrough deleted', 'success')
+            hideWalkthroughModal()
+        } else {
+            alert('Error: ' + (result.error || 'Unknown error'))
+        }
+    } catch (error) {
+        alert('Error deleting walkthrough: ' + error.message)
     }
 }
