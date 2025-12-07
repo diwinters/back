@@ -613,7 +613,7 @@ export class OrderService {
   }
 
   /**
-   * Get order history
+   * Get order history - for both riders (as user) and drivers (as driver)
    */
   async getOrderHistory(
     userId: string,
@@ -621,15 +621,26 @@ export class OrderService {
   ): Promise<{ orders: any[]; total: number }> {
     const { page = 1, pageSize = 20 } = options
 
+    // Get orders where user is either the rider OR the driver
+    const whereClause = {
+      OR: [
+        { userId },
+        { driverId: userId },
+      ],
+    }
+
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
-        where: { userId },
-        include: { driver: true },
+        where: whereClause,
+        include: { 
+          driver: true,
+          user: true,  // Include user info for driver's view
+        },
         orderBy: { requestedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
-      prisma.order.count({ where: { userId } }),
+      prisma.order.count({ where: whereClause }),
     ])
 
     return { orders, total }
