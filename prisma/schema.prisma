@@ -193,7 +193,7 @@ enum OrderStatus {
   PENDING           // Just created, searching for driver
   DRIVER_ASSIGNED   // Driver accepted
   DRIVER_ARRIVING   // Driver en route to pickup
-  ARRIVED           // Driver at pickup location
+  DRIVER_ARRIVED    // Driver at pickup location
   IN_PROGRESS       // Trip/delivery in progress
   COMPLETED         // Successfully completed
   CANCELLED         // Cancelled by user, driver, or system

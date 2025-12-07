@@ -430,7 +430,7 @@ export class OrderService {
     switch (status) {
       case 'DRIVER_ARRIVING':
         break
-      case 'ARRIVED':
+      case 'DRIVER_ARRIVED':
         updateData.arrivedAt = new Date()
         break
       case 'IN_PROGRESS':
@@ -457,7 +457,7 @@ export class OrderService {
     // Create order event
     const eventTypeMap: Record<string, string> = {
       DRIVER_ARRIVING: 'DRIVER_ARRIVING',
-      ARRIVED: 'DRIVER_ARRIVED',
+      DRIVER_ARRIVED: 'DRIVER_ARRIVED',
       IN_PROGRESS: 'TRIP_STARTED',
       COMPLETED: 'TRIP_COMPLETED',
       CANCELLED: 'CANCELLED',
@@ -479,7 +479,7 @@ export class OrderService {
     if (wsServer && updatedOrder.user) {
       const statusMessages: Record<string, string> = {
         DRIVER_ARRIVING: 'Driver is on the way to pickup',
-        ARRIVED: 'Driver has arrived at pickup location',
+        DRIVER_ARRIVED: 'Driver has arrived at pickup location',
         IN_PROGRESS: 'Trip has started',
         COMPLETED: 'Trip completed',
         CANCELLED: 'Order has been cancelled',
