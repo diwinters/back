@@ -616,16 +616,19 @@ export class OrderService {
    * Get order history - for both riders (as user) and drivers (as driver)
    */
   async getOrderHistory(
-    userId: string,
+    userIdentifier: string, // can be internal userId (UUID) or DID
     options: { page?: number; pageSize?: number } = {}
   ): Promise<{ orders: any[]; total: number }> {
     const { page = 1, pageSize = 20 } = options
 
     // Get orders where user is either the rider OR the driver
+    // Support lookups by both internal userId and DID to handle tokens that carry only a DID
     const whereClause = {
       OR: [
-        { userId },
-        { driverId: userId },
+        { userId: userIdentifier },
+        { driverId: userIdentifier },
+        { user: { did: userIdentifier } },
+        { driver: { did: userIdentifier } },
       ],
     }
 

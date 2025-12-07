@@ -118,7 +118,12 @@ router.get('/history', async (req: any, res, next) => {
   try {
     const { page, pageSize } = req.query
     
-    const result = await orderService.getOrderHistory(req.user.id, {
+    const userIdentifier = req.user.id || req.user.did // accept JWT sub or DID fallback
+    if (!userIdentifier) {
+      throw new AppError('User identifier missing', ErrorCode.UNAUTHORIZED, 401)
+    }
+
+    const result = await orderService.getOrderHistory(userIdentifier, {
       page: page ? parseInt(page) : undefined,
       pageSize: pageSize ? parseInt(pageSize) : undefined,
     })
