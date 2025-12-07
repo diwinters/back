@@ -48,6 +48,7 @@ export class WebSocketServer {
    * Set up Redis pub/sub for cross-cluster WebSocket messaging
    */
   private async setupClusterMessaging() {
+    // Listen for targeted messages to specific DIDs
     await this.redis.subscribeToWsMessages(({ did, message }) => {
       // Check if we have this client locally
       const client = this.clients.get(did)
@@ -60,6 +61,36 @@ export class WebSocketServer {
         this.send(client.ws, message)
       }
     })
+
+    // Listen for broadcast messages (e.g., new orders from admin)
+    await this.redis.subscribeToBroadcast(async (broadcastMessage) => {
+      logger.info('Received broadcast message', { type: broadcastMessage.type, instanceId: this.instanceId })
+      
+      if (broadcastMessage.type === 'broadcast_new_order') {
+        // Broadcast to all connected drivers
+        const orderPayload = broadcastMessage.payload
+        const message = {
+          type: 'new_order',
+          payload: orderPayload,
+        }
+        
+        const notifiedDrivers: string[] = []
+        for (const client of this.clients.values()) {
+          if (client.role === 'driver' && client.ws.readyState === WebSocket.OPEN) {
+            this.send(client.ws, message)
+            notifiedDrivers.push(client.did)
+          }
+        }
+        
+        logger.info('Broadcast new order to drivers', { 
+          orderId: orderPayload.id, 
+          driverCount: notifiedDrivers.length,
+          drivers: notifiedDrivers,
+          instanceId: this.instanceId 
+        })
+      }
+    })
+
     logger.info('WebSocket cluster messaging initialized', { instanceId: this.instanceId })
   }
 

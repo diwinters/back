@@ -8,11 +8,48 @@ const path = require('path')
 const fs = require('fs')
 const multer = require('multer')
 const { PrismaClient } = require('@prisma/client')
+const Redis = require('ioredis')
 
 const app = express()
 const prisma = new PrismaClient()
 
 const PORT = process.env.ADMIN_PORT || 8080
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
+
+// Redis client for pub/sub (to notify gateway of new orders)
+const redis = new Redis(REDIS_URL)
+redis.on('error', (err) => console.error('Redis error:', err))
+redis.on('connect', () => console.log('Redis connected'))
+
+/**
+ * Publish a new order event for the gateway WebSocket server to broadcast
+ */
+async function publishNewOrder(order) {
+  try {
+    const message = {
+      type: 'broadcast_new_order',
+      payload: {
+        id: order.id,
+        type: order.type,
+        pickupLatitude: order.pickupLatitude,
+        pickupLongitude: order.pickupLongitude,
+        pickupAddress: order.pickupAddress,
+        dropoffLatitude: order.dropoffLatitude,
+        dropoffLongitude: order.dropoffLongitude,
+        dropoffAddress: order.dropoffAddress,
+        estimatedFare: order.estimatedFare,
+        vehicleType: order.vehicleType,
+        user: order.user ? {
+          displayName: order.user.displayName,
+        } : undefined,
+      }
+    }
+    await redis.publish('ws:broadcast', JSON.stringify(message))
+    console.log('Published new order to Redis for broadcast:', order.id)
+  } catch (error) {
+    console.error('Failed to publish order to Redis:', error)
+  }
+}
 
 // ============================================================================
 // File Upload Configuration
@@ -765,10 +802,13 @@ app.post('/api/orders', async (req, res) => {
     await prisma.orderEvent.create({
       data: {
         orderId: order.id,
-        type: 'ORDER_CREATED',
-        description: 'Order created by admin'
+        eventType: 'CREATED',
+        metadata: { source: 'admin' }
       }
     })
+
+    // Publish to Redis for WebSocket broadcast to drivers
+    await publishNewOrder(order)
 
     res.json({
       success: true,

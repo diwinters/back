@@ -19,6 +19,7 @@ const KEYS = {
 // Pub/Sub channels for cluster communication
 const CHANNELS = {
   WS_MESSAGE: 'ws:message',  // Cross-instance WebSocket messages
+  WS_BROADCAST: 'ws:broadcast',  // Broadcast to all drivers (from admin, etc.)
 }
 
 // TTLs in seconds
@@ -296,6 +297,16 @@ export class RedisService {
     this.messageHandlers.set(CHANNELS.WS_MESSAGE, handler)
     await this.subscriber.subscribe(CHANNELS.WS_MESSAGE)
     logger.info('Subscribed to WebSocket message channel for cluster communication')
+  }
+
+  /**
+   * Subscribe to broadcast channel for admin-initiated events
+   * @param handler Callback function to handle broadcast messages
+   */
+  async subscribeToBroadcast(handler: (message: any) => void): Promise<void> {
+    this.messageHandlers.set(CHANNELS.WS_BROADCAST, handler)
+    await this.subscriber.subscribe(CHANNELS.WS_BROADCAST)
+    logger.info('Subscribed to WebSocket broadcast channel')
   }
 
   /**
