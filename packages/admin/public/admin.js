@@ -1581,11 +1581,14 @@ function initWalkthroughMap(centerLng, centerLat) {
 async function loadWalkthrough(cityId) {
     try {
         // Use admin endpoint to get walkthrough by cityId (includes inactive ones)
+        console.log('[Admin] Loading walkthrough for city:', cityId)
         const res = await fetch(`${API_BASE}/api/admin/walkthroughs/by-city/${cityId}`)
         const data = await res.json()
+        console.log('[Admin] Load response:', data)
         
         if (data.success && data.data) {
             currentWalkthroughId = data.data.id
+            console.log('[Admin] Set currentWalkthroughId to:', currentWalkthroughId)
             walkthroughPoints = data.data.points || []
             document.getElementById('walkthroughName').value = data.data.name || ''
             document.getElementById('walkthroughDuration').value = data.data.defaultDurationMs || 3000
@@ -1595,6 +1598,7 @@ async function loadWalkthrough(cityId) {
             renderWalkthroughMarkers()
             showMessage('citiesMessage', `Loaded walkthrough with ${walkthroughPoints.length} points`, 'success')
         } else {
+            console.log('[Admin] No walkthrough found, will create new')
             currentWalkthroughId = null
             walkthroughPoints = []
             document.getElementById('walkthroughName').value = ''
@@ -1603,7 +1607,7 @@ async function loadWalkthrough(cityId) {
             renderWalkthroughPointsList()
         }
     } catch (error) {
-        console.error('Failed to load walkthrough:', error)
+        console.error('[Admin] Failed to load walkthrough:', error)
         currentWalkthroughId = null
         walkthroughPoints = []
         renderWalkthroughPointsList()
@@ -1834,6 +1838,8 @@ async function saveWalkthrough() {
         return
     }
     
+    console.log('[Admin] Saving walkthrough. currentWalkthroughId:', currentWalkthroughId)
+    
     const payload = {
         cityId: currentWalkthroughCityId,
         name: document.getElementById('walkthroughName').value || null,
@@ -1859,6 +1865,7 @@ async function saveWalkthrough() {
         let response
         if (currentWalkthroughId) {
             // Update existing
+            console.log('[Admin] Using PUT to update walkthrough:', currentWalkthroughId)
             response = await fetch(`${API_BASE}/api/admin/walkthroughs/${currentWalkthroughId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -1866,6 +1873,7 @@ async function saveWalkthrough() {
             })
         } else {
             // Create new
+            console.log('[Admin] Using POST to create new walkthrough')
             response = await fetch(`${API_BASE}/api/admin/walkthroughs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
