@@ -151,6 +151,10 @@ router.post('/walkthroughs', async (req, res, next) => {
             bearing: p.bearing ?? 0,
             durationMs: p.durationMs,
             label: p.label,
+            // Rich content fields
+            title: p.title,
+            description: p.description,
+            imageUrl: p.imageUrl,
           }))
         } : undefined
       },
@@ -216,6 +220,10 @@ router.put('/walkthroughs/:id', async (req, res, next) => {
                 bearing: p.bearing ?? 0,
                 durationMs: p.durationMs,
                 label: p.label,
+                // Rich content fields
+                title: p.title,
+                description: p.description,
+                imageUrl: p.imageUrl,
               }))
             }
           })

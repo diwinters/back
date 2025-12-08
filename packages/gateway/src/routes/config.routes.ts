@@ -274,6 +274,10 @@ router.get('/walkthrough/by-location', async (req, res, next) => {
           bearing: p.bearing,
           durationMs: p.durationMs || walkthrough.defaultDurationMs,
           label: p.label,
+          // Rich content for tour stop display
+          title: p.title,
+          description: p.description,
+          imageUrl: p.imageUrl,
         }))
       }
     })
@@ -329,6 +333,10 @@ router.get('/walkthrough/:cityId', async (req, res, next) => {
           bearing: p.bearing,
           durationMs: p.durationMs || walkthrough.defaultDurationMs,
           label: p.label,
+          // Rich content for tour stop display
+          title: p.title,
+          description: p.description,
+          imageUrl: p.imageUrl,
         }))
       }
     })

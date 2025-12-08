@@ -142,6 +142,11 @@ model WalkthroughPoint {
   // Optional label for admin reference
   label           String?  // e.g., "Marina View", "Old Town"
   
+  // Rich content for tour stop display
+  title           String?  // Display title shown during tour stop
+  description     String?  // Description text shown during tour stop
+  imageUrl        String?  // Image/media URL for the point
+  
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

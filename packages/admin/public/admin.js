@@ -1672,9 +1672,31 @@ function renderWalkthroughPointsList() {
                     <button onclick="removeWalkthroughPoint(${i})" style="padding: 4px 8px; font-size: 10px; color: red;">🗑️</button>
                 </div>
             </div>
+            
+            <!-- Rich Content Section -->
+            <div style="background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px; margin-bottom: 10px;">
+                <div style="font-size: 11px; color: #8b5cf6; font-weight: 600; margin-bottom: 8px;">📝 Tour Stop Content</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                    <div>
+                        <label style="font-size: 10px; color: #666;">Display Title</label>
+                        <input type="text" value="${p.title || ''}" placeholder="e.g., Marina Bay" onchange="updateWalkthroughPointField(${i}, 'title', this.value)" style="width: 100%; padding: 6px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                    <div>
+                        <label style="font-size: 10px; color: #666;">Image URL</label>
+                        <input type="text" value="${p.imageUrl || ''}" placeholder="https://..." onchange="updateWalkthroughPointField(${i}, 'imageUrl', this.value)" style="width: 100%; padding: 6px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px;">
+                    </div>
+                </div>
+                <div>
+                    <label style="font-size: 10px; color: #666;">Description</label>
+                    <textarea rows="2" placeholder="Describe this location..." onchange="updateWalkthroughPointField(${i}, 'description', this.value)" style="width: 100%; padding: 6px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;">${p.description || ''}</textarea>
+                </div>
+                ${p.imageUrl ? `<div style="margin-top: 8px;"><img src="${p.imageUrl}" style="max-width: 100%; max-height: 80px; border-radius: 4px; object-fit: cover;" onerror="this.style.display='none'"></div>` : ''}
+            </div>
+            
+            <!-- Camera Settings -->
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px;">
                 <div>
-                    <label style="font-size: 10px; color: #666;">Label</label>
+                    <label style="font-size: 10px; color: #666;">Label (Admin)</label>
                     <input type="text" value="${p.label || ''}" onchange="updateWalkthroughPointField(${i}, 'label', this.value)" style="width: 100%; padding: 4px; font-size: 11px;">
                 </div>
                 <div>
@@ -1815,7 +1837,11 @@ async function saveWalkthrough() {
             pitch: p.pitch,
             bearing: p.bearing,
             durationMs: p.durationMs || null,
-            label: p.label || null
+            label: p.label || null,
+            // Rich content fields
+            title: p.title || null,
+            description: p.description || null,
+            imageUrl: p.imageUrl || null,
         }))
     }
     
