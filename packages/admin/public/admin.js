@@ -1879,6 +1879,44 @@ async function saveWalkthrough() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             })
+            // Fallback: if city already has a walkthrough, fetch id then retry with PUT
+            if (response.status === 409) {
+                console.warn('[Admin] POST returned 409, attempting to fetch existing walkthrough id and retry with PUT')
+                try {
+                    let existingId = null
+                    // Try admin by-city endpoint
+                    const byCityRes = await fetch(`${API_BASE}/api/admin/walkthroughs/by-city/${currentWalkthroughCityId}`)
+                    if (byCityRes.ok) {
+                        const byCityData = await byCityRes.json()
+                        if (byCityData && byCityData.data && byCityData.data.id) {
+                            existingId = byCityData.data.id
+                        }
+                    }
+                    // Fallback to public config endpoint (only returns active)
+                    if (!existingId) {
+                        const cfgRes = await fetch(`${API_BASE}/api/config/walkthrough/${currentWalkthroughCityId}`)
+                        if (cfgRes.ok) {
+                            const cfg = await cfgRes.json()
+                            if (cfg && cfg.success && cfg.available && cfg.data && cfg.data.id) {
+                                existingId = cfg.data.id
+                            }
+                        }
+                    }
+                    if (existingId) {
+                        currentWalkthroughId = existingId
+                        console.log('[Admin] Retrying with PUT, walkthroughId:', existingId)
+                        response = await fetch(`${API_BASE}/api/admin/walkthroughs/${existingId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        })
+                    } else {
+                        console.error('[Admin] Could not determine existing walkthrough id after 409')
+                    }
+                } catch (e) {
+                    console.error('[Admin] Fallback PUT after 409 failed:', e)
+                }
+            }
         }
         
         const result = await response.json()
