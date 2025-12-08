@@ -1580,15 +1580,16 @@ function initWalkthroughMap(centerLng, centerLat) {
 
 async function loadWalkthrough(cityId) {
     try {
-        const res = await fetch(`${API_BASE}/api/config/walkthrough/${cityId}`)
+        // Use admin endpoint to get walkthrough by cityId (includes inactive ones)
+        const res = await fetch(`${API_BASE}/api/admin/walkthroughs/by-city/${cityId}`)
         const data = await res.json()
         
-        if (data.success && data.available && data.data) {
+        if (data.success && data.data) {
             currentWalkthroughId = data.data.id
             walkthroughPoints = data.data.points || []
             document.getElementById('walkthroughName').value = data.data.name || ''
             document.getElementById('walkthroughDuration').value = data.data.defaultDurationMs || 3000
-            document.getElementById('walkthroughActive').checked = true
+            document.getElementById('walkthroughActive').checked = data.data.isActive !== false
             
             renderWalkthroughPointsList()
             renderWalkthroughMarkers()
@@ -1603,6 +1604,7 @@ async function loadWalkthrough(cityId) {
         }
     } catch (error) {
         console.error('Failed to load walkthrough:', error)
+        currentWalkthroughId = null
         walkthroughPoints = []
         renderWalkthroughPointsList()
     }
@@ -1648,7 +1650,15 @@ function moveWalkthroughPoint(index, direction) {
 
 function updateWalkthroughPointField(index, field, value) {
     if (walkthroughPoints[index]) {
-        walkthroughPoints[index][field] = field === 'label' ? value : parseFloat(value)
+        // String fields that should not be converted to numbers
+        const stringFields = ['label', 'title', 'description', 'imageUrl']
+        if (stringFields.includes(field)) {
+            walkthroughPoints[index][field] = value
+        } else if (field === 'durationMs') {
+            walkthroughPoints[index][field] = value ? parseInt(value, 10) : null
+        } else {
+            walkthroughPoints[index][field] = parseFloat(value)
+        }
     }
 }
 

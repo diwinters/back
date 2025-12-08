@@ -68,6 +68,45 @@ router.get('/walkthroughs', async (req, res, next) => {
 })
 
 /**
+ * GET /api/admin/walkthroughs/by-city/:cityId
+ * Get walkthrough by cityId (for admin panel - includes inactive)
+ * NOTE: Must be defined BEFORE /walkthroughs/:id to avoid matching "by-city" as id
+ */
+router.get('/walkthroughs/by-city/:cityId', async (req, res, next) => {
+  try {
+    const { cityId } = req.params
+    
+    const walkthrough = await prisma.cityWalkthrough.findUnique({
+      where: { cityId },
+      include: {
+        city: {
+          select: { id: true, name: true, code: true, centerLatitude: true, centerLongitude: true }
+        },
+        points: {
+          orderBy: { order: 'asc' }
+        }
+      }
+    })
+
+    if (!walkthrough) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No walkthrough found for this city'
+      })
+    }
+
+    res.json({
+      success: true,
+      data: walkthrough
+    })
+  } catch (error) {
+    logger.error('Failed to get walkthrough by city', { error })
+    next(error)
+  }
+})
+
+/**
  * GET /api/admin/walkthroughs/:id
  * Get a specific walkthrough with all details
  */
