@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Tour - LAREP</title>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js'></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #1a365d;
+            --primary-light: #2c5282;
+            --accent: #3182ce;
+            --success: #38a169;
+            --gray-50: #f7fafc;
+            --gray-100: #edf2f7;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e0;
+            --gray-500: #718096;
+            --gray-700: #4a5568;
+            --gray-900: #1a202c;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--gray-900);
+            color: white;
+        }
+
+        /* Map Container */
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        /* Overlay Header */
+        .overlay-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 30px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .project-info {
+            max-width: 500px;
+        }
+
+        .project-info h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .project-info .meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .project-info .meta span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .back-link {
+            color: white;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            transition: background 0.2s;
+        }
+
+        .back-link:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-planned { background: rgba(255,255,255,0.2); }
+        .status-in-progress { background: rgba(234, 179, 8, 0.3); }
+        .status-completed { background: rgba(34, 197, 94, 0.3); }
+        .status-on-hold { background: rgba(239, 68, 68, 0.3); }
+
+        /* Progress Bar */
+        .progress-section {
+            margin-top: 12px;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 3px;
+            overflow: hidden;
+            width: 200px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--success);
+            border-radius: 3px;
+            transition: width 0.5s;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            margin-top: 4px;
+            opacity: 0.8;
+        }
+
+        /* Bottom Info Panel */
+        .info-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            right: 30px;
+            background: rgba(26, 54, 93, 0.95);
+            border-radius: 16px;
+            padding: 24px;
+            z-index: 10;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            display: flex;
+            gap: 24px;
+            max-height: 250px;
+            transform: translateY(100%);
+            opacity: 0;
+            transition: transform 0.4s ease, opacity 0.4s ease;
+        }
+
+        .info-panel.visible {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .info-panel .point-image {
+            width: 200px;
+            height: 150px;
+            border-radius: 12px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .info-panel .point-content {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .info-panel .point-number {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .info-panel h2 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .info-panel p {
+            font-size: 14px;
+            line-height: 1.6;
+            opacity: 0.9;
+            overflow-y: auto;
+            max-height: 80px;
+        }
+
+        /* Tour Controls */
+        .tour-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .tour-controls.has-panel {
+            bottom: 300px;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(26, 54, 93, 0.95);
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+        }
+
+        .control-btn:hover {
+            background: var(--accent);
+            transform: scale(1.1);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .control-btn.play {
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            background: var(--accent);
+        }
+
+        .control-btn.play:hover {
+            background: var(--primary-light);
+        }
+
+        /* Points Navigation */
+        .points-nav {
+            position: absolute;
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .point-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .point-dot:hover {
+            background: rgba(255,255,255,0.5);
+        }
+
+        .point-dot.active {
+            background: var(--accent);
+            border-color: white;
+            transform: scale(1.3);
+        }
+
+        /* Description Panel */
+        .description-panel {
+            position: absolute;
+            top: 120px;
+            left: 30px;
+            max-width: 350px;
+            background: rgba(26, 54, 93, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            z-index: 10;
+            backdrop-filter: blur(10px);
+        }
+
+        .description-panel h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--accent);
+        }
+
+        .description-panel p {
+            font-size: 13px;
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+
+        /* Loading State */
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 100;
+        }
+
+        .loading .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error State */
+        .error-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 100;
+            background: rgba(26, 54, 93, 0.95);
+            padding: 40px;
+            border-radius: 16px;
+            max-width: 400px;
+        }
+
+        .error-state .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .error-state h2 {
+            margin-bottom: 8px;
+        }
+
+        .error-state p {
+            opacity: 0.8;
+            margin-bottom: 20px;
+        }
+
+        .error-state a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* Gallery Modal */
+        .gallery-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .gallery-modal.visible {
+            display: flex;
+        }
+
+        .gallery-modal img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .gallery-modal .close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .overlay-header {
+                padding: 16px 20px;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .project-info h1 {
+                font-size: 20px;
+            }
+
+            .info-panel {
+                left: 16px;
+                right: 16px;
+                bottom: 16px;
+                flex-direction: column;
+                max-height: 300px;
+            }
+
+            .info-panel .point-image {
+                width: 100%;
+                height: 120px;
+            }
+
+            .points-nav {
+                right: 16px;
+            }
+
+            .description-panel {
+                left: 16px;
+                right: 16px;
+                max-width: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Loading project...</div>
+    </div>
+
+    <div class="error-state" id="errorState" style="display: none;">
+        <div class="icon">📋</div>
+        <h2>Project Not Found</h2>
+        <p>This project may not exist or is not published yet.</p>
+        <a href="/larep/projects">← Back to Projects</a>
+    </div>
+
+    <header class="overlay-header" id="header" style="display: none;">
+        <div class="project-info">
+            <h1 id="projectName">Project Name</h1>
+            <div class="meta">
+                <span id="projectExecutor"></span>
+                <span id="projectBudget"></span>
+                <span class="status-badge" id="projectStatus"></span>
+            </div>
+            <div class="progress-section" id="progressSection">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">0% Completed</div>
+            </div>
+        </div>
+        <a href="/larep/projects" class="back-link">← All Projects</a>
+    </header>
+
+    <div class="description-panel" id="descriptionPanel" style="display: none;">
+        <h3>About This Project</h3>
+        <p id="projectDescription"></p>
+    </div>
+
+    <div class="points-nav" id="pointsNav"></div>
+
+    <div class="info-panel" id="infoPanel">
+        <img class="point-image" id="pointImage" src="" alt="">
+        <div class="point-content">
+            <div class="point-number" id="pointNumber">Point 1 of 5</div>
+            <h2 id="pointTitle">Point Title</h2>
+            <p id="pointDescription">Point description goes here...</p>
+        </div>
+    </div>
+
+    <div class="tour-controls" id="tourControls" style="display: none;">
+        <button class="control-btn" id="prevBtn" onclick="goToPoint(currentIndex - 1)">◀</button>
+        <button class="control-btn play" id="playBtn" onclick="toggleAutoPlay()">▶</button>
+        <button class="control-btn" id="nextBtn" onclick="goToPoint(currentIndex + 1)">▶</button>
+    </div>
+
+    <div class="gallery-modal" id="galleryModal" onclick="closeGallery()">
+        <button class="close">×</button>
+        <img id="galleryImage" src="" alt="">
+    </div>
+
+    <script>
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGl3aW50ZXIiLCJhIjoiY200Z3ViNHRxMGQ0djJqcHNpNGpjNjZ0cSJ9.I5iy1A5aaVuJP6_-a5IjLA';
+        
+        let map = null;
+        let project = null;
+        let points = [];
+        let currentIndex = 0;
+        let isAutoPlaying = false;
+        let autoPlayInterval = null;
+
+        // Get project ID from URL
+        const pathParts = window.location.pathname.split('/');
+        const projectId = pathParts[pathParts.length - 1];
+
+        // ====================================================================
+        // Initialization
+        // ====================================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProject();
+        });
+
+        async function loadProject() {
+            try {
+                const res = await fetch(`/api/larep/projects/${projectId}/public`);
+                const data = await res.json();
+
+                if (!data.success || !data.data) {
+                    showError();
+                    return;
+                }
+
+                project = data.data;
+                points = project.points || [];
+
+                if (points.length === 0) {
+                    showError();
+                    return;
+                }
+
+                initUI();
+                initMap();
+
+            } catch (error) {
+                console.error('Failed to load project:', error);
+                showError();
+            }
+        }
+
+        function showError() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('errorState').style.display = 'block';
+        }
+
+        function initUI() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('header').style.display = 'flex';
+            document.getElementById('tourControls').style.display = 'flex';
+
+            // Project info
+            document.getElementById('projectName').textContent = project.name;
+            document.title = `${project.name} - LAREP Project Tour`;
+
+            if (project.executor) {
+                document.getElementById('projectExecutor').innerHTML = `👷 ${project.executor}`;
+            }
+
+            if (project.budget) {
+                document.getElementById('projectBudget').innerHTML = `💰 ${formatNumber(project.budget)} ${project.budgetCurrency || 'MAD'}`;
+            }
+
+            // Status
+            const statusEl = document.getElementById('projectStatus');
+            statusEl.textContent = formatStatus(project.status);
+            statusEl.className = `status-badge status-${project.status.toLowerCase().replace('_', '-')}`;
+
+            // Progress
+            document.getElementById('progressFill').style.width = `${project.executionPercent}%`;
+            document.getElementById('progressText').textContent = `${project.executionPercent}% Completed`;
+
+            // Description
+            if (project.description) {
+                document.getElementById('descriptionPanel').style.display = 'block';
+                document.getElementById('projectDescription').textContent = project.description;
+            }
+
+            // Points navigation
+            renderPointsNav();
+        }
+
+        function initMap() {
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+
+            const firstPoint = points[0];
+
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/satellite-streets-v12',
+                center: [firstPoint.longitude, firstPoint.latitude],
+                zoom: firstPoint.zoom || 14,
+                pitch: firstPoint.pitch || 60,
+                bearing: firstPoint.bearing || 0
+            });
+
+            map.on('load', () => {
+                // Add markers for all points
+                points.forEach((p, i) => {
+                    const el = document.createElement('div');
+                    el.style.cssText = `
+                        background: ${i === 0 ? '#3182ce' : 'white'};
+                        color: ${i === 0 ? 'white' : '#1a365d'};
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-weight: bold;
+                        font-size: 14px;
+                        border: 3px solid white;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+                        cursor: pointer;
+                    `;
+                    el.textContent = i + 1;
+                    el.onclick = () => goToPoint(i);
+
+                    new mapboxgl.Marker(el)
+                        .setLngLat([p.longitude, p.latitude])
+                        .addTo(map);
+                });
+
+                // Draw route line
+                if (points.length >= 2) {
+                    const coordinates = points.map(p => [p.longitude, p.latitude]);
+                    
+                    map.addSource('route', {
+                        type: 'geojson',
+                        data: {
+                            type: 'Feature',
+                            geometry: { type: 'LineString', coordinates }
+                        }
+                    });
+
+                    map.addLayer({
+                        id: 'route-line',
+                        type: 'line',
+                        source: 'route',
+                        paint: {
+                            'line-color': '#3182ce',
+                            'line-width': 4,
+                            'line-opacity': 0.8
+                        }
+                    });
+                }
+
+                // Show first point
+                goToPoint(0);
+            });
+        }
+
+        // ====================================================================
+        // Navigation
+        // ====================================================================
+
+        function renderPointsNav() {
+            const nav = document.getElementById('pointsNav');
+            nav.innerHTML = points.map((p, i) => `
+                <div class="point-dot ${i === 0 ? 'active' : ''}" 
+                     onclick="goToPoint(${i})" 
+                     title="${p.title || 'Point ' + (i + 1)}"></div>
+            `).join('');
+        }
+
+        function goToPoint(index) {
+            if (index < 0 || index >= points.length) return;
+
+            currentIndex = index;
+            const point = points[index];
+
+            // Update nav dots
+            document.querySelectorAll('.point-dot').forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+
+            // Update buttons
+            document.getElementById('prevBtn').disabled = index === 0;
+            document.getElementById('nextBtn').disabled = index === points.length - 1;
+
+            // Fly to point
+            map.flyTo({
+                center: [point.longitude, point.latitude],
+                zoom: point.zoom || 14,
+                pitch: point.pitch || 60,
+                bearing: point.bearing || 0,
+                duration: point.durationMs || 3000,
+                essential: true
+            });
+
+            // Update info panel
+            updateInfoPanel(point, index);
+        }
+
+        function updateInfoPanel(point, index) {
+            const panel = document.getElementById('infoPanel');
+            const hasContent = point.title || point.description || point.imageUrl;
+
+            if (!hasContent) {
+                panel.classList.remove('visible');
+                document.getElementById('tourControls').classList.remove('has-panel');
+                return;
+            }
+
+            document.getElementById('pointNumber').textContent = `Point ${index + 1} of ${points.length}`;
+            document.getElementById('pointTitle').textContent = point.title || `Point ${index + 1}`;
+            document.getElementById('pointDescription').textContent = point.description || '';
+
+            const img = document.getElementById('pointImage');
+            if (point.imageUrl) {
+                img.src = point.imageUrl;
+                img.style.display = 'block';
+                img.onclick = () => openGallery(point.imageUrl);
+                img.style.cursor = 'pointer';
+            } else {
+                img.style.display = 'none';
+            }
+
+            panel.classList.add('visible');
+            document.getElementById('tourControls').classList.add('has-panel');
+        }
+
+        // ====================================================================
+        // Auto Play
+        // ====================================================================
+
+        function toggleAutoPlay() {
+            if (isAutoPlaying) {
+                stopAutoPlay();
+            } else {
+                startAutoPlay();
+            }
+        }
+
+        function startAutoPlay() {
+            isAutoPlaying = true;
+            document.getElementById('playBtn').textContent = '⏸';
+
+            playNextPoint();
+        }
+
+        function playNextPoint() {
+            if (!isAutoPlaying) return;
+
+            const point = points[currentIndex];
+            const duration = point.durationMs || project.defaultDurationMs || 3000;
+
+            goToPoint(currentIndex);
+
+            autoPlayInterval = setTimeout(() => {
+                if (currentIndex < points.length - 1) {
+                    currentIndex++;
+                    playNextPoint();
+                } else {
+                    // Loop back to start
+                    currentIndex = 0;
+                    playNextPoint();
+                }
+            }, duration + 1000);
+        }
+
+        function stopAutoPlay() {
+            isAutoPlaying = false;
+            document.getElementById('playBtn').textContent = '▶';
+            if (autoPlayInterval) {
+                clearTimeout(autoPlayInterval);
+                autoPlayInterval = null;
+            }
+        }
+
+        // ====================================================================
+        // Gallery
+        // ====================================================================
+
+        function openGallery(imageUrl) {
+            document.getElementById('galleryImage').src = imageUrl;
+            document.getElementById('galleryModal').classList.add('visible');
+        }
+
+        function closeGallery() {
+            document.getElementById('galleryModal').classList.remove('visible');
+        }
+
+        // ====================================================================
+        // Utilities
+        // ====================================================================
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat('en-US').format(num);
+        }
+
+        function formatStatus(status) {
+            const map = {
+                'PLANNED': 'Planned',
+                'IN_PROGRESS': 'In Progress',
+                'COMPLETED': 'Completed',
+                'ON_HOLD': 'On Hold'
+            };
+            return map[status] || status;
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') goToPoint(currentIndex - 1);
+            if (e.key === 'ArrowRight') goToPoint(currentIndex + 1);
+            if (e.key === ' ') { e.preventDefault(); toggleAutoPlay(); }
+            if (e.key === 'Escape') closeGallery();
+        });
+    </script>
+</body>
+</html>

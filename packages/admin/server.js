@@ -1819,6 +1819,399 @@ app.delete('/api/admin/walkthroughs/:id', async (req, res) => {
 })
 
 // ============================================================================
+// LAREP: Infrastructure Projects Management
+// ============================================================================
+
+// Serve larep static files
+app.use('/larep', express.static(path.join(__dirname, 'larep')))
+
+// Serve project view page for /larep/projects/:id
+app.get('/larep/projects/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'larep', 'project.html'))
+})
+
+/**
+ * GET /api/larep/stats
+ * Get LAREP projects statistics
+ */
+app.get('/api/larep/stats', async (req, res) => {
+  try {
+    const [total, inProgress, completed, budgetSum] = await Promise.all([
+      prisma.larepProject.count(),
+      prisma.larepProject.count({ where: { status: 'IN_PROGRESS' } }),
+      prisma.larepProject.count({ where: { status: 'COMPLETED' } }),
+      prisma.larepProject.aggregate({ _sum: { budget: true } })
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        total,
+        inProgress,
+        completed,
+        totalBudget: budgetSum._sum.budget || 0
+      }
+    })
+  } catch (error) {
+    console.error('Failed to get LAREP stats:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/larep/projects
+ * List all projects with optional status filter
+ */
+app.get('/api/larep/projects', async (req, res) => {
+  try {
+    const { status } = req.query
+    
+    const where = status ? { status } : {}
+    
+    const projects = await prisma.larepProject.findMany({
+      where,
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    res.json({
+      success: true,
+      data: projects
+    })
+  } catch (error) {
+    console.error('Failed to list LAREP projects:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/larep/projects/:id
+ * Get a single project by ID
+ */
+app.get('/api/larep/projects/:id', async (req, res) => {
+  try {
+    const project = await prisma.larepProject.findUnique({
+      where: { id: req.params.id },
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      })
+    }
+
+    res.json({
+      success: true,
+      data: project
+    })
+  } catch (error) {
+    console.error('Failed to get LAREP project:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/larep/projects/:id/public
+ * Get a published project for public viewing
+ */
+app.get('/api/larep/projects/:id/public', async (req, res) => {
+  try {
+    const project = await prisma.larepProject.findFirst({
+      where: { 
+        id: req.params.id,
+        isPublished: true
+      },
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found or not published'
+      })
+    }
+
+    res.json({
+      success: true,
+      data: project
+    })
+  } catch (error) {
+    console.error('Failed to get public LAREP project:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/larep/projects
+ * Create a new project
+ */
+app.post('/api/larep/projects', async (req, res) => {
+  try {
+    const {
+      name,
+      executor,
+      budget,
+      budgetCurrency,
+      executionPercent,
+      description,
+      status,
+      isPublished,
+      centerLatitude,
+      centerLongitude,
+      defaultDurationMs,
+      points
+    } = req.body
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Project name is required'
+      })
+    }
+
+    const project = await prisma.larepProject.create({
+      data: {
+        name,
+        executor,
+        budget,
+        budgetCurrency: budgetCurrency || 'MAD',
+        executionPercent: executionPercent || 0,
+        description,
+        status: status || 'PLANNED',
+        isPublished: isPublished || false,
+        centerLatitude,
+        centerLongitude,
+        defaultDurationMs: defaultDurationMs || 3000,
+        points: points && points.length > 0 ? {
+          create: points.map((p, index) => ({
+            order: p.order ?? index + 1,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            zoom: p.zoom ?? 14,
+            pitch: p.pitch ?? 60,
+            bearing: p.bearing ?? 0,
+            durationMs: p.durationMs,
+            label: p.label,
+            title: p.title,
+            description: p.description,
+            imageUrl: p.imageUrl
+          }))
+        } : undefined
+      },
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    res.status(201).json({
+      success: true,
+      data: project
+    })
+  } catch (error) {
+    console.error('Failed to create LAREP project:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/larep/projects/:id
+ * Update an existing project
+ */
+app.put('/api/larep/projects/:id', async (req, res) => {
+  try {
+    const {
+      name,
+      executor,
+      budget,
+      budgetCurrency,
+      executionPercent,
+      description,
+      status,
+      isPublished,
+      centerLatitude,
+      centerLongitude,
+      defaultDurationMs,
+      points
+    } = req.body
+
+    // Check if project exists
+    const existing = await prisma.larepProject.findUnique({
+      where: { id: req.params.id }
+    })
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      })
+    }
+
+    // Build update data
+    const updateData = {}
+    if (name !== undefined) updateData.name = name
+    if (executor !== undefined) updateData.executor = executor
+    if (budget !== undefined) updateData.budget = budget
+    if (budgetCurrency !== undefined) updateData.budgetCurrency = budgetCurrency
+    if (executionPercent !== undefined) updateData.executionPercent = executionPercent
+    if (description !== undefined) updateData.description = description
+    if (status !== undefined) updateData.status = status
+    if (isPublished !== undefined) updateData.isPublished = isPublished
+    if (centerLatitude !== undefined) updateData.centerLatitude = centerLatitude
+    if (centerLongitude !== undefined) updateData.centerLongitude = centerLongitude
+    if (defaultDurationMs !== undefined) updateData.defaultDurationMs = defaultDurationMs
+
+    // If points are provided, delete existing and create new
+    if (points && Array.isArray(points)) {
+      await prisma.larepProjectPoint.deleteMany({
+        where: { projectId: req.params.id }
+      })
+
+      if (points.length > 0) {
+        await prisma.larepProjectPoint.createMany({
+          data: points.map((p, index) => ({
+            projectId: req.params.id,
+            order: p.order ?? index + 1,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            zoom: p.zoom ?? 14,
+            pitch: p.pitch ?? 60,
+            bearing: p.bearing ?? 0,
+            durationMs: p.durationMs,
+            label: p.label,
+            title: p.title,
+            description: p.description,
+            imageUrl: p.imageUrl
+          }))
+        })
+      }
+    }
+
+    const project = await prisma.larepProject.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      }
+    })
+
+    res.json({
+      success: true,
+      data: project
+    })
+  } catch (error) {
+    console.error('Failed to update LAREP project:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/larep/projects/:id
+ * Delete a project and all its points/images
+ */
+app.delete('/api/larep/projects/:id', async (req, res) => {
+  try {
+    // Check if project exists
+    const existing = await prisma.larepProject.findUnique({
+      where: { id: req.params.id }
+    })
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      })
+    }
+
+    // Delete project (points and images will cascade delete)
+    await prisma.larepProject.delete({
+      where: { id: req.params.id }
+    })
+
+    res.json({
+      success: true,
+      message: 'Project deleted'
+    })
+  } catch (error) {
+    console.error('Failed to delete LAREP project:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/larep/projects/:id/images
+ * Add images to a project
+ */
+app.post('/api/larep/projects/:id/images', upload.array('images', 10), async (req, res) => {
+  try {
+    const projectId = req.params.id
+    const { captions } = req.body
+
+    // Check if project exists
+    const project = await prisma.larepProject.findUnique({
+      where: { id: projectId }
+    })
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      })
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No images uploaded'
+      })
+    }
+
+    // Get current max order
+    const maxOrder = await prisma.larepProjectImage.aggregate({
+      where: { projectId },
+      _max: { order: true }
+    })
+
+    let currentOrder = (maxOrder._max.order || 0) + 1
+
+    // Create image records
+    const images = await Promise.all(req.files.map(async (file, index) => {
+      const url = `/uploads/larep/${projectId}/${file.filename}`
+      const caption = captions && Array.isArray(captions) ? captions[index] : null
+
+      return prisma.larepProjectImage.create({
+        data: {
+          projectId,
+          url,
+          caption,
+          order: currentOrder + index
+        }
+      })
+    }))
+
+    res.status(201).json({
+      success: true,
+      data: images
+    })
+  } catch (error) {
+    console.error('Failed to upload project images:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 

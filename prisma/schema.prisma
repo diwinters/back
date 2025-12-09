@@ -3,13 +3,11 @@
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [postgis]
 }
 
 // =============================================================================
@@ -469,4 +467,89 @@ model PushNotificationLog {
 
   @@index([userId, createdAt])
   @@index([status])
+}
+
+// =============================================================================
+// LAREP: Infrastructure Projects Management
+// =============================================================================
+
+model LarepProject {
+  id                String   @id @default(cuid())
+  name              String   // Project name
+  executor          String?  // Project executor/contractor
+  budget            Float?   // Budget amount
+  budgetCurrency    String   @default("MAD")
+  executionPercent  Int      @default(0) // 0-100 percentage of completion
+  description       String?  // Project description
+  status            LarepProjectStatus @default(PLANNED)
+  
+  // Location center (for map display)
+  centerLatitude    Float?
+  centerLongitude   Float?
+  
+  // Tour/Walkthrough settings
+  isPublished       Boolean  @default(false)
+  defaultDurationMs Int      @default(3000)
+  
+  // Relations
+  points            LarepProjectPoint[]
+  images            LarepProjectImage[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status])
+  @@index([isPublished])
+}
+
+enum LarepProjectStatus {
+  PLANNED       // Not yet started
+  IN_PROGRESS   // Currently being executed
+  COMPLETED     // Finished
+  ON_HOLD       // Temporarily paused
+}
+
+model LarepProjectPoint {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         LarepProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Position in sequence (1, 2, 3...)
+  order           Int
+  
+  // Camera position
+  latitude        Float
+  longitude       Float
+  zoom            Float    @default(14)
+  pitch           Float    @default(60)
+  bearing         Float    @default(0)
+  
+  // Animation to this point
+  durationMs      Int?
+  
+  // Labels and content
+  label           String?  // Admin reference label
+  title           String?  // Display title for tour stop
+  description     String?  // Description shown during tour
+  imageUrl        String?  // Optional image for this point
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([projectId, order])
+  @@index([projectId])
+}
+
+model LarepProjectImage {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     LarepProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  url         String   // Image URL
+  caption     String?  // Image caption
+  order       Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
 }
