@@ -1827,7 +1827,7 @@ app.use('/larep', express.static(path.join(__dirname, 'larep')))
 
 // Serve LAREP landing page (public)
 app.get('/larep', (req, res) => {
-  res.sendFile(path.join(__dirname, 'larep', 'index-landing.html'))
+  res.sendFile(path.join(__dirname, 'larep', 'landing.html'))
 })
 
 // Serve projects list/admin page
