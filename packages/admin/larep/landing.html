@@ -406,12 +406,13 @@
             position: relative;
             height: 260px;
             overflow: hidden;
-            background: var(--gray-100);
+            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
         }
 
         .project-map {
             width: 100%;
             height: 100%;
+            min-height: 260px;
             transition: transform 0.6s ease;
         }
 
@@ -574,6 +575,8 @@
         #allProjectsMap {
             width: 100%;
             height: 100%;
+            min-height: 700px;
+            background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
         }
 
         .map-overlay {
@@ -1243,9 +1246,9 @@
             grid.innerHTML = featured.map(project => {
                 const mapId = `map-${project.id}`;
                 return `
-                    <div class="project-card">
+                    <div class="project-card" data-project-id="${project.id}">
                         <div class="project-image">
-                            <div id="${mapId}" class="project-map"></div>
+                            <div id="${mapId}" class="project-map" data-center-lng="${project.centerLongitude}" data-center-lat="${project.centerLatitude}"></div>
                             <div class="project-status">
                                 <span class="status-dot"></span>
                                 ${project.status === 'COMPLETED' ? 'Complété' : 
@@ -1293,15 +1296,33 @@
                 });
             }, 300);
 
-            // Init mini maps with staggered timing
-            featured.forEach((project, index) => {
-                setTimeout(() => {
-                    console.log('Initializing map for project:', project.name);
-                    initMiniMap(`map-${project.id}`, project);
-                }, 300 + (index * 150));
+            // Use Intersection Observer to init maps when visible
+            const mapObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const card = entry.target;
+                        const projectId = card.getAttribute('data-project-id');
+                        const project = featured.find(p => p.id === projectId);
+                        
+                        if (project) {
+                            console.log('Card visible, initializing map for:', project.name);
+                            setTimeout(() => initMiniMap(`map-${project.id}`, project), 100);
+                        }
+                        
+                        mapObserver.unobserve(card);
+                    }
+                });
+            }, {
+                threshold: 0.1,
+                rootMargin: '50px'
             });
 
-            // Trigger animations
+            // Observe all project cards
+            document.querySelectorAll('.project-card').forEach(card => {
+                mapObserver.observe(card);
+            });
+
+            // Trigger card animations
             setTimeout(() => {
                 document.querySelectorAll('.project-card').forEach((card, index) => {
                     setTimeout(() => card.classList.add('visible'), index * 100);
@@ -1321,84 +1342,83 @@
                 return;
             }
 
-            // Check dimensions
-            const width = container.offsetWidth;
-            const height = container.offsetHeight;
-            console.log(`Container ${containerId} dimensions:`, width, 'x', height);
-
-            if (width === 0 || height === 0) {
-                console.warn(`Container ${containerId} has zero dimensions, retrying...`);
-                setTimeout(() => initMiniMap(containerId, project), 300);
-                return;
-            }
-
-            try {
-                console.log(`Creating map for ${containerId}...`);
+            // Wait for container to be properly sized
+            const checkAndInit = () => {
+                const width = container.offsetWidth;
+                const height = container.offsetHeight;
                 
-                const map = new mapboxgl.Map({
-                    container: containerId,
-                    style: 'mapbox://styles/mapbox/light-v11',
-                    center: [project.centerLongitude, project.centerLatitude],
-                    zoom: 13,
-                    interactive: false,
-                    attributionControl: false,
-                    preserveDrawingBuffer: true
-                });
+                console.log(`Container ${containerId} size:`, width, 'x', height);
 
-                projectMaps.set(containerId, map);
+                if (width === 0 || height === 0) {
+                    console.warn(`Retrying ${containerId}...`);
+                    setTimeout(checkAndInit, 200);
+                    return;
+                }
 
-                map.on('load', () => {
-                    console.log(`Map loaded for ${containerId}`);
+                try {
+                    console.log(`Creating map for ${containerId}`);
                     
-                    // Force multiple resizes to ensure proper display
-                    map.resize();
-                    setTimeout(() => map.resize(), 100);
-                    setTimeout(() => map.resize(), 300);
+                    const map = new mapboxgl.Map({
+                        container: containerId,
+                        style: 'mapbox://styles/mapbox/light-v11',
+                        center: [project.centerLongitude, project.centerLatitude],
+                        zoom: 13,
+                        interactive: false,
+                        attributionControl: false
+                    });
 
-                    // Add marker
-                    const marker = new mapboxgl.Marker({ 
-                        color: '#f59e0b',
-                        scale: 0.9
-                    })
-                    .setLngLat([project.centerLongitude, project.centerLatitude])
-                    .addTo(map);
+                    projectMaps.set(containerId, map);
 
-                    console.log(`Marker added for ${containerId}`);
-
-                    // Add route if available
-                    if (project.points && project.points.length > 1) {
-                        const coordinates = project.points.map(p => [p.longitude, p.latitude]);
+                    map.on('load', () => {
+                        console.log(`✓ Map loaded: ${containerId}`);
                         
-                        map.addSource('route', {
-                            type: 'geojson',
-                            data: {
-                                type: 'Feature',
-                                geometry: { type: 'LineString', coordinates }
-                            }
-                        });
+                        // Add marker
+                        new mapboxgl.Marker({ 
+                            color: '#f59e0b',
+                            scale: 0.9
+                        })
+                        .setLngLat([project.centerLongitude, project.centerLatitude])
+                        .addTo(map);
 
-                        map.addLayer({
-                            id: 'route-line',
-                            type: 'line',
-                            source: 'route',
-                            paint: {
-                                'line-color': '#f59e0b',
-                                'line-width': 4,
-                                'line-opacity': 0.8
-                            }
-                        });
+                        // Add route if available
+                        if (project.points && project.points.length > 1) {
+                            const coordinates = project.points.map(p => [p.longitude, p.latitude]);
+                            
+                            map.addSource('route', {
+                                type: 'geojson',
+                                data: {
+                                    type: 'Feature',
+                                    geometry: { type: 'LineString', coordinates }
+                                }
+                            });
 
-                        console.log(`Route added for ${containerId}`);
-                    }
-                });
+                            map.addLayer({
+                                id: 'route-line',
+                                type: 'line',
+                                source: 'route',
+                                paint: {
+                                    'line-color': '#f59e0b',
+                                    'line-width': 4,
+                                    'line-opacity': 0.8
+                                }
+                            });
+                        }
 
-                map.on('error', (e) => {
-                    console.error(`Map error for ${containerId}:`, e);
-                });
+                        // Force resize
+                        setTimeout(() => map.resize(), 100);
+                        setTimeout(() => map.resize(), 500);
+                    });
 
-            } catch (e) {
-                console.error(`Failed to init mini map ${containerId}:`, e);
-            }
+                    map.on('error', (e) => {
+                        console.error(`Map error ${containerId}:`, e);
+                    });
+
+                } catch (e) {
+                    console.error(`Failed to create map ${containerId}:`, e);
+                }
+            };
+
+            checkAndInit();
         }
 
         // Global Map
