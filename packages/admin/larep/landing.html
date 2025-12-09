@@ -410,10 +410,24 @@
         }
 
         .project-map {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             min-height: 260px;
-            transition: transform 0.6s ease;
+        }
+
+        .project-map .mapboxgl-canvas-container,
+        .project-map .mapboxgl-canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #allProjectsMap .mapboxgl-canvas-container,
+        #allProjectsMap .mapboxgl-canvas {
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .map-fallback {
@@ -1393,13 +1407,18 @@
                 try {
                     console.log(`Creating map for ${containerId}`);
                     
+                    // Set token right before creating map
+                    mapboxgl.accessToken = MAPBOX_TOKEN;
+                    
                     const map = new mapboxgl.Map({
                         container: containerId,
                         style: 'mapbox://styles/mapbox/light-v11',
                         center: [project.centerLongitude, project.centerLatitude],
                         zoom: 13,
                         interactive: false,
-                        attributionControl: false
+                        attributionControl: false,
+                        trackResize: true,
+                        fadeDuration: 0
                     });
 
                     projectMaps.set(containerId, map);
@@ -1495,11 +1514,16 @@
             try {
                 console.log('Creating global map...');
                 
+                // Set token right before creating map
+                mapboxgl.accessToken = MAPBOX_TOKEN;
+                
                 globalMap = new mapboxgl.Map({
                     container: 'allProjectsMap',
                     style: 'mapbox://styles/mapbox/streets-v12',
                     center: [allProjects[0].centerLongitude, allProjects[0].centerLatitude],
-                    zoom: 11
+                    zoom: 11,
+                    trackResize: true,
+                    fadeDuration: 0
                 });
 
                 globalMap.on('load', () => {
