@@ -1134,12 +1134,16 @@
         async function loadProjects() {
             try {
                 const res = await fetch('/api/larep/projects/public');
-                allProjects = await res.json();
+                const json = await res.json();
+                
+                // Handle API response format { success: true, data: [] }
+                allProjects = json.success && Array.isArray(json.data) ? json.data : [];
 
                 renderProjects();
                 initGlobalMap();
             } catch (err) {
                 console.error('Failed to load projects:', err);
+                allProjects = [];
                 document.getElementById('projectsGrid').innerHTML = `
                     <div style="text-align: center; padding: 3rem; color: var(--gray);">
                         <p>Impossible de charger les projets pour le moment.</p>
@@ -1151,7 +1155,7 @@
         function renderProjects() {
             const grid = document.getElementById('projectsGrid');
             
-            if (allProjects.length === 0) {
+            if (!Array.isArray(allProjects) || allProjects.length === 0) {
                 grid.innerHTML = `
                     <div style="text-align: center; padding: 3rem; color: var(--gray);">
                         <p>Aucun projet publié pour le moment.</p>
@@ -1269,7 +1273,10 @@
         // ====================================================================
 
         function initGlobalMap() {
-            if (allProjects.length === 0) return;
+            if (!Array.isArray(allProjects) || allProjects.length === 0) {
+                console.log('No projects to display on map');
+                return;
+            }
 
             try {
                 globalMap = new mapboxgl.Map({
