@@ -1825,9 +1825,9 @@ app.delete('/api/admin/walkthroughs/:id', async (req, res) => {
 // Serve larep static files
 app.use('/larep', express.static(path.join(__dirname, 'larep')))
 
-// Serve LAREP home page (public)
+// Serve LAREP landing page (public)
 app.get('/larep', (req, res) => {
-  res.sendFile(path.join(__dirname, 'larep', 'home.html'))
+  res.sendFile(path.join(__dirname, 'larep', 'index-landing.html'))
 })
 
 // Serve projects list/admin page
