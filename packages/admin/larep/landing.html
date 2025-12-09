@@ -1201,13 +1201,20 @@
         // Load Projects
         async function loadProjects() {
             try {
+                console.log('Loading projects...');
                 const res = await fetch('/api/larep/projects/public');
                 const json = await res.json();
                 
                 allProjects = json.success && Array.isArray(json.data) ? json.data : [];
+                console.log('Loaded projects:', allProjects.length);
 
                 renderProjects();
-                setTimeout(() => initGlobalMap(), 500);
+                
+                // Init global map with delay to ensure DOM is ready
+                setTimeout(() => {
+                    console.log('Initializing global map...');
+                    initGlobalMap();
+                }, 800);
             } catch (err) {
                 console.error('Failed to load projects:', err);
                 allProjects = [];
@@ -1286,9 +1293,12 @@
                 });
             }, 300);
 
-            // Init mini maps
-            featured.forEach(project => {
-                setTimeout(() => initMiniMap(`map-${project.id}`, project), 200);
+            // Init mini maps with staggered timing
+            featured.forEach((project, index) => {
+                setTimeout(() => {
+                    console.log('Initializing map for project:', project.name);
+                    initMiniMap(`map-${project.id}`, project);
+                }, 300 + (index * 150));
             });
 
             // Trigger animations
@@ -1301,15 +1311,30 @@
 
         function initMiniMap(containerId, project) {
             const container = document.getElementById(containerId);
-            if (!container || projectMaps.has(containerId)) return;
+            if (!container) {
+                console.warn('Container not found:', containerId);
+                return;
+            }
 
-            // Ensure container is visible and has dimensions
-            if (container.offsetWidth === 0 || container.offsetHeight === 0) {
-                setTimeout(() => initMiniMap(containerId, project), 200);
+            if (projectMaps.has(containerId)) {
+                console.log('Map already exists for:', containerId);
+                return;
+            }
+
+            // Check dimensions
+            const width = container.offsetWidth;
+            const height = container.offsetHeight;
+            console.log(`Container ${containerId} dimensions:`, width, 'x', height);
+
+            if (width === 0 || height === 0) {
+                console.warn(`Container ${containerId} has zero dimensions, retrying...`);
+                setTimeout(() => initMiniMap(containerId, project), 300);
                 return;
             }
 
             try {
+                console.log(`Creating map for ${containerId}...`);
+                
                 const map = new mapboxgl.Map({
                     container: containerId,
                     style: 'mapbox://styles/mapbox/light-v11',
@@ -1323,16 +1348,22 @@
                 projectMaps.set(containerId, map);
 
                 map.on('load', () => {
-                    // Force resize
+                    console.log(`Map loaded for ${containerId}`);
+                    
+                    // Force multiple resizes to ensure proper display
+                    map.resize();
                     setTimeout(() => map.resize(), 100);
+                    setTimeout(() => map.resize(), 300);
 
                     // Add marker
-                    new mapboxgl.Marker({ 
+                    const marker = new mapboxgl.Marker({ 
                         color: '#f59e0b',
                         scale: 0.9
                     })
                     .setLngLat([project.centerLongitude, project.centerLatitude])
                     .addTo(map);
+
+                    console.log(`Marker added for ${containerId}`);
 
                     // Add route if available
                     if (project.points && project.points.length > 1) {
@@ -1356,27 +1387,46 @@
                                 'line-opacity': 0.8
                             }
                         });
+
+                        console.log(`Route added for ${containerId}`);
                     }
                 });
+
+                map.on('error', (e) => {
+                    console.error(`Map error for ${containerId}:`, e);
+                });
+
             } catch (e) {
-                console.error('Failed to init mini map:', e);
+                console.error(`Failed to init mini map ${containerId}:`, e);
             }
         }
 
         // Global Map
         function initGlobalMap() {
             if (!Array.isArray(allProjects) || allProjects.length === 0) {
-                console.log('No projects to display on map');
+                console.log('No projects to display on global map');
                 return;
             }
 
             const mapContainer = document.getElementById('allProjectsMap');
-            if (!mapContainer || mapContainer.offsetWidth === 0) {
-                setTimeout(initGlobalMap, 200);
+            if (!mapContainer) {
+                console.error('Global map container not found');
+                return;
+            }
+
+            const width = mapContainer.offsetWidth;
+            const height = mapContainer.offsetHeight;
+            console.log('Global map container dimensions:', width, 'x', height);
+
+            if (width === 0 || height === 0) {
+                console.warn('Global map container has zero dimensions, retrying...');
+                setTimeout(initGlobalMap, 300);
                 return;
             }
 
             try {
+                console.log('Creating global map...');
+                
                 globalMap = new mapboxgl.Map({
                     container: 'allProjectsMap',
                     style: 'mapbox://styles/mapbox/streets-v12',
@@ -1385,7 +1435,12 @@
                 });
 
                 globalMap.on('load', () => {
+                    console.log('Global map loaded');
+                    
+                    // Force multiple resizes
+                    globalMap.resize();
                     setTimeout(() => globalMap.resize(), 100);
+                    setTimeout(() => globalMap.resize(), 300);
 
                     allProjects.forEach((project, i) => {
                         const el = document.createElement('div');
@@ -1435,6 +1490,8 @@
                             .addTo(globalMap);
                     });
 
+                    console.log(`Added ${allProjects.length} markers to global map`);
+
                     // Fit bounds
                     if (allProjects.length > 1) {
                         const bounds = new mapboxgl.LngLatBounds();
@@ -1445,9 +1502,16 @@
                     }
                 });
 
+                globalMap.on('error', (e) => {
+                    console.error('Global map error:', e);
+                });
+
                 // Handle window resize
                 window.addEventListener('resize', () => {
-                    if (globalMap) globalMap.resize();
+                    if (globalMap) {
+                        console.log('Window resized, resizing global map');
+                        globalMap.resize();
+                    }
                 });
             } catch (e) {
                 console.error('Failed to init global map:', e);
