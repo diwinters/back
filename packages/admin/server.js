@@ -1825,6 +1825,16 @@ app.delete('/api/admin/walkthroughs/:id', async (req, res) => {
 // Serve larep static files
 app.use('/larep', express.static(path.join(__dirname, 'larep')))
 
+// Serve LAREP home page (public)
+app.get('/larep', (req, res) => {
+  res.sendFile(path.join(__dirname, 'larep', 'home.html'))
+})
+
+// Serve projects list/admin page
+app.get('/larep/projects', (req, res) => {
+  res.sendFile(path.join(__dirname, 'larep', 'index.html'))
+})
+
 // Serve project view page for /larep/projects/:id
 app.get('/larep/projects/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'larep', 'project.html'))
@@ -1883,6 +1893,31 @@ app.get('/api/larep/projects', async (req, res) => {
     })
   } catch (error) {
     console.error('Failed to list LAREP projects:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/larep/projects/public
+ * List all published projects (for public home page)
+ */
+app.get('/api/larep/projects/public', async (req, res) => {
+  try {
+    const projects = await prisma.larepProject.findMany({
+      where: { isPublished: true },
+      include: {
+        points: { orderBy: { order: 'asc' } },
+        images: { orderBy: { order: 'asc' } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    res.json({
+      success: true,
+      data: projects
+    })
+  } catch (error) {
+    console.error('Failed to list public LAREP projects:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })

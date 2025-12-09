@@ -905,7 +905,10 @@
 
         function initMap(centerLng = -15.9355, centerLat = 23.7136) {
             const container = document.getElementById('mapEditor');
-            if (!container) return;
+            if (!container) {
+                console.error('Map container not found');
+                return;
+            }
 
             if (map) {
                 map.remove();
@@ -914,21 +917,31 @@
 
             mapboxgl.accessToken = MAPBOX_TOKEN;
 
-            map = new mapboxgl.Map({
-                container: 'mapEditor',
-                style: 'mapbox://styles/mapbox/streets-v12',
-                center: [centerLng, centerLat],
-                zoom: 12,
-                pitch: 45
-            });
+            try {
+                map = new mapboxgl.Map({
+                    container: 'mapEditor',
+                    style: 'mapbox://styles/mapbox/streets-v12',
+                    center: [centerLng, centerLat],
+                    zoom: 12,
+                    pitch: 45
+                });
 
-            map.on('click', (e) => {
-                addPoint(e.lngLat.lat, e.lngLat.lng);
-            });
+                map.on('click', (e) => {
+                    addPoint(e.lngLat.lat, e.lngLat.lng);
+                });
 
-            map.on('load', () => {
-                renderMarkers();
-            });
+                map.on('load', () => {
+                    map.resize();
+                    renderMarkers();
+                });
+
+                // Trigger resize after a short delay to ensure container is visible
+                setTimeout(() => {
+                    if (map) map.resize();
+                }, 200);
+            } catch (e) {
+                console.error('Failed to initialize map:', e);
+            }
         }
 
         function addPoint(lat, lng) {

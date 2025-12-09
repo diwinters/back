@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAREP - Agence Régionale d'Exécution des Projets</title>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js'></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #1a365d;
+            --primary-light: #2c5282;
+            --accent: #c9a227;
+            --accent-light: #d4af37;
+            --success: #38a169;
+            --gray-50: #f7fafc;
+            --gray-100: #edf2f7;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e0;
+            --gray-500: #718096;
+            --gray-700: #4a5568;
+            --gray-900: #1a202c;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.15);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 16px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .logo-text h1 {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .logo-text span {
+            font-size: 11px;
+            opacity: 0.9;
+            letter-spacing: 0.5px;
+        }
+
+        .nav {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 0.9;
+            transition: opacity 0.2s;
+        }
+
+        .nav a:hover {
+            opacity: 1;
+        }
+
+        .nav .btn-admin {
+            background: rgba(255,255,255,0.15);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+
+        .nav .btn-admin:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            padding: 160px 40px 100px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.5;
+        }
+
+        .hero-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero h2 {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 20px;
+            opacity: 0.9;
+            max-width: 600px;
+            margin-bottom: 40px;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 60px;
+            margin-top: 60px;
+        }
+
+        .hero-stat {
+            text-align: left;
+        }
+
+        .hero-stat .number {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .hero-stat .label {
+            font-size: 14px;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Main Content */
+        .main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 80px 40px;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .section-title h2 {
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+
+        .section-title p {
+            font-size: 18px;
+            color: var(--gray-500);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Project Cards */
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 32px;
+        }
+
+        .project-card {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid var(--gray-200);
+        }
+
+        .project-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+        }
+
+        .project-card-map {
+            height: 200px;
+            background: var(--gray-200);
+            position: relative;
+        }
+
+        .project-card-map .status-badge {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 10;
+        }
+
+        .status-planned { background: white; color: var(--gray-700); }
+        .status-in-progress { background: #fef3c7; color: #92400e; }
+        .status-completed { background: #d1fae5; color: #065f46; }
+        .status-on-hold { background: #fee2e2; color: #991b1b; }
+
+        .project-card-content {
+            padding: 24px;
+        }
+
+        .project-card h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+        }
+
+        .project-card .executor {
+            font-size: 14px;
+            color: var(--gray-500);
+            margin-bottom: 16px;
+        }
+
+        .project-card .meta {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 16px;
+        }
+
+        .project-card .meta-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .project-card .meta-item .label {
+            font-size: 11px;
+            color: var(--gray-500);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .project-card .meta-item .value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .project-card .progress-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--gray-100);
+        }
+
+        .project-card .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .project-card .progress-label {
+            font-size: 13px;
+            color: var(--gray-500);
+        }
+
+        .project-card .progress-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--success);
+        }
+
+        .project-card .progress-bar {
+            height: 8px;
+            background: var(--gray-200);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .project-card .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success) 0%, #48bb78 100%);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        .project-card .actions {
+            margin-top: 20px;
+        }
+
+        .project-card .btn-view {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .project-card .btn-view:hover {
+            background: var(--primary-light);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 80px 40px;
+            background: white;
+            border-radius: 16px;
+            border: 1px solid var(--gray-200);
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+
+        .empty-state h3 {
+            font-size: 24px;
+            color: var(--gray-700);
+            margin-bottom: 12px;
+        }
+
+        .empty-state p {
+            color: var(--gray-500);
+            font-size: 16px;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--primary);
+            color: white;
+            padding: 60px 40px;
+            margin-top: 80px;
+        }
+
+        .footer-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 60px;
+        }
+
+        .footer h4 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+
+        .footer p {
+            opacity: 0.8;
+            line-height: 1.8;
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 12px;
+        }
+
+        .footer-links a {
+            color: white;
+            opacity: 0.8;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+
+        .footer-links a:hover {
+            opacity: 1;
+        }
+
+        .footer-bottom {
+            max-width: 1400px;
+            margin: 40px auto 0;
+            padding-top: 40px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+
+        /* Map in Cards */
+        .mini-map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero h2 {
+                font-size: 36px;
+            }
+
+            .hero-stats {
+                flex-wrap: wrap;
+                gap: 40px;
+            }
+
+            .footer-content {
+                grid-template-columns: 1fr;
+                gap: 40px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                padding: 12px 20px;
+            }
+
+            .nav {
+                display: none;
+            }
+
+            .hero {
+                padding: 120px 20px 60px;
+            }
+
+            .hero h2 {
+                font-size: 28px;
+            }
+
+            .hero p {
+                font-size: 16px;
+            }
+
+            .hero-stat .number {
+                font-size: 36px;
+            }
+
+            .main {
+                padding: 40px 20px;
+            }
+
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section-title h2 {
+                font-size: 28px;
+            }
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: flex;
+            justify-content: center;
+            padding: 60px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--gray-200);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">L</div>
+                <div class="logo-text">
+                    <h1>LAREP</h1>
+                    <span>Agence Régionale d'Exécution des Projets</span>
+                </div>
+            </div>
+            <nav class="nav">
+                <a href="#projects">Projets</a>
+                <a href="#about">À Propos</a>
+                <a href="/larep/projects" class="btn-admin">Administration</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="hero-content">
+            <h2>Bâtir l'Avenir de<br>Notre Région</h2>
+            <p>Suivez en temps réel l'avancement des projets d'infrastructure qui transforment notre territoire.</p>
+            
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="number" id="statTotal">0</div>
+                    <div class="label">Projets Total</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="number" id="statInProgress">0</div>
+                    <div class="label">En Cours</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="number" id="statCompleted">0</div>
+                    <div class="label">Achevés</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="number" id="statBudget">0</div>
+                    <div class="label">Budget Total (MAD)</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <main class="main" id="projects">
+        <div class="section-title">
+            <h2>Nos Projets</h2>
+            <p>Découvrez les projets d'infrastructure en cours et achevés dans notre région</p>
+        </div>
+
+        <div id="projectsContainer">
+            <div class="loading">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </main>
+
+    <section id="about"></section>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div>
+                <h4>LAREP</h4>
+                <p>
+                    L'Agence Régionale d'Exécution des Projets est dédiée à la réalisation 
+                    des projets d'infrastructure qui contribuent au développement durable 
+                    de notre région.
+                </p>
+            </div>
+            <div>
+                <h4>Liens Rapides</h4>
+                <ul class="footer-links">
+                    <li><a href="#projects">Tous les Projets</a></li>
+                    <li><a href="/larep/projects">Administration</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Contact</h4>
+                <ul class="footer-links">
+                    <li>contact@larep.ma</li>
+                    <li>+212 5XX XX XX XX</li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            © 2025 LAREP - Agence Régionale d'Exécution des Projets. Tous droits réservés.
+        </div>
+    </footer>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGl3aW50ZXIiLCJhIjoiY200Z3ViNHRxMGQ0djJqcHNpNGpjNjZ0cSJ9.I5iy1A5aaVuJP6_-a5IjLA';
+
+        // Initialize Mapbox
+        mapboxgl.accessToken = MAPBOX_TOKEN;
+
+        // Load stats
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/api/larep/stats`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    animateNumber('statTotal', data.data.total);
+                    animateNumber('statInProgress', data.data.inProgress);
+                    animateNumber('statCompleted', data.data.completed);
+                    animateNumber('statBudget', data.data.totalBudget, true);
+                }
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        function animateNumber(elementId, target, formatLarge = false) {
+            const el = document.getElementById(elementId);
+            const duration = 1500;
+            const start = 0;
+            const startTime = performance.now();
+
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeOut = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(start + (target - start) * easeOut);
+                
+                if (formatLarge) {
+                    el.textContent = formatNumber(current);
+                } else {
+                    el.textContent = current;
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(update);
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        // Load projects
+        async function loadProjects() {
+            try {
+                const res = await fetch(`${API_BASE}/api/larep/projects/public`);
+                const data = await res.json();
+                
+                const container = document.getElementById('projectsContainer');
+
+                if (!data.success || !data.data || data.data.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">🏗️</div>
+                            <h3>Aucun projet publié</h3>
+                            <p>Les projets seront affichés ici une fois publiés.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = `<div class="projects-grid">${data.data.map(project => createProjectCard(project)).join('')}</div>`;
+
+                // Initialize mini maps
+                data.data.forEach((project, index) => {
+                    if (project.centerLatitude && project.centerLongitude) {
+                        initMiniMap(`map-${project.id}`, project);
+                    }
+                });
+
+            } catch (error) {
+                console.error('Failed to load projects:', error);
+                document.getElementById('projectsContainer').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">⚠️</div>
+                        <h3>Erreur de chargement</h3>
+                        <p>Impossible de charger les projets. Veuillez réessayer.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function createProjectCard(project) {
+            const statusClass = project.status.toLowerCase().replace('_', '-');
+            const statusText = {
+                'PLANNED': 'Planifié',
+                'IN_PROGRESS': 'En Cours',
+                'COMPLETED': 'Achevé',
+                'ON_HOLD': 'Suspendu'
+            }[project.status] || project.status;
+
+            return `
+                <div class="project-card">
+                    <div class="project-card-map">
+                        <span class="status-badge status-${statusClass}">${statusText}</span>
+                        <div id="map-${project.id}" class="mini-map"></div>
+                    </div>
+                    <div class="project-card-content">
+                        <h3>${project.name}</h3>
+                        ${project.executor ? `<div class="executor">👷 ${project.executor}</div>` : ''}
+                        
+                        <div class="meta">
+                            ${project.budget ? `
+                                <div class="meta-item">
+                                    <span class="label">Budget</span>
+                                    <span class="value">${formatNumber(project.budget)} ${project.budgetCurrency || 'MAD'}</span>
+                                </div>
+                            ` : ''}
+                            ${project.points && project.points.length > 0 ? `
+                                <div class="meta-item">
+                                    <span class="label">Points</span>
+                                    <span class="value">${project.points.length}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <div class="progress-section">
+                            <div class="progress-header">
+                                <span class="progress-label">Avancement</span>
+                                <span class="progress-value">${project.executionPercent}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${project.executionPercent}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="actions">
+                            <a href="/larep/projects/${project.id}" class="btn-view">
+                                Voir le Projet →
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function initMiniMap(containerId, project) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            try {
+                const map = new mapboxgl.Map({
+                    container: containerId,
+                    style: 'mapbox://styles/mapbox/light-v11',
+                    center: [project.centerLongitude, project.centerLatitude],
+                    zoom: 12,
+                    interactive: false,
+                    attributionControl: false
+                });
+
+                // Add marker
+                new mapboxgl.Marker({ color: '#1a365d' })
+                    .setLngLat([project.centerLongitude, project.centerLatitude])
+                    .addTo(map);
+
+                // Add points if available
+                if (project.points && project.points.length > 1) {
+                    map.on('load', () => {
+                        const coordinates = project.points.map(p => [p.longitude, p.latitude]);
+                        
+                        map.addSource('route', {
+                            type: 'geojson',
+                            data: {
+                                type: 'Feature',
+                                geometry: { type: 'LineString', coordinates }
+                            }
+                        });
+
+                        map.addLayer({
+                            id: 'route-line',
+                            type: 'line',
+                            source: 'route',
+                            paint: {
+                                'line-color': '#c9a227',
+                                'line-width': 3
+                            }
+                        });
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to init map:', e);
+            }
+        }
+
+        function formatNumber(num) {
+            if (!num) return '0';
+            return new Intl.NumberFormat('fr-FR').format(num);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStats();
+            loadProjects();
+        });
+    </script>
+</body>
+</html>

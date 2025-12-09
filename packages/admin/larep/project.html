@@ -605,17 +605,37 @@
             mapboxgl.accessToken = MAPBOX_TOKEN;
 
             const firstPoint = points[0];
+            const mapContainer = document.getElementById('map');
+            
+            // Ensure container has dimensions
+            if (mapContainer.offsetWidth === 0 || mapContainer.offsetHeight === 0) {
+                console.warn('Map container has zero dimensions, waiting...');
+                setTimeout(initMap, 100);
+                return;
+            }
 
-            map = new mapboxgl.Map({
-                container: 'map',
-                style: 'mapbox://styles/mapbox/satellite-streets-v12',
-                center: [firstPoint.longitude, firstPoint.latitude],
-                zoom: firstPoint.zoom || 14,
-                pitch: firstPoint.pitch || 60,
-                bearing: firstPoint.bearing || 0
-            });
+            try {
+                map = new mapboxgl.Map({
+                    container: 'map',
+                    style: 'mapbox://styles/mapbox/satellite-streets-v12',
+                    center: [firstPoint.longitude, firstPoint.latitude],
+                    zoom: firstPoint.zoom || 14,
+                    pitch: firstPoint.pitch || 60,
+                    bearing: firstPoint.bearing || 0
+                });
+
+                // Force resize after creation
+                setTimeout(() => {
+                    if (map) map.resize();
+                }, 100);
+            } catch (err) {
+                console.error('Error creating map:', err);
+                return;
+            }
 
             map.on('load', () => {
+                // Force resize again on load
+                map.resize();
                 // Add markers for all points
                 points.forEach((p, i) => {
                     const el = document.createElement('div');
