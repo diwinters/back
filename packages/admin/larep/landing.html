@@ -416,6 +416,15 @@
             transition: transform 0.6s ease;
         }
 
+        .map-fallback {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border: 0;
+        }
+
         .project-card:hover .project-map {
             transform: scale(1.05);
         }
@@ -577,6 +586,16 @@
             height: 100%;
             min-height: 700px;
             background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+        }
+
+        #allProjectsMapFallback {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border: 0;
+            z-index: 5;
         }
 
         .map-overlay {
@@ -962,6 +981,7 @@
 
     <!-- Interactive Map Section -->
     <section class="map-section">
+        <img id="allProjectsMapFallback" alt="Aperçu des projets" />
         <div id="allProjectsMap"></div>
         <div class="map-overlay">
             <h3>Carte Interactive</h3>
@@ -1201,6 +1221,12 @@
             return new Intl.NumberFormat('fr-FR').format(num);
         }
 
+        function staticMapUrl(lng, lat, zoom = 13, width = 800, height = 600) {
+            const safeWidth = Math.min(Math.max(width, 200), 1280);
+            const safeHeight = Math.min(Math.max(height, 200), 1280);
+            return `https://api.mapbox.com/styles/v1/mapbox/light-v11/static/${lng},${lat},${zoom},0,0/${safeWidth}x${safeHeight}?access_token=${MAPBOX_TOKEN}&attribution=false&logo=false`;
+        }
+
         // Load Projects
         async function loadProjects() {
             try {
@@ -1249,6 +1275,7 @@
                     <div class="project-card" data-project-id="${project.id}">
                         <div class="project-image">
                             <div id="${mapId}" class="project-map" data-center-lng="${project.centerLongitude}" data-center-lat="${project.centerLatitude}"></div>
+                            <img class="map-fallback" id="${mapId}-fallback" alt="Aperçu du projet" />
                             <div class="project-status">
                                 <span class="status-dot"></span>
                                 ${project.status === 'COMPLETED' ? 'Complété' : 
@@ -1287,6 +1314,14 @@
                     </div>
                 `;
             }).join('');
+
+            // Set fallback images immediately
+            featured.forEach(project => {
+                const fallback = document.getElementById(`map-${project.id}-fallback`);
+                if (fallback) {
+                    fallback.src = staticMapUrl(project.centerLongitude, project.centerLatitude, 13, 800, 600);
+                }
+            });
 
             // Animate progress bars
             setTimeout(() => {
@@ -1371,6 +1406,9 @@
 
                     map.on('load', () => {
                         console.log(`✓ Map loaded: ${containerId}`);
+
+                        const fallback = document.getElementById(`${containerId}-fallback`);
+                        if (fallback) fallback.style.display = 'none';
                         
                         // Add marker
                         new mapboxgl.Marker({ 
@@ -1411,6 +1449,8 @@
 
                     map.on('error', (e) => {
                         console.error(`Map error ${containerId}:`, e);
+                        const fallback = document.getElementById(`${containerId}-fallback`);
+                        if (fallback) fallback.style.display = 'block';
                     });
 
                 } catch (e) {
@@ -1438,6 +1478,14 @@
             const height = mapContainer.offsetHeight;
             console.log('Global map container dimensions:', width, 'x', height);
 
+            // Set fallback image
+            const fallbackImg = document.getElementById('allProjectsMapFallback');
+            if (fallbackImg) {
+                const first = allProjects[0];
+                fallbackImg.src = staticMapUrl(first.centerLongitude, first.centerLatitude, 11, 1280, 720);
+                fallbackImg.style.display = 'block';
+            }
+
             if (width === 0 || height === 0) {
                 console.warn('Global map container has zero dimensions, retrying...');
                 setTimeout(initGlobalMap, 300);
@@ -1456,6 +1504,7 @@
 
                 globalMap.on('load', () => {
                     console.log('Global map loaded');
+                    if (fallbackImg) fallbackImg.style.display = 'none';
                     
                     // Force multiple resizes
                     globalMap.resize();
@@ -1524,6 +1573,8 @@
 
                 globalMap.on('error', (e) => {
                     console.error('Global map error:', e);
+                    const fallbackImg = document.getElementById('allProjectsMapFallback');
+                    if (fallbackImg) fallbackImg.style.display = 'block';
                 });
 
                 // Handle window resize
