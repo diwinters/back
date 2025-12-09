@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LAREP - Agence Régionale d'Exécution des Projets</title>
-    <link href='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css' rel='stylesheet' />
-    <script src='https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js'></script>
+    
+    <!-- Leaflet CSS - Works without API key -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -415,28 +418,25 @@
             left: 0;
             width: 100%;
             height: 100%;
-            min-height: 260px;
+            z-index: 1;
         }
 
-        .project-map .mapboxgl-canvas-container,
-        .project-map .mapboxgl-canvas {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        #allProjectsMap .mapboxgl-canvas-container,
-        #allProjectsMap .mapboxgl-canvas {
-            width: 100% !important;
-            height: 100% !important;
-        }
-
-        .map-fallback {
-            position: absolute;
-            inset: 0;
+        .project-map .leaflet-container {
             width: 100%;
             height: 100%;
-            object-fit: cover;
-            border: 0;
+            background: #e2e8f0;
+        }
+
+        #allProjectsMap {
+            width: 100%;
+            height: 100%;
+            min-height: 700px;
+            background: #e2e8f0;
+        }
+
+        #allProjectsMap .leaflet-container {
+            width: 100%;
+            height: 100%;
         }
 
         .project-card:hover .project-map {
@@ -600,16 +600,6 @@
             height: 100%;
             min-height: 700px;
             background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
-        }
-
-        #allProjectsMapFallback {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border: 0;
-            z-index: 5;
         }
 
         .map-overlay {
@@ -900,16 +890,11 @@
             }
         }
 
-        /* MAPBOX CUSTOMIZATION */
-        .mapboxgl-popup-content {
+        /* LEAFLET CUSTOMIZATION */
+        .leaflet-popup-content {
             border-radius: 12px;
             padding: 1rem;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .mapboxgl-ctrl-bottom-left,
-        .mapboxgl-ctrl-bottom-right {
-            display: none;
         }
     </style>
 </head>
@@ -995,7 +980,6 @@
 
     <!-- Interactive Map Section -->
     <section class="map-section">
-        <img id="allProjectsMapFallback" alt="Aperçu des projets" />
         <div id="allProjectsMap"></div>
         <div class="map-overlay">
             <h3>Carte Interactive</h3>
@@ -1122,15 +1106,13 @@
     </footer>
 
     <script>
-        const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGl3aW50ZXIiLCJhIjoiY200Z3ViNHRxMGQ0djJqcHNpNGpjNjZ0cSJ9.I5iy1A5aaVuJP6_-a5IjLA';
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-
         let allProjects = [];
         let globalMap = null;
         const projectMaps = new Map();
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            console.log('Page loaded, initializing...');
             loadStats();
             loadProjects();
             initScrollAnimations();
@@ -1235,12 +1217,6 @@
             return new Intl.NumberFormat('fr-FR').format(num);
         }
 
-        function staticMapUrl(lng, lat, zoom = 13, width = 800, height = 600) {
-            const safeWidth = Math.min(Math.max(width, 200), 1280);
-            const safeHeight = Math.min(Math.max(height, 200), 1280);
-            return `https://api.mapbox.com/styles/v1/mapbox/light-v11/static/${lng},${lat},${zoom},0,0/${safeWidth}x${safeHeight}?access_token=${MAPBOX_TOKEN}&attribution=false&logo=false`;
-        }
-
         // Load Projects
         async function loadProjects() {
             try {
@@ -1289,7 +1265,6 @@
                     <div class="project-card" data-project-id="${project.id}">
                         <div class="project-image">
                             <div id="${mapId}" class="project-map" data-center-lng="${project.centerLongitude}" data-center-lat="${project.centerLatitude}"></div>
-                            <img class="map-fallback" id="${mapId}-fallback" alt="Aperçu du projet" />
                             <div class="project-status">
                                 <span class="status-dot"></span>
                                 ${project.status === 'COMPLETED' ? 'Complété' : 
@@ -1328,14 +1303,6 @@
                     </div>
                 `;
             }).join('');
-
-            // Set fallback images immediately
-            featured.forEach(project => {
-                const fallback = document.getElementById(`map-${project.id}-fallback`);
-                if (fallback) {
-                    fallback.src = staticMapUrl(project.centerLongitude, project.centerLatitude, 13, 800, 600);
-                }
-            });
 
             // Animate progress bars
             setTimeout(() => {
@@ -1391,93 +1358,62 @@
                 return;
             }
 
-            // Wait for container to be properly sized
-            const checkAndInit = () => {
-                const width = container.offsetWidth;
-                const height = container.offsetHeight;
+            const width = container.offsetWidth;
+            const height = container.offsetHeight;
+            console.log(`Container ${containerId} size:`, width, 'x', height);
+
+            if (width === 0 || height === 0) {
+                console.warn(`Retrying ${containerId}...`);
+                setTimeout(() => initMiniMap(containerId, project), 200);
+                return;
+            }
+
+            try {
+                console.log(`Creating Leaflet map for ${containerId}`);
                 
-                console.log(`Container ${containerId} size:`, width, 'x', height);
+                // Create Leaflet map - works without API key!
+                const map = L.map(containerId, {
+                    center: [project.centerLatitude, project.centerLongitude],
+                    zoom: 13,
+                    zoomControl: false,
+                    attributionControl: false,
+                    dragging: false,
+                    touchZoom: false,
+                    scrollWheelZoom: false,
+                    doubleClickZoom: false
+                });
 
-                if (width === 0 || height === 0) {
-                    console.warn(`Retrying ${containerId}...`);
-                    setTimeout(checkAndInit, 200);
-                    return;
+                // Use OpenStreetMap tiles - FREE, no API key needed
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(map);
+
+                // Add marker
+                const markerIcon = L.divIcon({
+                    className: 'custom-marker',
+                    html: '<div style="background: linear-gradient(135deg, #f59e0b, #d97706); width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                });
+                
+                L.marker([project.centerLatitude, project.centerLongitude], { icon: markerIcon }).addTo(map);
+
+                // Add route if available
+                if (project.points && project.points.length > 1) {
+                    const coordinates = project.points.map(p => [p.latitude, p.longitude]);
+                    L.polyline(coordinates, { color: '#f59e0b', weight: 4, opacity: 0.8 }).addTo(map);
                 }
 
-                try {
-                    console.log(`Creating map for ${containerId}`);
-                    
-                    // Set token right before creating map
-                    mapboxgl.accessToken = MAPBOX_TOKEN;
-                    
-                    const map = new mapboxgl.Map({
-                        container: containerId,
-                        style: 'mapbox://styles/mapbox/light-v11',
-                        center: [project.centerLongitude, project.centerLatitude],
-                        zoom: 13,
-                        interactive: false,
-                        attributionControl: false,
-                        trackResize: true,
-                        fadeDuration: 0
-                    });
+                projectMaps.set(containerId, map);
+                console.log(`✓ Map created: ${containerId}`);
 
-                    projectMaps.set(containerId, map);
+                // Force invalidate size
+                setTimeout(() => map.invalidateSize(), 100);
+                setTimeout(() => map.invalidateSize(), 500);
 
-                    map.on('load', () => {
-                        console.log(`✓ Map loaded: ${containerId}`);
-
-                        const fallback = document.getElementById(`${containerId}-fallback`);
-                        if (fallback) fallback.style.display = 'none';
-                        
-                        // Add marker
-                        new mapboxgl.Marker({ 
-                            color: '#f59e0b',
-                            scale: 0.9
-                        })
-                        .setLngLat([project.centerLongitude, project.centerLatitude])
-                        .addTo(map);
-
-                        // Add route if available
-                        if (project.points && project.points.length > 1) {
-                            const coordinates = project.points.map(p => [p.longitude, p.latitude]);
-                            
-                            map.addSource('route', {
-                                type: 'geojson',
-                                data: {
-                                    type: 'Feature',
-                                    geometry: { type: 'LineString', coordinates }
-                                }
-                            });
-
-                            map.addLayer({
-                                id: 'route-line',
-                                type: 'line',
-                                source: 'route',
-                                paint: {
-                                    'line-color': '#f59e0b',
-                                    'line-width': 4,
-                                    'line-opacity': 0.8
-                                }
-                            });
-                        }
-
-                        // Force resize
-                        setTimeout(() => map.resize(), 100);
-                        setTimeout(() => map.resize(), 500);
-                    });
-
-                    map.on('error', (e) => {
-                        console.error(`Map error ${containerId}:`, e);
-                        const fallback = document.getElementById(`${containerId}-fallback`);
-                        if (fallback) fallback.style.display = 'block';
-                    });
-
-                } catch (e) {
-                    console.error(`Failed to create map ${containerId}:`, e);
-                }
-            };
-
-            checkAndInit();
+            } catch (e) {
+                console.error(`Failed to create map ${containerId}:`, e);
+            }
         }
 
         // Global Map
@@ -1497,14 +1433,6 @@
             const height = mapContainer.offsetHeight;
             console.log('Global map container dimensions:', width, 'x', height);
 
-            // Set fallback image
-            const fallbackImg = document.getElementById('allProjectsMapFallback');
-            if (fallbackImg) {
-                const first = allProjects[0];
-                fallbackImg.src = staticMapUrl(first.centerLongitude, first.centerLatitude, 11, 1280, 720);
-                fallbackImg.style.display = 'block';
-            }
-
             if (width === 0 || height === 0) {
                 console.warn('Global map container has zero dimensions, retrying...');
                 setTimeout(initGlobalMap, 300);
@@ -1512,102 +1440,66 @@
             }
 
             try {
-                console.log('Creating global map...');
+                console.log('Creating global Leaflet map...');
                 
-                // Set token right before creating map
-                mapboxgl.accessToken = MAPBOX_TOKEN;
+                const first = allProjects[0];
                 
-                globalMap = new mapboxgl.Map({
-                    container: 'allProjectsMap',
-                    style: 'mapbox://styles/mapbox/streets-v12',
-                    center: [allProjects[0].centerLongitude, allProjects[0].centerLatitude],
-                    zoom: 11,
-                    trackResize: true,
-                    fadeDuration: 0
+                // Create Leaflet map - works without API key!
+                globalMap = L.map('allProjectsMap', {
+                    center: [first.centerLatitude, first.centerLongitude],
+                    zoom: 11
                 });
 
-                globalMap.on('load', () => {
-                    console.log('Global map loaded');
-                    if (fallbackImg) fallbackImg.style.display = 'none';
-                    
-                    // Force multiple resizes
-                    globalMap.resize();
-                    setTimeout(() => globalMap.resize(), 100);
-                    setTimeout(() => globalMap.resize(), 300);
+                // Use OpenStreetMap tiles - FREE, no API key needed
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '© OpenStreetMap'
+                }).addTo(globalMap);
 
-                    allProjects.forEach((project, i) => {
-                        const el = document.createElement('div');
-                        el.style.cssText = `
-                            background: linear-gradient(135deg, #f59e0b, #d97706);
-                            width: 44px;
-                            height: 44px;
-                            border-radius: 50%;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            color: white;
-                            font-weight: 800;
-                            border: 3px solid white;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-                            cursor: pointer;
-                            transition: all 0.3s ease;
-                            font-size: 1rem;
-                        `;
-                        el.textContent = i + 1;
-                        
-                        el.addEventListener('mouseenter', () => {
-                            el.style.transform = 'scale(1.25)';
-                            el.style.zIndex = '1000';
-                        });
-                        
-                        el.addEventListener('mouseleave', () => {
-                            el.style.transform = 'scale(1)';
-                        });
-
-                        const popup = new mapboxgl.Popup({ offset: 30 }).setHTML(`
-                            <div style="padding: 0.75rem; min-width: 200px;">
-                                <h4 style="margin: 0 0 0.625rem; font-size: 1.125rem; font-weight: 700; color: #0f172a;">${project.name}</h4>
-                                <p style="margin: 0 0 0.625rem; font-size: 0.9375rem; color: #64748b; font-weight: 600;">
-                                    ${project.executionPercent}% complété
-                                </p>
-                                <a href="/larep/projects/${project.id}" 
-                                   style="display: inline-block; margin-top: 0.5rem; color: #f59e0b; font-weight: 700; text-decoration: none; font-size: 0.9375rem;">
-                                    Voir le projet →
-                                </a>
-                            </div>
-                        `);
-
-                        new mapboxgl.Marker(el)
-                            .setLngLat([project.centerLongitude, project.centerLatitude])
-                            .setPopup(popup)
-                            .addTo(globalMap);
+                // Add markers for all projects
+                allProjects.forEach((project, i) => {
+                    const markerIcon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background: linear-gradient(135deg, #f59e0b, #d97706); width: 36px; height: 36px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 14px;">${i + 1}</div>`,
+                        iconSize: [36, 36],
+                        iconAnchor: [18, 18]
                     });
 
-                    console.log(`Added ${allProjects.length} markers to global map`);
+                    const marker = L.marker([project.centerLatitude, project.centerLongitude], { icon: markerIcon })
+                        .addTo(globalMap);
 
-                    // Fit bounds
-                    if (allProjects.length > 1) {
-                        const bounds = new mapboxgl.LngLatBounds();
-                        allProjects.forEach(p => {
-                            bounds.extend([p.centerLongitude, p.centerLatitude]);
-                        });
-                        globalMap.fitBounds(bounds, { padding: 80 });
-                    }
+                    // Add popup
+                    marker.bindPopup(`
+                        <div style="padding: 0.5rem; min-width: 180px;">
+                            <h4 style="margin: 0 0 0.5rem; font-size: 1rem; font-weight: 700; color: #0f172a;">${project.name}</h4>
+                            <p style="margin: 0 0 0.5rem; font-size: 0.875rem; color: #64748b; font-weight: 600;">
+                                ${project.executionPercent}% complété
+                            </p>
+                            <a href="/larep/projects/${project.id}" 
+                               style="display: inline-block; margin-top: 0.25rem; color: #f59e0b; font-weight: 700; text-decoration: none; font-size: 0.875rem;">
+                                Voir le projet →
+                            </a>
+                        </div>
+                    `);
                 });
 
-                globalMap.on('error', (e) => {
-                    console.error('Global map error:', e);
-                    const fallbackImg = document.getElementById('allProjectsMapFallback');
-                    if (fallbackImg) fallbackImg.style.display = 'block';
-                });
+                console.log(`✓ Added ${allProjects.length} markers to global map`);
+
+                // Fit bounds to show all projects
+                if (allProjects.length > 1) {
+                    const bounds = L.latLngBounds(allProjects.map(p => [p.centerLatitude, p.centerLongitude]));
+                    globalMap.fitBounds(bounds, { padding: [50, 50] });
+                }
+
+                // Force invalidate size
+                setTimeout(() => globalMap.invalidateSize(), 100);
+                setTimeout(() => globalMap.invalidateSize(), 500);
 
                 // Handle window resize
                 window.addEventListener('resize', () => {
-                    if (globalMap) {
-                        console.log('Window resized, resizing global map');
-                        globalMap.resize();
-                    }
+                    if (globalMap) globalMap.invalidateSize();
                 });
+
             } catch (e) {
                 console.error('Failed to init global map:', e);
             }
