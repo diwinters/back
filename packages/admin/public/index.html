@@ -451,6 +451,7 @@
             <button class="tab" onclick="showTab('orders')">📦 Orders</button>
             <button class="tab" onclick="showTab('vehicleTypes')">🚗 Vehicle Types</button>
             <button class="tab" onclick="showTab('cities')">🏙️ Cities</button>
+            <button class="tab" onclick="showTab('videoFeed')">📺 Video Feed</button>
         </div>
 
         <!-- Dashboard -->
@@ -993,6 +994,28 @@
             </thead>
             <tbody id="citiesBody"></tbody>
         </table>
+    </div>
+
+    <!-- Video Feed Section -->
+    <div id="videoFeed" class="section">
+        <h2>📺 Video Feed</h2>
+        <div id="videoFeedMessage" class="message"></div>
+
+        <div class="toolbar" style="align-items:center;">
+            <input
+                type="text"
+                id="videoFeedListUriInput"
+                placeholder="at://did:plc:.../app.bsky.graph.list/..."
+                style="flex:1; min-width: 420px;"
+            />
+            <button class="btn btn-primary" onclick="loadVideoFeedConfig()">🔄 Refresh</button>
+            <button class="btn btn-success" onclick="saveVideoFeedConfig()">💾 Save</button>
+        </div>
+
+        <p style="margin-top: 10px; color:#6b7280; line-height:1.4;">
+            Admin format: <strong>AT-URI only</strong>. Example:
+            <code>at://did:plc:xxxx/app.bsky.graph.list/yyyy</code>
+        </p>
     </div>
 
     <!-- City Form Modal -->

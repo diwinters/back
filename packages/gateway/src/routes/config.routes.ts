@@ -11,7 +11,13 @@ const router = Router()
 /**
  * Detect which city a location is in based on distance from city center
  */
-async function detectCity(latitude: number, longitude: number): Promise<{ id: string; name: string; currency: string } | null> {
+async function detectCity(latitude: number, longitude: number): Promise<{ 
+  id: string; 
+  name: string; 
+  currency: string; 
+  centerLatitude: number; 
+  centerLongitude: number 
+} | null> {
   const activeCities = await prisma.city.findMany({
     where: { isActive: true },
     select: {
@@ -31,7 +37,13 @@ async function detectCity(latitude: number, longitude: number): Promise<{ id: st
     )
     
     if (distanceKm <= city.radiusKm) {
-      return { id: city.id, name: city.name, currency: city.currency }
+      return { 
+        id: city.id, 
+        name: city.name, 
+        currency: city.currency,
+        centerLatitude: city.centerLatitude,
+        centerLongitude: city.centerLongitude,
+      }
     }
   }
 
@@ -58,7 +70,7 @@ router.get('/vehicle-types', async (req, res, next) => {
     const longitude = hasCoordinates ? parseFloat(lng as string) : null
 
     // Check city if coordinates provided
-    let city: { id: string; name: string; currency: string } | null = null
+    let city: { id: string; name: string; currency: string; centerLatitude: number; centerLongitude: number } | null = null
     let cityPricing: Map<string, { baseFare: number; perKmRate: number; perMinuteRate: number; minimumFare: number; surgeMultiplier: number }> = new Map()
 
     if (latitude !== null && longitude !== null && !isNaN(latitude) && !isNaN(longitude)) {
@@ -153,6 +165,8 @@ router.get('/vehicle-types', async (req, res, next) => {
           id: city.id,
           name: city.name,
           currency: city.currency,
+          centerLatitude: city.centerLatitude,
+          centerLongitude: city.centerLongitude,
         }
       }),
       data: clientVehicleTypes,
@@ -192,6 +206,37 @@ router.get('/vehicle-types/:code', async (req, res, next) => {
       }
     })
   } catch (error) {
+    next(error)
+  }
+})
+
+// =============================================================================
+// VIDEO FEED CONFIG (Admin-managed)
+// =============================================================================
+
+/**
+ * GET /api/config/video-feed
+ * Returns the Bluesky List AT-URI configured by admin for the app's video feed.
+ * Public endpoint - no auth required.
+ */
+router.get('/video-feed', async (req, res, next) => {
+  try {
+    const cfg = await prisma.appConfig.upsert({
+      where: {id: 1},
+      update: {},
+      create: {id: 1},
+      select: {videoFeedListUri: true, updatedAt: true},
+    })
+
+    res.json({
+      success: true,
+      data: {
+        videoFeedListUri: cfg.videoFeedListUri ?? null,
+        updatedAt: cfg.updatedAt,
+      },
+    })
+  } catch (error) {
+    logger.error('Failed to fetch video feed config', {error})
     next(error)
   }
 })

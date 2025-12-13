@@ -169,6 +169,62 @@ function showTab(tabName) {
     if (tabName === 'orders') loadOrders()
     if (tabName === 'vehicleTypes') loadVehicleTypes()
     if (tabName === 'cities') loadCities()
+    if (tabName === 'videoFeed') loadVideoFeedConfig()
+}
+
+// ============================================================================
+// Video Feed Config
+// ============================================================================
+
+async function loadVideoFeedConfig() {
+    try {
+        const res = await fetch(`${API_BASE}/api/config/video-feed`)
+        const data = await res.json()
+
+        if (data.success) {
+            const input = document.getElementById('videoFeedListUriInput')
+            if (input) input.value = data.data.videoFeedListUri || ''
+            showMessage(
+                'videoFeedMessage',
+                data.data.videoFeedListUri
+                    ? `Loaded video feed list URI (updated ${new Date(data.data.updatedAt).toLocaleString()})`
+                    : 'No video feed list URI set. The app will show “Check again later.”',
+                'success',
+            )
+        } else {
+            showMessage('videoFeedMessage', data.error || 'Failed to load config', 'error')
+        }
+    } catch (error) {
+        showMessage('videoFeedMessage', 'Failed to load config: ' + error.message, 'error')
+    }
+}
+
+async function saveVideoFeedConfig() {
+    try {
+        const input = document.getElementById('videoFeedListUriInput')
+        const value = input ? input.value.trim() : ''
+
+        const res = await fetch(`${API_BASE}/api/admin/config/video-feed`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({videoFeedListUri: value || null}),
+        })
+        const data = await res.json()
+
+        if (data.success) {
+            showMessage(
+                'videoFeedMessage',
+                data.data.videoFeedListUri
+                    ? 'Saved video feed list URI.'
+                    : 'Cleared video feed list URI.',
+                'success',
+            )
+        } else {
+            showMessage('videoFeedMessage', data.error || 'Failed to save config', 'error')
+        }
+    } catch (error) {
+        showMessage('videoFeedMessage', 'Failed to save config: ' + error.message, 'error')
+    }
 }
 
 // ============================================================================

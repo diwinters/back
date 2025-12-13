@@ -135,6 +135,77 @@ app.use(express.static(path.join(__dirname, 'public')))
 app.use('/uploads', express.static(UPLOADS_DIR))
 
 // ============================================================================
+// Video Feed Config (Admin-managed)
+// ============================================================================
+
+function isValidBskyListAtUri(maybeUri) {
+  if (!maybeUri || typeof maybeUri !== 'string') return false
+  return maybeUri.startsWith('at://') && maybeUri.includes('/app.bsky.graph.list/')
+}
+
+/**
+ * GET /api/config/video-feed
+ * Public-ish endpoint used by the admin UI to display current config.
+ */
+app.get('/api/config/video-feed', async (req, res) => {
+  try {
+    const cfg = await prisma.appConfig.upsert({
+      where: {id: 1},
+      update: {},
+      create: {id: 1},
+      select: {videoFeedListUri: true, updatedAt: true},
+    })
+
+    res.json({
+      success: true,
+      data: {
+        videoFeedListUri: cfg.videoFeedListUri || null,
+        updatedAt: cfg.updatedAt,
+      },
+    })
+  } catch (error) {
+    res.status(500).json({success: false, error: error.message})
+  }
+})
+
+/**
+ * PUT /api/admin/config/video-feed
+ * Updates the configured Bluesky List AT-URI used for the in-app video feed.
+ * Admin endpoint (no auth currently; add auth before production exposure).
+ */
+app.put('/api/admin/config/video-feed', async (req, res) => {
+  try {
+    const {videoFeedListUri} = req.body || {}
+
+    if (videoFeedListUri !== null && videoFeedListUri !== '' && !isValidBskyListAtUri(videoFeedListUri)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid list URI. Expected an at://.../app.bsky.graph.list/... AT-URI',
+      })
+    }
+
+    const normalized = videoFeedListUri ? String(videoFeedListUri).trim() : null
+
+    const cfg = await prisma.appConfig.upsert({
+      where: {id: 1},
+      update: {videoFeedListUri: normalized},
+      create: {id: 1, videoFeedListUri: normalized},
+      select: {videoFeedListUri: true, updatedAt: true},
+    })
+
+    res.json({
+      success: true,
+      data: {
+        videoFeedListUri: cfg.videoFeedListUri || null,
+        updatedAt: cfg.updatedAt,
+      },
+    })
+  } catch (error) {
+    res.status(500).json({success: false, error: error.message})
+  }
+})
+
+// ============================================================================
 // Database Debug Endpoints
 // ============================================================================
 
