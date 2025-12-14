@@ -48,6 +48,7 @@ model User {
   
   // Relations
   driver        Driver?
+  marketSeller  MarketSeller?
   ordersAsUser  Order[]   @relation("UserOrders")
   ordersAsDriver Order[]  @relation("DriverOrders")
   ratings       Rating[]  @relation("RatingsGiven")
@@ -564,4 +565,140 @@ model LarepProjectImage {
   createdAt   DateTime @default(now())
 
   @@index([projectId])
+}
+
+// =============================================================================
+// MARKET: Sellers (Verified Publishers)
+// =============================================================================
+
+model MarketSeller {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Store Information
+  storeName       String
+  storeDescription String?
+  contactPhone    String?
+  contactEmail    String?
+  
+  // Verification Status
+  status          MarketSellerStatus @default(PENDING)
+  verifiedAt      DateTime?
+  rejectionReason String?
+  
+  // Relations
+  posts           MarketPost[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+}
+
+enum MarketSellerStatus {
+  PENDING     // Awaiting admin approval
+  APPROVED    // Can publish posts to market
+  REJECTED    // Application rejected
+  SUSPENDED   // Temporarily suspended
+}
+
+// =============================================================================
+// MARKET: Posts (Bluesky posts flagged for market display)
+// =============================================================================
+
+model MarketPost {
+  id              String   @id @default(cuid())
+  sellerId        String
+  seller          MarketSeller @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  
+  // Bluesky Post Reference
+  postUri         String   @unique  // at://did:plc:xxx/app.bsky.feed.post/xxx
+  postCid         String             // Content ID for the post
+  
+  // Category
+  categoryId      String
+  category        MarketCategory @relation(fields: [categoryId], references: [id])
+  subcategoryId   String?
+  subcategory     MarketSubcategory? @relation(fields: [subcategoryId], references: [id])
+  
+  // Product Info (cached from post or provided separately)
+  title           String
+  description     String?
+  price           Float?
+  currency        String   @default("MAD")
+  
+  // Status
+  status          MarketPostStatus @default(PENDING_REVIEW)
+  reviewedAt      DateTime?
+  rejectionReason String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([subcategoryId])
+  @@index([status])
+}
+
+enum MarketPostStatus {
+  PENDING_REVIEW  // Awaiting admin approval
+  ACTIVE          // Visible in market
+  REJECTED        // Rejected by admin
+  SOLD            // Marked as sold
+  REMOVED         // Removed by seller
+}
+
+// =============================================================================
+// MARKET: Categories & Subcategories
+// =============================================================================
+
+model MarketCategory {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  nameAr          String?  // Arabic name
+  description     String?
+  
+  // Display
+  emoji           String?  // Emoji icon (optional)
+  iconUrl         String?  // SVG icon URL (admin uploaded)
+  gradientStart   String?  // Gradient start color (hex)
+  gradientEnd     String?  // Gradient end color (hex)
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  
+  // Relations
+  subcategories   MarketSubcategory[]
+  posts           MarketPost[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model MarketSubcategory {
+  id              String   @id @default(cuid())
+  categoryId      String
+  category        MarketCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  name            String
+  nameAr          String?  // Arabic name
+  description     String?
+  
+  // Display
+  emoji           String?
+  iconUrl         String?
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  
+  // Relations
+  posts           MarketPost[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([categoryId, name])
+  @@index([categoryId, isActive, sortOrder])
 }

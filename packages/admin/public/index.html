@@ -451,6 +451,7 @@
             <button class="tab" onclick="showTab('orders')">📦 Orders</button>
             <button class="tab" onclick="showTab('vehicleTypes')">🚗 Vehicle Types</button>
             <button class="tab" onclick="showTab('cities')">🏙️ Cities</button>
+            <button class="tab" onclick="showTab('market')">🛍️ Market</button>
             <button class="tab" onclick="showTab('videoFeed')">📺 Video Feed</button>
         </div>
 
@@ -994,6 +995,288 @@
             </thead>
             <tbody id="citiesBody"></tbody>
         </table>
+    </div>
+
+    <!-- Market Section -->
+    <div id="market" class="section">
+        <h2>🛍️ Market Management</h2>
+        <div id="marketMessage" class="message"></div>
+        
+        <!-- Market Stats -->
+        <div class="stats-grid" id="marketStatsGrid">
+            <div class="stat-card purple">
+                <div class="stat-label">Total Sellers</div>
+                <div class="stat-value" id="statMarketSellers">-</div>
+            </div>
+            <div class="stat-card orange">
+                <div class="stat-label">Pending Sellers</div>
+                <div class="stat-value" id="statMarketPendingSellers">-</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-label">Total Posts</div>
+                <div class="stat-value" id="statMarketPosts">-</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">Pending Posts</div>
+                <div class="stat-value" id="statMarketPendingPosts">-</div>
+            </div>
+        </div>
+        
+        <!-- Market Subtabs -->
+        <div class="tabs" style="margin-top: 20px;">
+            <button class="tab active" id="marketSubtabCategories" onclick="showMarketSubtab('categories')">📁 Categories</button>
+            <button class="tab" id="marketSubtabSellers" onclick="showMarketSubtab('sellers')">👤 Sellers</button>
+            <button class="tab" id="marketSubtabPosts" onclick="showMarketSubtab('posts')">📋 Posts</button>
+        </div>
+        
+        <!-- Categories Subtab -->
+        <div id="marketCategories" class="market-subtab">
+            <div class="toolbar" style="margin-top: 20px;">
+                <button class="btn btn-success" onclick="showCategoryForm()">➕ Add Category</button>
+                <button class="btn btn-primary" onclick="loadMarketCategories()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Icon</th>
+                        <th>Name</th>
+                        <th>Name (AR)</th>
+                        <th>Subcategories</th>
+                        <th>Posts</th>
+                        <th>Order</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketCategoriesBody"></tbody>
+            </table>
+        </div>
+        
+        <!-- Sellers Subtab -->
+        <div id="marketSellers" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <input type="search" id="sellerSearch" placeholder="Search sellers..." onkeyup="if(event.key==='Enter')loadMarketSellers()">
+                <select id="sellerStatusFilter" onchange="loadMarketSellers()">
+                    <option value="">All Status</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="REJECTED">Rejected</option>
+                    <option value="SUSPENDED">Suspended</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadMarketSellers()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Store Name</th>
+                        <th>User</th>
+                        <th>Contact</th>
+                        <th>Posts</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketSellersBody"></tbody>
+            </table>
+            <div id="marketSellersPagination" class="pagination"></div>
+        </div>
+        
+        <!-- Posts Subtab -->
+        <div id="marketPosts" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <input type="search" id="postSearch" placeholder="Search posts..." onkeyup="if(event.key==='Enter')loadMarketPosts()">
+                <select id="postStatusFilter" onchange="loadMarketPosts()">
+                    <option value="">All Status</option>
+                    <option value="PENDING_REVIEW">Pending Review</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="REJECTED">Rejected</option>
+                    <option value="SOLD">Sold</option>
+                    <option value="REMOVED">Removed</option>
+                </select>
+                <select id="postCategoryFilter" onchange="loadMarketPosts()">
+                    <option value="">All Categories</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadMarketPosts()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Seller</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketPostsBody"></tbody>
+            </table>
+            <div id="marketPostsPagination" class="pagination"></div>
+        </div>
+    </div>
+
+    <!-- Market Category Form Modal -->
+    <div id="categoryFormModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 id="categoryFormTitle">Add Category</h3>
+            <form id="categoryForm" enctype="multipart/form-data">
+                <input type="hidden" id="categoryId">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <div class="form-group">
+                            <label>Name (English) *</label>
+                            <input type="text" id="categoryName" required placeholder="e.g., Electronics">
+                        </div>
+                        <div class="form-group">
+                            <label>Name (Arabic)</label>
+                            <input type="text" id="categoryNameAr" placeholder="e.g., إلكترونيات" dir="rtl">
+                        </div>
+                        <div class="form-group">
+                            <label>Description</label>
+                            <input type="text" id="categoryDescription" placeholder="Brief description">
+                        </div>
+                        <div class="form-group">
+                            <label>Emoji</label>
+                            <input type="text" id="categoryEmoji" placeholder="e.g., 📱" maxlength="4">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <label>Icon (SVG/PNG)</label>
+                            <div class="upload-zone" id="categoryIconZone" onclick="document.getElementById('categoryIconInput').click()">
+                                <input type="file" id="categoryIconInput" name="icon" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none" onchange="previewCategoryIcon(this)">
+                                <div id="categoryIconPreview" class="upload-preview">
+                                    <span class="upload-icon">🖼️</span>
+                                    <span>Click to upload icon</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Gradient Start</label>
+                            <input type="color" id="categoryGradientStart" value="#667eea" style="width: 100%; height: 40px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Gradient End</label>
+                            <input type="color" id="categoryGradientEnd" value="#764ba2" style="width: 100%; height: 40px;">
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="form-group">
+                        <label>Sort Order</label>
+                        <input type="number" id="categorySortOrder" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="categoryIsActive">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideCategoryForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Category</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Subcategory Form Modal -->
+    <div id="subcategoryFormModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 id="subcategoryFormTitle">Add Subcategory</h3>
+            <form id="subcategoryForm" enctype="multipart/form-data">
+                <input type="hidden" id="subcategoryId">
+                <input type="hidden" id="subcategoryCategoryId">
+                
+                <div class="form-group">
+                    <label>Parent Category</label>
+                    <input type="text" id="subcategoryParentName" disabled style="background: #f9fafb;">
+                </div>
+                <div class="form-group">
+                    <label>Name (English) *</label>
+                    <input type="text" id="subcategoryName" required placeholder="e.g., Smartphones">
+                </div>
+                <div class="form-group">
+                    <label>Name (Arabic)</label>
+                    <input type="text" id="subcategoryNameAr" placeholder="e.g., هواتف ذكية" dir="rtl">
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="subcategoryDescription" placeholder="Brief description">
+                </div>
+                <div class="form-group">
+                    <label>Emoji</label>
+                    <input type="text" id="subcategoryEmoji" placeholder="e.g., 📱" maxlength="4">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="form-group">
+                        <label>Sort Order</label>
+                        <input type="number" id="subcategorySortOrder" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="subcategoryIsActive">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hideSubcategoryForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Subcategory</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Seller Details Modal -->
+    <div id="sellerDetailsModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <h3>Seller Details</h3>
+            <div id="sellerDetailsContent"></div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="hideSellerDetails()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Post Details Modal -->
+    <div id="postDetailsModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <h3>Post Details</h3>
+            <div id="postDetailsContent"></div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="hidePostDetails()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Reason Modal -->
+    <div id="rejectReasonModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 400px;">
+            <h3 id="rejectReasonTitle">Rejection Reason</h3>
+            <input type="hidden" id="rejectItemId">
+            <input type="hidden" id="rejectItemType">
+            <div class="form-group">
+                <label>Reason *</label>
+                <textarea id="rejectReason" rows="3" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;" placeholder="Enter reason for rejection..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="hideRejectReasonModal()">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="submitRejection()">Reject</button>
+            </div>
+        </div>
     </div>
 
     <!-- Video Feed Section -->

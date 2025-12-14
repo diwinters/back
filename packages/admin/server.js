@@ -2318,6 +2318,977 @@ app.post('/api/larep/projects/:id/images', upload.array('images', 10), async (re
 })
 
 // ============================================================================
+// Market: Category Management CRUD Endpoints
+// ============================================================================
+
+// Storage for category icons (SVG files)
+const categoryIconStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(UPLOADS_DIR, 'market', 'categories')
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true })
+    }
+    cb(null, uploadPath)
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).substring(2, 8)
+    cb(null, `category_${timestamp}_${random}${ext}`)
+  }
+})
+
+const categoryIconFilter = (req, file, cb) => {
+  const allowedTypes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp']
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true)
+  } else {
+    cb(new Error('Only SVG, PNG, JPEG, and WebP images are allowed'), false)
+  }
+}
+
+const categoryIconUpload = multer({
+  storage: categoryIconStorage,
+  fileFilter: categoryIconFilter,
+  limits: { fileSize: 2 * 1024 * 1024 } // 2MB max
+})
+
+/**
+ * GET /api/market/categories
+ * List all market categories with subcategories
+ */
+app.get('/api/market/categories', async (req, res) => {
+  try {
+    const includeInactive = req.query.includeInactive === 'true'
+    
+    const where = includeInactive ? {} : { isActive: true }
+
+    const categories = await prisma.marketCategory.findMany({
+      where,
+      include: {
+        subcategories: {
+          where: includeInactive ? {} : { isActive: true },
+          orderBy: { sortOrder: 'asc' }
+        },
+        _count: { select: { posts: true } }
+      },
+      orderBy: { sortOrder: 'asc' }
+    })
+
+    res.json({
+      success: true,
+      data: categories
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/categories/:id
+ * Get a single category with subcategories
+ */
+app.get('/api/market/categories/:id', async (req, res) => {
+  try {
+    const category = await prisma.marketCategory.findUnique({
+      where: { id: req.params.id },
+      include: {
+        subcategories: { orderBy: { sortOrder: 'asc' } },
+        _count: { select: { posts: true } }
+      }
+    })
+
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    res.json({ success: true, data: category })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/categories
+ * Create a new category
+ */
+app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req, res) => {
+  try {
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Category name is required' })
+    }
+
+    // Check for duplicate name
+    const existing = await prisma.marketCategory.findUnique({ where: { name } })
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'Category with this name already exists' })
+    }
+
+    const iconUrl = req.file ? `/uploads/market/categories/${req.file.filename}` : null
+
+    const category = await prisma.marketCategory.create({
+      data: {
+        name,
+        nameAr: nameAr || null,
+        description: description || null,
+        emoji: emoji || null,
+        iconUrl,
+        gradientStart: gradientStart || null,
+        gradientEnd: gradientEnd || null,
+        sortOrder: parseInt(sortOrder) || 0,
+        isActive: isActive !== 'false'
+      },
+      include: { subcategories: true }
+    })
+
+    res.status(201).json({ success: true, data: category })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/categories/:id
+ * Update a category
+ */
+app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (req, res) => {
+  try {
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+
+    const existing = await prisma.marketCategory.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    // Check for duplicate name if changing
+    if (name && name !== existing.name) {
+      const duplicate = await prisma.marketCategory.findUnique({ where: { name } })
+      if (duplicate) {
+        return res.status(400).json({ success: false, error: 'Category with this name already exists' })
+      }
+    }
+
+    const updateData = {}
+    if (name !== undefined) updateData.name = name
+    if (nameAr !== undefined) updateData.nameAr = nameAr || null
+    if (description !== undefined) updateData.description = description || null
+    if (emoji !== undefined) updateData.emoji = emoji || null
+    if (gradientStart !== undefined) updateData.gradientStart = gradientStart || null
+    if (gradientEnd !== undefined) updateData.gradientEnd = gradientEnd || null
+    if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder) || 0
+    if (isActive !== undefined) updateData.isActive = isActive !== 'false'
+    if (req.file) updateData.iconUrl = `/uploads/market/categories/${req.file.filename}`
+
+    const category = await prisma.marketCategory.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { subcategories: true }
+    })
+
+    res.json({ success: true, data: category })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/categories/:id
+ * Delete a category (cascades to subcategories)
+ */
+app.delete('/api/market/categories/:id', async (req, res) => {
+  try {
+    const existing = await prisma.marketCategory.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { posts: true } } }
+    })
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    if (existing._count.posts > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Cannot delete category with ${existing._count.posts} posts. Move or delete posts first.` 
+      })
+    }
+
+    await prisma.marketCategory.delete({ where: { id: req.params.id } })
+
+    res.json({ success: true, message: 'Category deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Subcategory Management CRUD Endpoints
+// ============================================================================
+
+/**
+ * POST /api/market/categories/:categoryId/subcategories
+ * Create a subcategory under a category
+ */
+app.post('/api/market/categories/:categoryId/subcategories', categoryIconUpload.single('icon'), async (req, res) => {
+  try {
+    const { categoryId } = req.params
+    const { name, nameAr, description, emoji, sortOrder, isActive } = req.body
+
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Subcategory name is required' })
+    }
+
+    // Check parent category exists
+    const parentCategory = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!parentCategory) {
+      return res.status(404).json({ success: false, error: 'Parent category not found' })
+    }
+
+    // Check for duplicate name within category
+    const existing = await prisma.marketSubcategory.findUnique({
+      where: { categoryId_name: { categoryId, name } }
+    })
+    if (existing) {
+      return res.status(400).json({ success: false, error: 'Subcategory with this name already exists in this category' })
+    }
+
+    const iconUrl = req.file ? `/uploads/market/categories/${req.file.filename}` : null
+
+    const subcategory = await prisma.marketSubcategory.create({
+      data: {
+        categoryId,
+        name,
+        nameAr: nameAr || null,
+        description: description || null,
+        emoji: emoji || null,
+        iconUrl,
+        sortOrder: parseInt(sortOrder) || 0,
+        isActive: isActive !== 'false'
+      }
+    })
+
+    res.status(201).json({ success: true, data: subcategory })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/subcategories/:id
+ * Update a subcategory
+ */
+app.put('/api/market/subcategories/:id', categoryIconUpload.single('icon'), async (req, res) => {
+  try {
+    const { name, nameAr, description, emoji, sortOrder, isActive } = req.body
+
+    const existing = await prisma.marketSubcategory.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Subcategory not found' })
+    }
+
+    // Check for duplicate name if changing
+    if (name && name !== existing.name) {
+      const duplicate = await prisma.marketSubcategory.findUnique({
+        where: { categoryId_name: { categoryId: existing.categoryId, name } }
+      })
+      if (duplicate) {
+        return res.status(400).json({ success: false, error: 'Subcategory with this name already exists in this category' })
+      }
+    }
+
+    const updateData = {}
+    if (name !== undefined) updateData.name = name
+    if (nameAr !== undefined) updateData.nameAr = nameAr || null
+    if (description !== undefined) updateData.description = description || null
+    if (emoji !== undefined) updateData.emoji = emoji || null
+    if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder) || 0
+    if (isActive !== undefined) updateData.isActive = isActive !== 'false'
+    if (req.file) updateData.iconUrl = `/uploads/market/categories/${req.file.filename}`
+
+    const subcategory = await prisma.marketSubcategory.update({
+      where: { id: req.params.id },
+      data: updateData
+    })
+
+    res.json({ success: true, data: subcategory })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/subcategories/:id
+ * Delete a subcategory
+ */
+app.delete('/api/market/subcategories/:id', async (req, res) => {
+  try {
+    const existing = await prisma.marketSubcategory.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { posts: true } } }
+    })
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Subcategory not found' })
+    }
+
+    if (existing._count.posts > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Cannot delete subcategory with ${existing._count.posts} posts. Move or delete posts first.` 
+      })
+    }
+
+    await prisma.marketSubcategory.delete({ where: { id: req.params.id } })
+
+    res.json({ success: true, message: 'Subcategory deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Seller Management Endpoints
+// ============================================================================
+
+/**
+ * GET /api/market/sellers
+ * List all sellers with filtering
+ */
+app.get('/api/market/sellers', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const status = req.query.status
+    const search = req.query.search || ''
+
+    const where = {}
+    if (status) where.status = status
+    if (search) {
+      where.OR = [
+        { storeName: { contains: search, mode: 'insensitive' } },
+        { user: { handle: { contains: search, mode: 'insensitive' } } },
+        { user: { displayName: { contains: search, mode: 'insensitive' } } }
+      ]
+    }
+
+    const [sellers, total] = await Promise.all([
+      prisma.marketSeller.findMany({
+        where,
+        include: {
+          user: true,
+          _count: { select: { posts: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketSeller.count({ where })
+    ])
+
+    res.json({
+      success: true,
+      data: sellers,
+      meta: { total, page, pageSize }
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/sellers/:id
+ * Get seller details
+ */
+app.get('/api/market/sellers/:id', async (req, res) => {
+  try {
+    const seller = await prisma.marketSeller.findUnique({
+      where: { id: req.params.id },
+      include: {
+        user: true,
+        posts: {
+          include: { category: true, subcategory: true },
+          orderBy: { createdAt: 'desc' },
+          take: 20
+        }
+      }
+    })
+
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+
+    res.json({ success: true, data: seller })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/sellers/:id/approve
+ * Approve a seller application
+ */
+app.post('/api/market/sellers/:id/approve', async (req, res) => {
+  try {
+    const seller = await prisma.marketSeller.findUnique({ where: { id: req.params.id } })
+    
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+
+    if (seller.status === 'APPROVED') {
+      return res.status(400).json({ success: false, error: 'Seller is already approved' })
+    }
+
+    const updatedSeller = await prisma.marketSeller.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'APPROVED',
+        verifiedAt: new Date(),
+        rejectionReason: null
+      },
+      include: { user: true }
+    })
+
+    res.json({ success: true, data: updatedSeller, message: 'Seller approved successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/sellers/:id/reject
+ * Reject a seller application
+ */
+app.post('/api/market/sellers/:id/reject', async (req, res) => {
+  try {
+    const { reason } = req.body
+    
+    const seller = await prisma.marketSeller.findUnique({ where: { id: req.params.id } })
+    
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+
+    const updatedSeller = await prisma.marketSeller.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: reason || 'Application did not meet requirements',
+        verifiedAt: null
+      },
+      include: { user: true }
+    })
+
+    res.json({ success: true, data: updatedSeller, message: 'Seller rejected' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/sellers/:id/suspend
+ * Suspend a seller
+ */
+app.post('/api/market/sellers/:id/suspend', async (req, res) => {
+  try {
+    const { reason } = req.body
+    
+    const seller = await prisma.marketSeller.findUnique({ where: { id: req.params.id } })
+    
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+
+    const updatedSeller = await prisma.marketSeller.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'SUSPENDED',
+        rejectionReason: reason || 'Account suspended'
+      },
+      include: { user: true }
+    })
+
+    res.json({ success: true, data: updatedSeller, message: 'Seller suspended' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/sellers/:id
+ * Delete a seller (and all their posts)
+ */
+app.delete('/api/market/sellers/:id', async (req, res) => {
+  try {
+    const seller = await prisma.marketSeller.findUnique({ where: { id: req.params.id } })
+    
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+
+    await prisma.marketSeller.delete({ where: { id: req.params.id } })
+
+    res.json({ success: true, message: 'Seller and all posts deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Post Moderation Endpoints
+// ============================================================================
+
+/**
+ * GET /api/market/posts
+ * List all market posts with filtering
+ */
+app.get('/api/market/posts', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const status = req.query.status
+    const categoryId = req.query.categoryId
+    const sellerId = req.query.sellerId
+    const search = req.query.search || ''
+
+    const where = {}
+    if (status) where.status = status
+    if (categoryId) where.categoryId = categoryId
+    if (sellerId) where.sellerId = sellerId
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ]
+    }
+
+    const [posts, total] = await Promise.all([
+      prisma.marketPost.findMany({
+        where,
+        include: {
+          seller: { include: { user: true } },
+          category: true,
+          subcategory: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketPost.count({ where })
+    ])
+
+    res.json({
+      success: true,
+      data: posts,
+      meta: { total, page, pageSize }
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/posts/pending
+ * List pending posts awaiting approval
+ */
+app.get('/api/market/posts/pending', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+
+    const [posts, total] = await Promise.all([
+      prisma.marketPost.findMany({
+        where: { status: 'PENDING_REVIEW' },
+        include: {
+          seller: { include: { user: true } },
+          category: true,
+          subcategory: true
+        },
+        orderBy: { createdAt: 'asc' }, // Oldest first
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketPost.count({ where: { status: 'PENDING_REVIEW' } })
+    ])
+
+    res.json({
+      success: true,
+      data: posts,
+      meta: { total, page, pageSize }
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/posts/:id
+ * Get post details
+ */
+app.get('/api/market/posts/:id', async (req, res) => {
+  try {
+    const post = await prisma.marketPost.findUnique({
+      where: { id: req.params.id },
+      include: {
+        seller: { include: { user: true } },
+        category: true,
+        subcategory: true
+      }
+    })
+
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    res.json({ success: true, data: post })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/posts/:id/approve
+ * Approve a post for display in market
+ */
+app.post('/api/market/posts/:id/approve', async (req, res) => {
+  try {
+    const post = await prisma.marketPost.findUnique({ where: { id: req.params.id } })
+    
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    const updatedPost = await prisma.marketPost.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'ACTIVE',
+        reviewedAt: new Date(),
+        rejectionReason: null
+      },
+      include: {
+        seller: { include: { user: true } },
+        category: true
+      }
+    })
+
+    res.json({ success: true, data: updatedPost, message: 'Post approved and is now visible in market' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/posts/:id/reject
+ * Reject a post
+ */
+app.post('/api/market/posts/:id/reject', async (req, res) => {
+  try {
+    const { reason } = req.body
+    
+    const post = await prisma.marketPost.findUnique({ where: { id: req.params.id } })
+    
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    const updatedPost = await prisma.marketPost.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'REJECTED',
+        reviewedAt: new Date(),
+        rejectionReason: reason || 'Post did not meet marketplace guidelines'
+      },
+      include: {
+        seller: { include: { user: true } },
+        category: true
+      }
+    })
+
+    res.json({ success: true, data: updatedPost, message: 'Post rejected' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/posts/:id
+ * Delete a post
+ */
+app.delete('/api/market/posts/:id', async (req, res) => {
+  try {
+    const post = await prisma.marketPost.findUnique({ where: { id: req.params.id } })
+    
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    await prisma.marketPost.delete({ where: { id: req.params.id } })
+
+    res.json({ success: true, message: 'Post deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Public API Endpoints (for mobile app)
+// ============================================================================
+
+/**
+ * POST /api/market/sellers/apply
+ * Apply to become a seller (from mobile app)
+ */
+app.post('/api/market/sellers/apply', async (req, res) => {
+  try {
+    const { did, storeName, storeDescription, contactPhone, contactEmail } = req.body
+
+    if (!did || !storeName) {
+      return res.status(400).json({ success: false, error: 'DID and store name are required' })
+    }
+
+    // Find or create user
+    let user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found. Please login first.' })
+    }
+
+    // Check if already a seller
+    const existingSeller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+    if (existingSeller) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'You already have a seller application',
+        data: { status: existingSeller.status }
+      })
+    }
+
+    const seller = await prisma.marketSeller.create({
+      data: {
+        userId: user.id,
+        storeName,
+        storeDescription: storeDescription || null,
+        contactPhone: contactPhone || null,
+        contactEmail: contactEmail || null,
+        status: 'PENDING'
+      },
+      include: { user: true }
+    })
+
+    res.status(201).json({ 
+      success: true, 
+      data: seller,
+      message: 'Application submitted successfully. You will be notified once approved.'
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/sellers/me
+ * Get current user's seller profile (by DID)
+ */
+app.get('/api/market/sellers/me', async (req, res) => {
+  try {
+    const did = req.query.did
+    
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+
+    const seller = await prisma.marketSeller.findUnique({
+      where: { userId: user.id },
+      include: {
+        user: true,
+        posts: {
+          include: { category: true, subcategory: true },
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    })
+
+    res.json({ success: true, data: seller })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/posts/submit
+ * Submit a post for market (from mobile app)
+ */
+app.post('/api/market/posts/submit', async (req, res) => {
+  try {
+    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency } = req.body
+
+    if (!did || !postUri || !postCid || !categoryId || !title) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'DID, post URI, post CID, category, and title are required' 
+      })
+    }
+
+    // Find user and seller
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+
+    const seller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+    if (!seller) {
+      return res.status(403).json({ success: false, error: 'You must be an approved seller to submit posts' })
+    }
+
+    if (seller.status !== 'APPROVED') {
+      return res.status(403).json({ 
+        success: false, 
+        error: `Cannot submit posts. Your seller status is: ${seller.status}` 
+      })
+    }
+
+    // Check category exists
+    const category = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!category || !category.isActive) {
+      return res.status(400).json({ success: false, error: 'Invalid or inactive category' })
+    }
+
+    // Check subcategory if provided
+    if (subcategoryId) {
+      const subcategory = await prisma.marketSubcategory.findUnique({ where: { id: subcategoryId } })
+      if (!subcategory || !subcategory.isActive || subcategory.categoryId !== categoryId) {
+        return res.status(400).json({ success: false, error: 'Invalid or inactive subcategory' })
+      }
+    }
+
+    // Check for duplicate post
+    const existingPost = await prisma.marketPost.findUnique({ where: { postUri } })
+    if (existingPost) {
+      return res.status(400).json({ success: false, error: 'This post has already been submitted to the market' })
+    }
+
+    const post = await prisma.marketPost.create({
+      data: {
+        sellerId: seller.id,
+        postUri,
+        postCid,
+        categoryId,
+        subcategoryId: subcategoryId || null,
+        title,
+        description: description || null,
+        price: price ? parseFloat(price) : null,
+        currency: currency || 'MAD',
+        status: 'PENDING_REVIEW'
+      },
+      include: {
+        seller: { include: { user: true } },
+        category: true,
+        subcategory: true
+      }
+    })
+
+    res.status(201).json({ 
+      success: true, 
+      data: post,
+      message: 'Post submitted for review. It will appear in the market once approved.'
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/posts/active
+ * Get active posts for market display (public)
+ */
+app.get('/api/market/posts/active', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const categoryId = req.query.categoryId
+    const subcategoryId = req.query.subcategoryId
+
+    const where = { status: 'ACTIVE' }
+    if (categoryId) where.categoryId = categoryId
+    if (subcategoryId) where.subcategoryId = subcategoryId
+
+    const [posts, total] = await Promise.all([
+      prisma.marketPost.findMany({
+        where,
+        include: {
+          seller: { include: { user: { select: { handle: true, displayName: true, avatarUrl: true } } } },
+          category: true,
+          subcategory: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketPost.count({ where })
+    ])
+
+    res.json({
+      success: true,
+      data: posts,
+      meta: { total, page, pageSize }
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/stats
+ * Get market statistics for admin dashboard
+ */
+app.get('/api/market/stats', async (req, res) => {
+  try {
+    const [
+      totalSellers,
+      pendingSellers,
+      approvedSellers,
+      totalPosts,
+      pendingPosts,
+      activePosts,
+      totalCategories
+    ] = await Promise.all([
+      prisma.marketSeller.count(),
+      prisma.marketSeller.count({ where: { status: 'PENDING' } }),
+      prisma.marketSeller.count({ where: { status: 'APPROVED' } }),
+      prisma.marketPost.count(),
+      prisma.marketPost.count({ where: { status: 'PENDING_REVIEW' } }),
+      prisma.marketPost.count({ where: { status: 'ACTIVE' } }),
+      prisma.marketCategory.count({ where: { isActive: true } })
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        sellers: {
+          total: totalSellers,
+          pending: pendingSellers,
+          approved: approvedSellers
+        },
+        posts: {
+          total: totalPosts,
+          pending: pendingPosts,
+          active: activePosts
+        },
+        categories: totalCategories
+      }
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 

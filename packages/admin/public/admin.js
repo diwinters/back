@@ -2013,3 +2013,760 @@ async function deleteWalkthrough() {
         alert('Error deleting walkthrough: ' + error.message)
     }
 }
+
+// ============================================================================
+// Market Management Functions
+// ============================================================================
+
+let marketCategoriesCache = []
+let currentMarketSubtab = 'categories'
+
+// Market Subtab Navigation
+function showMarketSubtab(subtab) {
+    currentMarketSubtab = subtab
+    
+    // Update tab buttons
+    document.querySelectorAll('#market .tabs .tab').forEach(btn => {
+        btn.classList.remove('active')
+    })
+    document.getElementById(`marketSubtab${subtab.charAt(0).toUpperCase() + subtab.slice(1)}`).classList.add('active')
+    
+    // Show/hide content
+    document.querySelectorAll('.market-subtab').forEach(el => {
+        el.style.display = 'none'
+    })
+    
+    if (subtab === 'categories') {
+        document.getElementById('marketCategories').style.display = 'block'
+        loadMarketCategories()
+    } else if (subtab === 'sellers') {
+        document.getElementById('marketSellers').style.display = 'block'
+        loadMarketSellers()
+    } else if (subtab === 'posts') {
+        document.getElementById('marketPosts').style.display = 'block'
+        loadMarketPosts()
+    }
+}
+
+// Load Market Stats
+async function loadMarketStats() {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/stats`)
+        const data = await res.json()
+        
+        if (data.success) {
+            document.getElementById('statMarketSellers').textContent = data.data.sellers.total
+            document.getElementById('statMarketPendingSellers').textContent = data.data.sellers.pending
+            document.getElementById('statMarketPosts').textContent = data.data.posts.total
+            document.getElementById('statMarketPendingPosts').textContent = data.data.posts.pending
+        }
+    } catch (error) {
+        console.error('Failed to load market stats:', error)
+    }
+}
+
+// ============================================================================
+// Category Management
+// ============================================================================
+
+async function loadMarketCategories() {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/categories?includeInactive=true`)
+        const data = await res.json()
+        
+        if (data.success) {
+            marketCategoriesCache = data.data
+            renderMarketCategories(data.data)
+            populateCategoryFilters()
+        }
+    } catch (error) {
+        console.error('Failed to load categories:', error)
+        showMessage('marketMessage', 'Failed to load categories', 'error')
+    }
+}
+
+function renderMarketCategories(categories) {
+    const tbody = document.getElementById('marketCategoriesBody')
+    
+    if (categories.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No categories yet. Click "Add Category" to create one.</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = categories.map(cat => `
+        <tr>
+            <td>
+                ${cat.iconUrl 
+                    ? `<img src="${cat.iconUrl}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;">` 
+                    : cat.emoji || '📁'}
+            </td>
+            <td><strong>${cat.name}</strong></td>
+            <td>${cat.nameAr || '-'}</td>
+            <td>
+                ${cat.subcategories.length > 0 
+                    ? cat.subcategories.map(sub => `<span class="badge badge-info" style="margin:2px;">${sub.name}</span>`).join('') 
+                    : '<span style="color:#999;">None</span>'}
+                <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;margin-left:8px;" onclick="showSubcategoryForm('${cat.id}', '${cat.name}')">+ Add</button>
+            </td>
+            <td>${cat._count?.posts || 0}</td>
+            <td>${cat.sortOrder}</td>
+            <td><span class="badge ${cat.isActive ? 'badge-success' : 'badge-danger'}">${cat.isActive ? 'Active' : 'Inactive'}</span></td>
+            <td>
+                <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="editCategory('${cat.id}')">Edit</button>
+                <button class="btn btn-danger" style="padding:6px 12px;font-size:12px;" onclick="deleteCategory('${cat.id}')">Delete</button>
+            </td>
+        </tr>
+    `).join('')
+}
+
+function populateCategoryFilters() {
+    const filterSelect = document.getElementById('postCategoryFilter')
+    if (filterSelect) {
+        filterSelect.innerHTML = '<option value="">All Categories</option>' + 
+            marketCategoriesCache.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')
+    }
+}
+
+function showCategoryForm(categoryId = null) {
+    document.getElementById('categoryFormModal').style.display = 'flex'
+    document.getElementById('categoryFormTitle').textContent = categoryId ? 'Edit Category' : 'Add Category'
+    document.getElementById('categoryId').value = categoryId || ''
+    
+    if (categoryId) {
+        const cat = marketCategoriesCache.find(c => c.id === categoryId)
+        if (cat) {
+            document.getElementById('categoryName').value = cat.name
+            document.getElementById('categoryNameAr').value = cat.nameAr || ''
+            document.getElementById('categoryDescription').value = cat.description || ''
+            document.getElementById('categoryEmoji').value = cat.emoji || ''
+            document.getElementById('categoryGradientStart').value = cat.gradientStart || '#667eea'
+            document.getElementById('categoryGradientEnd').value = cat.gradientEnd || '#764ba2'
+            document.getElementById('categorySortOrder').value = cat.sortOrder
+            document.getElementById('categoryIsActive').value = cat.isActive ? 'true' : 'false'
+            
+            // Show existing icon if any
+            if (cat.iconUrl) {
+                document.getElementById('categoryIconPreview').innerHTML = `<img src="${cat.iconUrl}" alt="Icon">`
+                document.getElementById('categoryIconZone').classList.add('has-image')
+            }
+        }
+    } else {
+        document.getElementById('categoryForm').reset()
+        document.getElementById('categoryGradientStart').value = '#667eea'
+        document.getElementById('categoryGradientEnd').value = '#764ba2'
+        resetCategoryIconPreview()
+    }
+}
+
+function hideCategoryForm() {
+    document.getElementById('categoryFormModal').style.display = 'none'
+    document.getElementById('categoryForm').reset()
+    resetCategoryIconPreview()
+}
+
+function resetCategoryIconPreview() {
+    const preview = document.getElementById('categoryIconPreview')
+    const zone = document.getElementById('categoryIconZone')
+    preview.innerHTML = '<span class="upload-icon">🖼️</span><span>Click to upload icon</span>'
+    zone.classList.remove('has-image')
+}
+
+function previewCategoryIcon(input) {
+    const preview = document.getElementById('categoryIconPreview')
+    const zone = document.getElementById('categoryIconZone')
+    
+    if (input.files && input.files[0]) {
+        const reader = new FileReader()
+        reader.onload = function(e) {
+            preview.innerHTML = `<img src="${e.target.result}" alt="Preview" style="max-height:100px;">`
+            zone.classList.add('has-image')
+        }
+        reader.readAsDataURL(input.files[0])
+    }
+}
+
+function editCategory(categoryId) {
+    showCategoryForm(categoryId)
+}
+
+async function deleteCategory(categoryId) {
+    if (!confirm('Delete this category? This cannot be undone.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/categories/${categoryId}`, { method: 'DELETE' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Category deleted', 'success')
+            loadMarketCategories()
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to delete category', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to delete category', 'error')
+    }
+}
+
+// Category form submission
+document.getElementById('categoryForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault()
+    
+    const categoryId = document.getElementById('categoryId').value
+    const formData = new FormData()
+    
+    formData.append('name', document.getElementById('categoryName').value)
+    formData.append('nameAr', document.getElementById('categoryNameAr').value)
+    formData.append('description', document.getElementById('categoryDescription').value)
+    formData.append('emoji', document.getElementById('categoryEmoji').value)
+    formData.append('gradientStart', document.getElementById('categoryGradientStart').value)
+    formData.append('gradientEnd', document.getElementById('categoryGradientEnd').value)
+    formData.append('sortOrder', document.getElementById('categorySortOrder').value)
+    formData.append('isActive', document.getElementById('categoryIsActive').value)
+    
+    const iconInput = document.getElementById('categoryIconInput')
+    if (iconInput.files && iconInput.files[0]) {
+        formData.append('icon', iconInput.files[0])
+    }
+    
+    try {
+        const url = categoryId 
+            ? `${API_BASE}/api/market/categories/${categoryId}` 
+            : `${API_BASE}/api/market/categories`
+        const method = categoryId ? 'PUT' : 'POST'
+        
+        const res = await fetch(url, { method, body: formData })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', `Category ${categoryId ? 'updated' : 'created'} successfully`, 'success')
+            hideCategoryForm()
+            loadMarketCategories()
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to save category', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to save category', 'error')
+    }
+})
+
+// ============================================================================
+// Subcategory Management
+// ============================================================================
+
+function showSubcategoryForm(categoryId, categoryName, subcategoryId = null) {
+    document.getElementById('subcategoryFormModal').style.display = 'flex'
+    document.getElementById('subcategoryFormTitle').textContent = subcategoryId ? 'Edit Subcategory' : 'Add Subcategory'
+    document.getElementById('subcategoryCategoryId').value = categoryId
+    document.getElementById('subcategoryParentName').value = categoryName
+    document.getElementById('subcategoryId').value = subcategoryId || ''
+    
+    if (subcategoryId) {
+        const cat = marketCategoriesCache.find(c => c.id === categoryId)
+        const sub = cat?.subcategories.find(s => s.id === subcategoryId)
+        if (sub) {
+            document.getElementById('subcategoryName').value = sub.name
+            document.getElementById('subcategoryNameAr').value = sub.nameAr || ''
+            document.getElementById('subcategoryDescription').value = sub.description || ''
+            document.getElementById('subcategoryEmoji').value = sub.emoji || ''
+            document.getElementById('subcategorySortOrder').value = sub.sortOrder
+            document.getElementById('subcategoryIsActive').value = sub.isActive ? 'true' : 'false'
+        }
+    } else {
+        document.getElementById('subcategoryName').value = ''
+        document.getElementById('subcategoryNameAr').value = ''
+        document.getElementById('subcategoryDescription').value = ''
+        document.getElementById('subcategoryEmoji').value = ''
+        document.getElementById('subcategorySortOrder').value = '0'
+        document.getElementById('subcategoryIsActive').value = 'true'
+    }
+}
+
+function hideSubcategoryForm() {
+    document.getElementById('subcategoryFormModal').style.display = 'none'
+}
+
+// Subcategory form submission
+document.getElementById('subcategoryForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault()
+    
+    const categoryId = document.getElementById('subcategoryCategoryId').value
+    const subcategoryId = document.getElementById('subcategoryId').value
+    
+    const payload = {
+        name: document.getElementById('subcategoryName').value,
+        nameAr: document.getElementById('subcategoryNameAr').value,
+        description: document.getElementById('subcategoryDescription').value,
+        emoji: document.getElementById('subcategoryEmoji').value,
+        sortOrder: document.getElementById('subcategorySortOrder').value,
+        isActive: document.getElementById('subcategoryIsActive').value
+    }
+    
+    try {
+        const url = subcategoryId 
+            ? `${API_BASE}/api/market/subcategories/${subcategoryId}` 
+            : `${API_BASE}/api/market/categories/${categoryId}/subcategories`
+        const method = subcategoryId ? 'PUT' : 'POST'
+        
+        const res = await fetch(url, { 
+            method, 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload) 
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', `Subcategory ${subcategoryId ? 'updated' : 'created'} successfully`, 'success')
+            hideSubcategoryForm()
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to save subcategory', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to save subcategory', 'error')
+    }
+})
+
+// ============================================================================
+// Seller Management
+// ============================================================================
+
+let currentSellerPage = 1
+
+async function loadMarketSellers(page = 1) {
+    currentSellerPage = page
+    const status = document.getElementById('sellerStatusFilter').value
+    const search = document.getElementById('sellerSearch').value
+    
+    try {
+        let url = `${API_BASE}/api/market/sellers?page=${page}&pageSize=20`
+        if (status) url += `&status=${status}`
+        if (search) url += `&search=${encodeURIComponent(search)}`
+        
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            renderMarketSellers(data.data)
+            renderSellerPagination(data.meta)
+        }
+    } catch (error) {
+        console.error('Failed to load sellers:', error)
+        showMessage('marketMessage', 'Failed to load sellers', 'error')
+    }
+}
+
+function renderMarketSellers(sellers) {
+    const tbody = document.getElementById('marketSellersBody')
+    
+    if (sellers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#666;">No sellers found</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = sellers.map(seller => `
+        <tr>
+            <td><strong>${seller.storeName}</strong></td>
+            <td>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    ${seller.user?.avatarUrl ? `<img src="${seller.user.avatarUrl}" style="width:28px;height:28px;border-radius:50%;">` : ''}
+                    <div>
+                        <div>${seller.user?.displayName || 'Unknown'}</div>
+                        <div style="font-size:11px;color:#666;">@${seller.user?.handle || 'unknown'}</div>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <div style="font-size:12px;">
+                    ${seller.contactPhone ? `📱 ${seller.contactPhone}<br>` : ''}
+                    ${seller.contactEmail ? `✉️ ${seller.contactEmail}` : ''}
+                    ${!seller.contactPhone && !seller.contactEmail ? '-' : ''}
+                </div>
+            </td>
+            <td>${seller._count?.posts || 0}</td>
+            <td><span class="badge ${getSellerStatusBadge(seller.status)}">${seller.status}</span></td>
+            <td>${new Date(seller.createdAt).toLocaleDateString()}</td>
+            <td>
+                <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="viewSellerDetails('${seller.id}')">View</button>
+                ${seller.status === 'PENDING' ? `
+                    <button class="btn btn-success" style="padding:4px 8px;font-size:11px;" onclick="approveSeller('${seller.id}')">Approve</button>
+                    <button class="btn btn-danger" style="padding:4px 8px;font-size:11px;" onclick="showRejectModal('${seller.id}', 'seller')">Reject</button>
+                ` : ''}
+                ${seller.status === 'APPROVED' ? `
+                    <button class="btn btn-warning" style="padding:4px 8px;font-size:11px;background:#f59e0b;color:#fff;" onclick="suspendSeller('${seller.id}')">Suspend</button>
+                ` : ''}
+            </td>
+        </tr>
+    `).join('')
+}
+
+function getSellerStatusBadge(status) {
+    switch(status) {
+        case 'PENDING': return 'badge-warning'
+        case 'APPROVED': return 'badge-success'
+        case 'REJECTED': return 'badge-danger'
+        case 'SUSPENDED': return 'badge-danger'
+        default: return 'badge-info'
+    }
+}
+
+function renderSellerPagination(meta) {
+    const container = document.getElementById('marketSellersPagination')
+    const totalPages = Math.ceil(meta.total / meta.pageSize)
+    
+    if (totalPages <= 1) {
+        container.innerHTML = ''
+        return
+    }
+    
+    let html = ''
+    html += `<button ${meta.page === 1 ? 'disabled' : ''} onclick="loadMarketSellers(${meta.page - 1})">← Prev</button>`
+    html += `<span style="padding:8px;">Page ${meta.page} of ${totalPages}</span>`
+    html += `<button ${meta.page === totalPages ? 'disabled' : ''} onclick="loadMarketSellers(${meta.page + 1})">Next →</button>`
+    container.innerHTML = html
+}
+
+async function viewSellerDetails(sellerId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/sellers/${sellerId}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const seller = data.data
+            document.getElementById('sellerDetailsContent').innerHTML = `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <div>
+                        <h4>Store Information</h4>
+                        <p><strong>Store Name:</strong> ${seller.storeName}</p>
+                        <p><strong>Description:</strong> ${seller.storeDescription || 'N/A'}</p>
+                        <p><strong>Contact Phone:</strong> ${seller.contactPhone || 'N/A'}</p>
+                        <p><strong>Contact Email:</strong> ${seller.contactEmail || 'N/A'}</p>
+                        <p><strong>Status:</strong> <span class="badge ${getSellerStatusBadge(seller.status)}">${seller.status}</span></p>
+                        ${seller.rejectionReason ? `<p><strong>Rejection Reason:</strong> ${seller.rejectionReason}</p>` : ''}
+                        ${seller.verifiedAt ? `<p><strong>Verified At:</strong> ${new Date(seller.verifiedAt).toLocaleString()}</p>` : ''}
+                    </div>
+                    <div>
+                        <h4>User Information</h4>
+                        ${seller.user?.avatarUrl ? `<img src="${seller.user.avatarUrl}" style="width:64px;height:64px;border-radius:50%;margin-bottom:10px;">` : ''}
+                        <p><strong>Display Name:</strong> ${seller.user?.displayName || 'N/A'}</p>
+                        <p><strong>Handle:</strong> @${seller.user?.handle || 'N/A'}</p>
+                        <p><strong>DID:</strong> <code style="font-size:10px;">${seller.user?.did || 'N/A'}</code></p>
+                    </div>
+                </div>
+                <h4 style="margin-top:20px;">Recent Posts (${seller.posts?.length || 0})</h4>
+                ${seller.posts && seller.posts.length > 0 ? `
+                    <table style="font-size:12px;">
+                        <tr><th>Title</th><th>Category</th><th>Price</th><th>Status</th></tr>
+                        ${seller.posts.slice(0, 10).map(post => `
+                            <tr>
+                                <td>${post.title}</td>
+                                <td>${post.category?.name || 'N/A'}</td>
+                                <td>${post.price ? `${post.price} ${post.currency}` : 'N/A'}</td>
+                                <td><span class="badge ${getPostStatusBadge(post.status)}">${post.status}</span></td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                ` : '<p style="color:#666;">No posts yet</p>'}
+            `
+            document.getElementById('sellerDetailsModal').style.display = 'flex'
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to load seller details', 'error')
+    }
+}
+
+function hideSellerDetails() {
+    document.getElementById('sellerDetailsModal').style.display = 'none'
+}
+
+async function approveSeller(sellerId) {
+    if (!confirm('Approve this seller? They will be able to publish posts to the market.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/sellers/${sellerId}/approve`, { method: 'POST' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Seller approved successfully', 'success')
+            loadMarketSellers(currentSellerPage)
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to approve seller', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to approve seller', 'error')
+    }
+}
+
+async function suspendSeller(sellerId) {
+    const reason = prompt('Enter suspension reason (optional):')
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/sellers/${sellerId}/suspend`, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Seller suspended', 'success')
+            loadMarketSellers(currentSellerPage)
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to suspend seller', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to suspend seller', 'error')
+    }
+}
+
+// ============================================================================
+// Post Management
+// ============================================================================
+
+let currentPostPage = 1
+
+async function loadMarketPosts(page = 1) {
+    currentPostPage = page
+    const status = document.getElementById('postStatusFilter').value
+    const categoryId = document.getElementById('postCategoryFilter').value
+    const search = document.getElementById('postSearch').value
+    
+    try {
+        let url = `${API_BASE}/api/market/posts?page=${page}&pageSize=20`
+        if (status) url += `&status=${status}`
+        if (categoryId) url += `&categoryId=${categoryId}`
+        if (search) url += `&search=${encodeURIComponent(search)}`
+        
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            renderMarketPosts(data.data)
+            renderPostPagination(data.meta)
+        }
+    } catch (error) {
+        console.error('Failed to load posts:', error)
+        showMessage('marketMessage', 'Failed to load posts', 'error')
+    }
+}
+
+function renderMarketPosts(posts) {
+    const tbody = document.getElementById('marketPostsBody')
+    
+    if (posts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#666;">No posts found</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = posts.map(post => `
+        <tr>
+            <td>
+                <strong>${post.title}</strong>
+                ${post.description ? `<div style="font-size:11px;color:#666;">${post.description.substring(0, 50)}...</div>` : ''}
+            </td>
+            <td>
+                <div style="font-size:12px;">
+                    ${post.seller?.storeName || 'Unknown'}
+                    <div style="font-size:10px;color:#666;">@${post.seller?.user?.handle || 'unknown'}</div>
+                </div>
+            </td>
+            <td>
+                ${post.category?.name || 'N/A'}
+                ${post.subcategory ? `<br><span style="font-size:10px;color:#666;">→ ${post.subcategory.name}</span>` : ''}
+            </td>
+            <td>${post.price ? `${post.price} ${post.currency}` : '-'}</td>
+            <td><span class="badge ${getPostStatusBadge(post.status)}">${post.status.replace('_', ' ')}</span></td>
+            <td>${new Date(post.createdAt).toLocaleDateString()}</td>
+            <td>
+                <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="viewPostDetails('${post.id}')">View</button>
+                ${post.status === 'PENDING_REVIEW' ? `
+                    <button class="btn btn-success" style="padding:4px 8px;font-size:11px;" onclick="approvePost('${post.id}')">Approve</button>
+                    <button class="btn btn-danger" style="padding:4px 8px;font-size:11px;" onclick="showRejectModal('${post.id}', 'post')">Reject</button>
+                ` : ''}
+                <button class="btn btn-danger" style="padding:4px 8px;font-size:11px;" onclick="deletePost('${post.id}')">Delete</button>
+            </td>
+        </tr>
+    `).join('')
+}
+
+function getPostStatusBadge(status) {
+    switch(status) {
+        case 'PENDING_REVIEW': return 'badge-warning'
+        case 'ACTIVE': return 'badge-success'
+        case 'REJECTED': return 'badge-danger'
+        case 'SOLD': return 'badge-info'
+        case 'REMOVED': return 'badge-danger'
+        default: return 'badge-info'
+    }
+}
+
+function renderPostPagination(meta) {
+    const container = document.getElementById('marketPostsPagination')
+    const totalPages = Math.ceil(meta.total / meta.pageSize)
+    
+    if (totalPages <= 1) {
+        container.innerHTML = ''
+        return
+    }
+    
+    let html = ''
+    html += `<button ${meta.page === 1 ? 'disabled' : ''} onclick="loadMarketPosts(${meta.page - 1})">← Prev</button>`
+    html += `<span style="padding:8px;">Page ${meta.page} of ${totalPages}</span>`
+    html += `<button ${meta.page === totalPages ? 'disabled' : ''} onclick="loadMarketPosts(${meta.page + 1})">Next →</button>`
+    container.innerHTML = html
+}
+
+async function viewPostDetails(postId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/posts/${postId}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const post = data.data
+            document.getElementById('postDetailsContent').innerHTML = `
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <div>
+                        <h4>Post Information</h4>
+                        <p><strong>Title:</strong> ${post.title}</p>
+                        <p><strong>Description:</strong> ${post.description || 'N/A'}</p>
+                        <p><strong>Price:</strong> ${post.price ? `${post.price} ${post.currency}` : 'N/A'}</p>
+                        <p><strong>Category:</strong> ${post.category?.name || 'N/A'}</p>
+                        ${post.subcategory ? `<p><strong>Subcategory:</strong> ${post.subcategory.name}</p>` : ''}
+                        <p><strong>Status:</strong> <span class="badge ${getPostStatusBadge(post.status)}">${post.status}</span></p>
+                        ${post.rejectionReason ? `<p><strong>Rejection Reason:</strong> ${post.rejectionReason}</p>` : ''}
+                        <p><strong>Created:</strong> ${new Date(post.createdAt).toLocaleString()}</p>
+                        ${post.reviewedAt ? `<p><strong>Reviewed:</strong> ${new Date(post.reviewedAt).toLocaleString()}</p>` : ''}
+                    </div>
+                    <div>
+                        <h4>Bluesky Post</h4>
+                        <p><strong>Post URI:</strong></p>
+                        <code style="font-size:10px;word-break:break-all;display:block;background:#f5f5f5;padding:8px;border-radius:4px;">${post.postUri}</code>
+                        <p style="margin-top:10px;"><strong>Post CID:</strong></p>
+                        <code style="font-size:10px;word-break:break-all;display:block;background:#f5f5f5;padding:8px;border-radius:4px;">${post.postCid}</code>
+                        
+                        <h4 style="margin-top:20px;">Seller</h4>
+                        <p><strong>Store:</strong> ${post.seller?.storeName || 'N/A'}</p>
+                        <p><strong>User:</strong> @${post.seller?.user?.handle || 'N/A'}</p>
+                    </div>
+                </div>
+            `
+            document.getElementById('postDetailsModal').style.display = 'flex'
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to load post details', 'error')
+    }
+}
+
+function hidePostDetails() {
+    document.getElementById('postDetailsModal').style.display = 'none'
+}
+
+async function approvePost(postId) {
+    if (!confirm('Approve this post? It will be visible in the market.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/posts/${postId}/approve`, { method: 'POST' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Post approved successfully', 'success')
+            loadMarketPosts(currentPostPage)
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to approve post', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to approve post', 'error')
+    }
+}
+
+async function deletePost(postId) {
+    if (!confirm('Delete this post? This cannot be undone.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/posts/${postId}`, { method: 'DELETE' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Post deleted', 'success')
+            loadMarketPosts(currentPostPage)
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to delete post', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to delete post', 'error')
+    }
+}
+
+// ============================================================================
+// Rejection Modal
+// ============================================================================
+
+function showRejectModal(itemId, itemType) {
+    document.getElementById('rejectReasonModal').style.display = 'flex'
+    document.getElementById('rejectItemId').value = itemId
+    document.getElementById('rejectItemType').value = itemType
+    document.getElementById('rejectReasonTitle').textContent = `Reject ${itemType === 'seller' ? 'Seller Application' : 'Post'}`
+    document.getElementById('rejectReason').value = ''
+}
+
+function hideRejectReasonModal() {
+    document.getElementById('rejectReasonModal').style.display = 'none'
+}
+
+async function submitRejection() {
+    const itemId = document.getElementById('rejectItemId').value
+    const itemType = document.getElementById('rejectItemType').value
+    const reason = document.getElementById('rejectReason').value
+    
+    if (!reason.trim()) {
+        alert('Please enter a rejection reason')
+        return
+    }
+    
+    try {
+        const endpoint = itemType === 'seller' 
+            ? `${API_BASE}/api/market/sellers/${itemId}/reject`
+            : `${API_BASE}/api/market/posts/${itemId}/reject`
+        
+        const res = await fetch(endpoint, { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', `${itemType === 'seller' ? 'Seller' : 'Post'} rejected`, 'success')
+            hideRejectReasonModal()
+            if (itemType === 'seller') {
+                loadMarketSellers(currentSellerPage)
+            } else {
+                loadMarketPosts(currentPostPage)
+            }
+            loadMarketStats()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to reject', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to reject', 'error')
+    }
+}
+
+// ============================================================================
+// Initialize Market Tab
+// ============================================================================
+
+// Override showTab to load market data when switching to market tab
+const originalShowTab = window.showTab
+window.showTab = function(tabName) {
+    originalShowTab(tabName)
+    if (tabName === 'market') {
+        loadMarketStats()
+        showMarketSubtab(currentMarketSubtab)
+    }
+}
