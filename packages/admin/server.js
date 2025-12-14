@@ -3088,19 +3088,38 @@ app.post('/api/market/posts/:id/reject', async (req, res) => {
 
 /**
  * DELETE /api/market/posts/:id
- * Delete a post
+ * Delete a post (admin or owning seller)
  */
 app.delete('/api/market/posts/:id', async (req, res) => {
   try {
-    const post = await prisma.marketPost.findUnique({ where: { id: req.params.id } })
+    const { did } = req.query
+    const postId = req.params.id
+    
+    const post = await prisma.marketPost.findUnique({ 
+      where: { id: postId },
+      include: { seller: true }
+    })
     
     if (!post) {
       return res.status(404).json({ success: false, error: 'Post not found' })
     }
 
-    await prisma.marketPost.delete({ where: { id: req.params.id } })
+    // If DID is provided, verify ownership
+    if (did) {
+      const user = await prisma.user.findUnique({ where: { did } })
+      if (!user) {
+        return res.status(404).json({ success: false, error: 'User not found' })
+      }
+      
+      const seller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+      if (!seller || post.sellerId !== seller.id) {
+        return res.status(403).json({ success: false, error: 'You can only delete your own posts' })
+      }
+    }
 
-    res.json({ success: true, message: 'Post deleted successfully' })
+    await prisma.marketPost.delete({ where: { id: postId } })
+
+    res.json({ success: true, data: { deleted: true }, message: 'Post deleted successfully' })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
   }
@@ -3288,12 +3307,21 @@ app.put('/api/market/posts/:id/inventory', async (req, res) => {
     }
 
     const parsedQuantity = parseInt(quantity, 10)
+    
+    // Build update data
+    const updateData = {
+      quantity: parsedQuantity,
+      isInStock: parsedQuantity > 0
+    }
+    
+    // If restocking and status was SOLD, set it back to ACTIVE
+    if (parsedQuantity > 0 && post.status === 'SOLD') {
+      updateData.status = 'ACTIVE'
+    }
+    
     const updatedPost = await prisma.marketPost.update({
       where: { id: postId },
-      data: {
-        quantity: parsedQuantity,
-        isInStock: parsedQuantity > 0
-      },
+      data: updateData,
       include: {
         category: true,
         subcategory: true
