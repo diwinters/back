@@ -3098,22 +3098,40 @@ app.get('/api/market/sellers/me', async (req, res) => {
       return res.status(400).json({ success: false, error: 'DID is required' })
     }
 
+    // First try to find the user by DID
     const user = await prisma.user.findUnique({ where: { did } })
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' })
+    
+    let seller = null
+    
+    if (user) {
+      // If user exists, find seller by userId
+      seller = await prisma.marketSeller.findUnique({
+        where: { userId: user.id },
+        include: {
+          user: true,
+          posts: {
+            include: { category: true, subcategory: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        }
+      })
+    }
+    
+    // If no seller found via user, try finding seller where user.did matches
+    if (!seller) {
+      seller = await prisma.marketSeller.findFirst({
+        where: { user: { did: did } },
+        include: {
+          user: true,
+          posts: {
+            include: { category: true, subcategory: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        }
+      })
     }
 
-    const seller = await prisma.marketSeller.findUnique({
-      where: { userId: user.id },
-      include: {
-        user: true,
-        posts: {
-          include: { category: true, subcategory: true },
-          orderBy: { createdAt: 'desc' }
-        }
-      }
-    })
-
+    // Return seller (can be null if not a seller)
     res.json({ success: true, data: seller })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
