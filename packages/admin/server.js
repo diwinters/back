@@ -2698,6 +2698,80 @@ app.get('/api/market/sellers', async (req, res) => {
 })
 
 /**
+ * GET /api/market/sellers/me
+ * Get current user's seller profile (by DID)
+ * NOTE: This route MUST be defined BEFORE /api/market/sellers/:id
+ */
+app.get('/api/market/sellers/me', async (req, res) => {
+  try {
+    const did = req.query.did
+    
+    console.log('[Market] Looking up seller for DID:', did)
+    
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    // First try to find the user by DID
+    const user = await prisma.user.findUnique({ where: { did } })
+    console.log('[Market] User found:', user ? user.id : 'null')
+    
+    let seller = null
+    
+    if (user) {
+      // If user exists, find seller by userId
+      seller = await prisma.marketSeller.findUnique({
+        where: { userId: user.id },
+        include: {
+          user: true,
+          posts: {
+            include: { category: true, subcategory: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        }
+      })
+      console.log('[Market] Seller by userId:', seller ? seller.id : 'null')
+    }
+    
+    // If no seller found via user, try finding seller where user.did matches
+    if (!seller) {
+      seller = await prisma.marketSeller.findFirst({
+        where: { user: { did: did } },
+        include: {
+          user: true,
+          posts: {
+            include: { category: true, subcategory: true },
+            orderBy: { createdAt: 'desc' }
+          }
+        }
+      })
+      console.log('[Market] Seller by user.did:', seller ? seller.id : 'null')
+    }
+    
+    // Debug: List all sellers to see what's in the database
+    if (!seller) {
+      const allSellers = await prisma.marketSeller.findMany({
+        include: { user: { select: { did: true, handle: true } } },
+        take: 5
+      })
+      console.log('[Market] All sellers in DB:', JSON.stringify(allSellers.map(s => ({ 
+        id: s.id, 
+        storeName: s.storeName,
+        userId: s.userId,
+        userDid: s.user?.did,
+        userHandle: s.user?.handle
+      }))))
+    }
+
+    // Return seller (can be null if not a seller)
+    res.json({ success: true, data: seller })
+  } catch (error) {
+    console.error('[Market] Error looking up seller:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/sellers/:id
  * Get seller details
  */
@@ -3082,79 +3156,6 @@ app.post('/api/market/sellers/apply', async (req, res) => {
       message: 'Application submitted successfully. You will be notified once approved.'
     })
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * GET /api/market/sellers/me
- * Get current user's seller profile (by DID)
- */
-app.get('/api/market/sellers/me', async (req, res) => {
-  try {
-    const did = req.query.did
-    
-    console.log('[Market] Looking up seller for DID:', did)
-    
-    if (!did) {
-      return res.status(400).json({ success: false, error: 'DID is required' })
-    }
-
-    // First try to find the user by DID
-    const user = await prisma.user.findUnique({ where: { did } })
-    console.log('[Market] User found:', user ? user.id : 'null')
-    
-    let seller = null
-    
-    if (user) {
-      // If user exists, find seller by userId
-      seller = await prisma.marketSeller.findUnique({
-        where: { userId: user.id },
-        include: {
-          user: true,
-          posts: {
-            include: { category: true, subcategory: true },
-            orderBy: { createdAt: 'desc' }
-          }
-        }
-      })
-      console.log('[Market] Seller by userId:', seller ? seller.id : 'null')
-    }
-    
-    // If no seller found via user, try finding seller where user.did matches
-    if (!seller) {
-      seller = await prisma.marketSeller.findFirst({
-        where: { user: { did: did } },
-        include: {
-          user: true,
-          posts: {
-            include: { category: true, subcategory: true },
-            orderBy: { createdAt: 'desc' }
-          }
-        }
-      })
-      console.log('[Market] Seller by user.did:', seller ? seller.id : 'null')
-    }
-    
-    // Debug: List all sellers to see what's in the database
-    if (!seller) {
-      const allSellers = await prisma.marketSeller.findMany({
-        include: { user: { select: { did: true, handle: true } } },
-        take: 5
-      })
-      console.log('[Market] All sellers in DB:', JSON.stringify(allSellers.map(s => ({ 
-        id: s.id, 
-        storeName: s.storeName,
-        userId: s.userId,
-        userDid: s.user?.did,
-        userHandle: s.user?.handle
-      }))))
-    }
-
-    // Return seller (can be null if not a seller)
-    res.json({ success: true, data: seller })
-  } catch (error) {
-    console.error('[Market] Error looking up seller:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
