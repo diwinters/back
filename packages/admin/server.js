@@ -3166,7 +3166,7 @@ app.post('/api/market/sellers/apply', async (req, res) => {
  */
 app.post('/api/market/posts/submit', async (req, res) => {
   try {
-    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency } = req.body
+    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency, quantity } = req.body
 
     if (!did || !postUri || !postCid || !categoryId || !title) {
       return res.status(400).json({ 
@@ -3213,6 +3213,10 @@ app.post('/api/market/posts/submit', async (req, res) => {
       return res.status(400).json({ success: false, error: 'This post has already been submitted to the market' })
     }
 
+    // Parse quantity with default of 1
+    const parsedQuantity = quantity !== undefined ? parseInt(quantity, 10) : 1
+    const validQuantity = isNaN(parsedQuantity) || parsedQuantity < 0 ? 1 : parsedQuantity
+
     const post = await prisma.marketPost.create({
       data: {
         sellerId: seller.id,
@@ -3224,6 +3228,8 @@ app.post('/api/market/posts/submit', async (req, res) => {
         description: description || null,
         price: price ? parseFloat(price) : null,
         currency: currency || 'MAD',
+        quantity: validQuantity,
+        isInStock: validQuantity > 0,
         status: 'PENDING_REVIEW'
       },
       include: {
@@ -3244,6 +3250,185 @@ app.post('/api/market/posts/submit', async (req, res) => {
 })
 
 /**
+ * PUT /api/market/posts/:id/inventory
+ * Update inventory quantity for a post (seller only)
+ */
+app.put('/api/market/posts/:id/inventory', async (req, res) => {
+  try {
+    const { did, quantity } = req.body
+    const postId = req.params.id
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    if (quantity === undefined || quantity < 0) {
+      return res.status(400).json({ success: false, error: 'Valid quantity is required (0 or greater)' })
+    }
+
+    // Find user and seller
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+
+    const seller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+    if (!seller) {
+      return res.status(403).json({ success: false, error: 'You must be a seller to update inventory' })
+    }
+
+    // Find and verify post ownership
+    const post = await prisma.marketPost.findUnique({ where: { id: postId } })
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    if (post.sellerId !== seller.id) {
+      return res.status(403).json({ success: false, error: 'You can only update inventory for your own posts' })
+    }
+
+    const parsedQuantity = parseInt(quantity, 10)
+    const updatedPost = await prisma.marketPost.update({
+      where: { id: postId },
+      data: {
+        quantity: parsedQuantity,
+        isInStock: parsedQuantity > 0
+      },
+      include: {
+        category: true,
+        subcategory: true
+      }
+    })
+
+    res.json({ 
+      success: true, 
+      data: updatedPost,
+      message: parsedQuantity > 0 ? 'Inventory updated' : 'Product marked as out of stock'
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/posts/:id/sold
+ * Record a sale (decrement quantity, increment soldCount)
+ */
+app.post('/api/market/posts/:id/sold', async (req, res) => {
+  try {
+    const { did, quantitySold = 1 } = req.body
+    const postId = req.params.id
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    // Find user and seller
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+
+    const seller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+    if (!seller) {
+      return res.status(403).json({ success: false, error: 'You must be a seller to record sales' })
+    }
+
+    // Find and verify post ownership
+    const post = await prisma.marketPost.findUnique({ where: { id: postId } })
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    if (post.sellerId !== seller.id) {
+      return res.status(403).json({ success: false, error: 'You can only record sales for your own posts' })
+    }
+
+    const qty = parseInt(quantitySold, 10) || 1
+    const newQuantity = Math.max(0, post.quantity - qty)
+    const newSoldCount = post.soldCount + qty
+
+    const updatedPost = await prisma.marketPost.update({
+      where: { id: postId },
+      data: {
+        quantity: newQuantity,
+        soldCount: newSoldCount,
+        isInStock: newQuantity > 0,
+        // Auto-mark as SOLD if quantity reaches 0 and status was ACTIVE
+        status: newQuantity === 0 && post.status === 'ACTIVE' ? 'SOLD' : post.status
+      },
+      include: {
+        category: true,
+        subcategory: true
+      }
+    })
+
+    res.json({ 
+      success: true, 
+      data: updatedPost,
+      message: newQuantity > 0 
+        ? `Sale recorded. ${newQuantity} remaining.` 
+        : 'Sale recorded. Product is now out of stock.'
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/posts/:id/archive
+ * Archive a post (for edits - replaced by new post)
+ */
+app.post('/api/market/posts/:id/archive', async (req, res) => {
+  try {
+    const { did, replacedById } = req.body
+    const postId = req.params.id
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    // Find user and seller
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+
+    const seller = await prisma.marketSeller.findUnique({ where: { userId: user.id } })
+    if (!seller) {
+      return res.status(403).json({ success: false, error: 'You must be a seller to archive posts' })
+    }
+
+    // Find and verify post ownership
+    const post = await prisma.marketPost.findUnique({ where: { id: postId } })
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    if (post.sellerId !== seller.id) {
+      return res.status(403).json({ success: false, error: 'You can only archive your own posts' })
+    }
+
+    const updatedPost = await prisma.marketPost.update({
+      where: { id: postId },
+      data: {
+        isArchived: true,
+        replacedById: replacedById || null,
+        status: 'REMOVED'
+      }
+    })
+
+    res.json({ 
+      success: true, 
+      data: updatedPost,
+      message: 'Post archived successfully'
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/posts/active
  * Get active posts for market display (public)
  */
@@ -3253,10 +3438,15 @@ app.get('/api/market/posts/active', async (req, res) => {
     const pageSize = parseInt(req.query.pageSize) || 20
     const categoryId = req.query.categoryId
     const subcategoryId = req.query.subcategoryId
+    const inStockOnly = req.query.inStockOnly === 'true'
 
-    const where = { status: 'ACTIVE' }
+    const where = { 
+      status: 'ACTIVE',
+      isArchived: false  // Exclude archived posts
+    }
     if (categoryId) where.categoryId = categoryId
     if (subcategoryId) where.subcategoryId = subcategoryId
+    if (inStockOnly) where.isInStock = true
 
     const [posts, total] = await Promise.all([
       prisma.marketPost.findMany({

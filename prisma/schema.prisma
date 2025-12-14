@@ -628,10 +628,19 @@ model MarketPost {
   price           Float?
   currency        String   @default("MAD")
   
+  // Inventory Tracking
+  quantity        Int      @default(1)
+  soldCount       Int      @default(0)
+  isInStock       Boolean  @default(true)
+  
   // Status
   status          MarketPostStatus @default(PENDING_REVIEW)
   reviewedAt      DateTime?
   rejectionReason String?
+  
+  // Archived (for edits - new post replaces old)
+  isArchived      Boolean  @default(false)
+  replacedById    String?  // ID of the post that replaced this one
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -640,6 +649,7 @@ model MarketPost {
   @@index([categoryId])
   @@index([subcategoryId])
   @@index([status])
+  @@index([isArchived])
 }
 
 enum MarketPostStatus {
