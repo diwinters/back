@@ -3094,12 +3094,15 @@ app.get('/api/market/sellers/me', async (req, res) => {
   try {
     const did = req.query.did
     
+    console.log('[Market] Looking up seller for DID:', did)
+    
     if (!did) {
       return res.status(400).json({ success: false, error: 'DID is required' })
     }
 
     // First try to find the user by DID
     const user = await prisma.user.findUnique({ where: { did } })
+    console.log('[Market] User found:', user ? user.id : 'null')
     
     let seller = null
     
@@ -3115,6 +3118,7 @@ app.get('/api/market/sellers/me', async (req, res) => {
           }
         }
       })
+      console.log('[Market] Seller by userId:', seller ? seller.id : 'null')
     }
     
     // If no seller found via user, try finding seller where user.did matches
@@ -3129,11 +3133,28 @@ app.get('/api/market/sellers/me', async (req, res) => {
           }
         }
       })
+      console.log('[Market] Seller by user.did:', seller ? seller.id : 'null')
+    }
+    
+    // Debug: List all sellers to see what's in the database
+    if (!seller) {
+      const allSellers = await prisma.marketSeller.findMany({
+        include: { user: { select: { did: true, handle: true } } },
+        take: 5
+      })
+      console.log('[Market] All sellers in DB:', JSON.stringify(allSellers.map(s => ({ 
+        id: s.id, 
+        storeName: s.storeName,
+        userId: s.userId,
+        userDid: s.user?.did,
+        userHandle: s.user?.handle
+      }))))
     }
 
     // Return seller (can be null if not a seller)
     res.json({ success: true, data: seller })
   } catch (error) {
+    console.error('[Market] Error looking up seller:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
