@@ -36,7 +36,7 @@ export class MarketService {
     const pageSize = params.pageSize || 20
     const skip = (page - 1) * pageSize
 
-    logger.info('[MarketService] Fetching active posts', params)
+    logger.info(`[MarketService] Fetching active posts page=${page} pageSize=${pageSize}`)
 
     const where: any = {
       status: 'ACTIVE',
@@ -47,13 +47,17 @@ export class MarketService {
     if (params.categoryId) where.categoryId = params.categoryId
     if (params.subcategoryId) where.subcategoryId = params.subcategoryId
 
-    logger.info('[MarketService] Query where:', JSON.stringify(where))
+    logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
 
     const [posts, total] = await Promise.all([
       prisma.marketPost.findMany({
         where,
         include: {
-          seller: true,
+          seller: {
+            include: {
+              user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+            }
+          },
           category: true,
           subcategory: true
         },
@@ -78,20 +82,35 @@ export class MarketService {
   }
 
   /**
-   * Get seller profile by DID
+   * Helper to find user by DID
    */
-  async getSellerProfile(did: string) {
-    const seller = await prisma.marketSeller.findUnique({
-      where: { did },
+  private async findUserByDid(did: string) {
+    return prisma.user.findUnique({ where: { did } })
+  }
+
+  /**
+   * Helper to find seller by user's DID
+   */
+  private async findSellerByDid(did: string) {
+    const user = await this.findUserByDid(did)
+    if (!user) return null
+    return prisma.marketSeller.findUnique({
+      where: { userId: user.id },
       include: {
+        user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } },
         posts: {
           where: { isArchived: false },
           orderBy: { createdAt: 'desc' }
         }
       }
     })
+  }
 
-    return seller
+  /**
+   * Get seller profile by DID
+   */
+  async getSellerProfile(did: string) {
+    return this.findSellerByDid(did)
   }
 
   /**
@@ -104,16 +123,24 @@ export class MarketService {
     contactPhone?: string
     contactEmail?: string
   }) {
-    // Check if already exists
+    // Find or create user
+    let user = await this.findUserByDid(data.did)
+    if (!user) {
+      user = await prisma.user.create({
+        data: { did: data.did }
+      })
+    }
+
+    // Check if seller already exists
     const existing = await prisma.marketSeller.findUnique({
-      where: { did: data.did }
+      where: { userId: user.id }
     })
 
     if (existing) {
       if (existing.status === 'REJECTED') {
         // Re-apply
         return prisma.marketSeller.update({
-          where: { did: data.did },
+          where: { userId: user.id },
           data: {
             status: 'PENDING',
             storeName: data.storeName,
@@ -129,7 +156,7 @@ export class MarketService {
 
     return prisma.marketSeller.create({
       data: {
-        did: data.did,
+        userId: user.id,
         storeName: data.storeName,
         storeDescription: data.storeDescription,
         contactPhone: data.contactPhone,
@@ -154,10 +181,8 @@ export class MarketService {
     currency?: string
     quantity?: number
   }) {
-    // Verify seller
-    const seller = await prisma.marketSeller.findUnique({
-      where: { did: data.did }
-    })
+    // Find seller by DID
+    const seller = await this.findSellerByDid(data.did)
 
     if (!seller || seller.status !== 'APPROVED') {
       throw new AppError('Seller not approved', ErrorCode.FORBIDDEN, 403)
@@ -182,16 +207,31 @@ export class MarketService {
   }
 
   /**
-   * Update inventory
+   * Helper to verify post ownership
    */
-  async updateInventory(postId: string, did: string, quantity: number) {
+  private async verifyPostOwnership(postId: string, did: string) {
     const post = await prisma.marketPost.findUnique({
       where: { id: postId },
-      include: { seller: true }
+      include: {
+        seller: {
+          include: { user: { select: { did: true } } }
+        }
+      }
     })
 
     if (!post) throw new NotFoundError('Post not found')
-    if (post.seller.did !== did) throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    if (post.seller.user.did !== did) {
+      throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    }
+
+    return post
+  }
+
+  /**
+   * Update inventory
+   */
+  async updateInventory(postId: string, did: string, quantity: number) {
+    await this.verifyPostOwnership(postId, did)
 
     return prisma.marketPost.update({
       where: { id: postId },
@@ -206,13 +246,7 @@ export class MarketService {
    * Record a sale
    */
   async recordSale(postId: string, did: string, quantitySold: number) {
-    const post = await prisma.marketPost.findUnique({
-      where: { id: postId },
-      include: { seller: true }
-    })
-
-    if (!post) throw new NotFoundError('Post not found')
-    if (post.seller.did !== did) throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    const post = await this.verifyPostOwnership(postId, did)
 
     const newQuantity = Math.max(0, post.quantity - quantitySold)
 
@@ -230,13 +264,7 @@ export class MarketService {
    * Archive a post
    */
   async archivePost(postId: string, did: string) {
-    const post = await prisma.marketPost.findUnique({
-      where: { id: postId },
-      include: { seller: true }
-    })
-
-    if (!post) throw new NotFoundError('Post not found')
-    if (post.seller.did !== did) throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    await this.verifyPostOwnership(postId, did)
 
     return prisma.marketPost.update({
       where: { id: postId },
@@ -245,17 +273,10 @@ export class MarketService {
   }
 
   /**
-   * Delete a post (soft delete via archive or hard delete if needed)
-   * For now, we'll just archive it or mark as REMOVED
+   * Delete a post (soft delete via archive or mark as REMOVED)
    */
   async deletePost(postId: string, did: string) {
-    const post = await prisma.marketPost.findUnique({
-      where: { id: postId },
-      include: { seller: true }
-    })
-
-    if (!post) throw new NotFoundError('Post not found')
-    if (post.seller.did !== did) throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    await this.verifyPostOwnership(postId, did)
 
     return prisma.marketPost.update({
       where: { id: postId },
@@ -263,3 +284,4 @@ export class MarketService {
     })
   }
 }
+
