@@ -2725,6 +2725,7 @@ app.get('/api/market/sellers/me', async (req, res) => {
         include: {
           user: true,
           posts: {
+            where: { isArchived: false }, // Only get non-archived posts
             include: { category: true, subcategory: true },
             orderBy: { createdAt: 'desc' }
           }
@@ -2740,6 +2741,7 @@ app.get('/api/market/sellers/me', async (req, res) => {
         include: {
           user: true,
           posts: {
+            where: { isArchived: false }, // Only get non-archived posts
             include: { category: true, subcategory: true },
             orderBy: { createdAt: 'desc' }
           }
@@ -2761,6 +2763,29 @@ app.get('/api/market/sellers/me', async (req, res) => {
         userDid: s.user?.did,
         userHandle: s.user?.handle
       }))))
+    }
+
+    // Enrich posts with edit history info
+    if (seller && seller.posts) {
+      const postsWithEditInfo = await Promise.all(seller.posts.map(async (post) => {
+        // Check if any archived post was replaced by this one
+        const directPredecessor = await prisma.marketPost.findFirst({
+          where: { replacedById: post.id }
+        })
+        
+        let editCount = 0
+        if (directPredecessor) {
+          editCount = await countPredecessors(post.id, post.sellerId)
+        }
+        
+        return {
+          ...post,
+          hasBeenEdited: !!directPredecessor,
+          editCount
+        }
+      }))
+      
+      seller = { ...seller, posts: postsWithEditInfo }
     }
 
     // Return seller (can be null if not a seller)
