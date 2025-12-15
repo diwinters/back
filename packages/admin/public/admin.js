@@ -2567,10 +2567,8 @@ function renderMarketPosts(posts) {
                 <strong>${post.title}</strong>
                 ${post.description ? `<div style="font-size:11px;color:#666;">${post.description.substring(0, 50)}...</div>` : ''}
                 ${post.hasBeenEdited ? `
-                    <div class="edit-indicator" style="margin-top:4px;">
-                        <span class="badge badge-edit" style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-size:10px;padding:2px 6px;border-radius:10px;cursor:pointer;" onclick="showPostHistory('${post.id}')" title="Click to view edit history">
-                            ✏️ Edited ${post.editCount > 0 ? `(${post.editCount} version${post.editCount > 1 ? 's' : ''})` : ''}
-                        </span>
+                    <div style="margin-top:4px;">
+                        <span class="badge badge-info" style="font-size:10px;padding:2px 6px;">Edited</span>
                     </div>
                 ` : ''}
             </td>
@@ -2628,67 +2626,19 @@ function renderPostPagination(meta) {
 
 async function viewPostDetails(postId) {
     try {
-        // Fetch both post details and history in parallel
-        const [postRes, historyRes] = await Promise.all([
-            fetch(`${API_BASE}/api/market/posts/${postId}`),
-            fetch(`${API_BASE}/api/market/posts/${postId}/history`)
-        ])
-        
-        const postData = await postRes.json()
-        const historyData = await historyRes.json()
+        const res = await fetch(`${API_BASE}/api/market/posts/${postId}`)
+        const postData = await res.json()
         
         if (postData.success) {
             const post = postData.data
-            const hasHistory = historyData.success && historyData.data.hasBeenEdited
-            const history = hasHistory ? historyData.data.history : []
-            
-            let historyHtml = ''
-            if (hasHistory) {
-                historyHtml = `
-                    <div class="edit-history-section" style="grid-column:1/3;margin-top:20px;padding-top:20px;border-top:2px solid #667eea;">
-                        <h4 style="color:#667eea;margin-bottom:15px;">
-                            ✏️ Edit History 
-                            <span style="font-weight:normal;font-size:12px;color:#666;">(${historyData.data.totalVersions} version${historyData.data.totalVersions > 1 ? 's' : ''})</span>
-                        </h4>
-                        <div class="version-timeline" style="position:relative;padding-left:20px;">
-                            ${history.map((version, idx) => `
-                                <div class="version-item" style="position:relative;padding:12px;margin-bottom:12px;background:${version.isCurrent ? 'linear-gradient(135deg,#667eea15,#764ba215)' : '#f8f9fa'};border-radius:8px;border-left:3px solid ${version.isCurrent ? '#667eea' : '#ddd'};">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                                        <span class="badge" style="background:${version.isCurrent ? 'linear-gradient(135deg,#667eea,#764ba2)' : '#6c757d'};color:white;font-size:11px;padding:3px 8px;border-radius:10px;">
-                                            ${version.isCurrent ? '📌 Current Version' : `Version ${version.version}`}
-                                        </span>
-                                        <span style="font-size:11px;color:#666;">${new Date(version.createdAt).toLocaleString()}</span>
-                                    </div>
-                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;">
-                                        <div>
-                                            <strong>Title:</strong> ${version.title}
-                                            ${version.description ? `<div style="color:#666;margin-top:2px;">${version.description.substring(0, 80)}${version.description.length > 80 ? '...' : ''}</div>` : ''}
-                                        </div>
-                                        <div>
-                                            <strong>Price:</strong> ${version.price ? `${version.price} ${version.currency}` : 'N/A'}
-                                            <br><strong>Category:</strong> ${version.categoryName || 'N/A'}
-                                            ${version.subcategoryName ? ` → ${version.subcategoryName}` : ''}
-                                        </div>
-                                    </div>
-                                    ${!version.isCurrent && idx < history.length - 1 ? `
-                                        <div style="margin-top:8px;font-size:10px;color:#999;">
-                                            <em>↓ Replaced by version ${version.version + 1}</em>
-                                        </div>
-                                    ` : ''}
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `
-            }
             
             document.getElementById('postDetailsContent').innerHTML = `
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
                     <div>
                         <h4>Post Information</h4>
-                        ${hasHistory ? `
-                            <div style="margin-bottom:15px;padding:8px 12px;background:linear-gradient(135deg,#667eea15,#764ba215);border-radius:8px;border-left:3px solid #667eea;">
-                                <span style="color:#667eea;font-weight:500;">✏️ This post has been edited ${historyData.data.totalVersions - 1} time${historyData.data.totalVersions > 2 ? 's' : ''}</span>
+                        ${post.hasBeenEdited ? `
+                            <div style="margin-bottom:15px;">
+                                <span class="badge badge-info">Edited</span>
                             </div>
                         ` : ''}
                         <p><strong>Title:</strong> ${post.title}</p>
@@ -2712,7 +2662,6 @@ async function viewPostDetails(postId) {
                         <p><strong>Store:</strong> ${post.seller?.storeName || 'N/A'}</p>
                         <p><strong>User:</strong> @${post.seller?.user?.handle || 'N/A'}</p>
                     </div>
-                    ${historyHtml}
                 </div>
             `
             document.getElementById('postDetailsModal').style.display = 'flex'
@@ -2724,13 +2673,6 @@ async function viewPostDetails(postId) {
 
 function hidePostDetails() {
     document.getElementById('postDetailsModal').style.display = 'none'
-}
-
-// Quick shortcut to show post details with history expanded
-async function showPostHistory(postId) {
-    // This is a convenience function that opens the post details modal
-    // with the history already visible (same as viewPostDetails)
-    await viewPostDetails(postId)
 }
 
 async function approvePost(postId) {
