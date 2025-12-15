@@ -2953,15 +2953,69 @@ app.get('/api/market/posts', async (req, res) => {
       prisma.marketPost.count({ where })
     ])
 
+    // For each post, check if it has previous versions (other posts replaced by this one)
+    const postsWithEditInfo = await Promise.all(posts.map(async (post) => {
+      // Count how many posts have been archived and eventually replaced by this one
+      const previousVersionsCount = await prisma.marketPost.count({
+        where: {
+          sellerId: post.sellerId,
+          isArchived: true,
+          replacedById: { not: null }
+        }
+      })
+      
+      // More accurate: check if this specific post has predecessors
+      // Look for posts where replacedById points to this post
+      const directPredecessor = await prisma.marketPost.findFirst({
+        where: { replacedById: post.id }
+      })
+      
+      return {
+        ...post,
+        hasBeenEdited: !!directPredecessor,
+        editCount: directPredecessor ? await countPredecessors(post.id, post.sellerId) : 0
+      }
+    }))
+
     res.json({
       success: true,
-      data: posts,
+      data: postsWithEditInfo,
       meta: { total, page, pageSize }
     })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
+// Helper function to count predecessor versions
+async function countPredecessors(postId, sellerId) {
+  let count = 0
+  const archivedPosts = await prisma.marketPost.findMany({
+    where: { sellerId, isArchived: true },
+    select: { id: true, replacedById: true }
+  })
+  
+  // Build a map for quick lookup
+  const replacementMap = {}
+  for (const p of archivedPosts) {
+    if (p.replacedById) {
+      replacementMap[p.replacedById] = replacementMap[p.replacedById] || []
+      replacementMap[p.replacedById].push(p.id)
+    }
+  }
+  
+  // Count predecessors recursively
+  const countPreds = (id) => {
+    const preds = replacementMap[id] || []
+    let c = preds.length
+    for (const predId of preds) {
+      c += countPreds(predId)
+    }
+    return c
+  }
+  
+  return countPreds(postId)
+}
 
 /**
  * GET /api/market/posts/pending
@@ -3173,6 +3227,134 @@ app.delete('/api/market/posts/:id', async (req, res) => {
 
     res.json({ success: true, data: { deleted: true }, message: 'Post deleted successfully' })
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/posts/:id/history
+ * Get post edit history (all versions)
+ */
+app.get('/api/market/posts/:id/history', async (req, res) => {
+  try {
+    const postId = req.params.id
+    
+    // Find the current post
+    const currentPost = await prisma.marketPost.findUnique({
+      where: { id: postId },
+      include: {
+        seller: { include: { user: true } },
+        category: true,
+        subcategory: true
+      }
+    })
+
+    if (!currentPost) {
+      return res.status(404).json({ success: false, error: 'Post not found' })
+    }
+
+    // Find all previous versions (posts that were archived and led to this one)
+    const history = []
+    let searchId = postId
+    
+    // Walk backwards through the chain - find posts where replacedById = current
+    // We need to find posts that were replaced BY this post
+    const previousVersions = await prisma.marketPost.findMany({
+      where: {
+        sellerId: currentPost.sellerId,
+        isArchived: true
+      },
+      include: {
+        category: true,
+        subcategory: true
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    // Build the chain by finding posts that eventually led to this post
+    // A post P is a previous version if there's a chain P -> ... -> currentPost via replacedById
+    const buildChain = async (targetId) => {
+      const chain = []
+      
+      // Find all archived posts from this seller and trace replacedById chains
+      for (const archivedPost of previousVersions) {
+        // Check if this archived post's replacement chain leads to our target
+        let checkId = archivedPost.replacedById
+        let depth = 0
+        const maxDepth = 50 // Prevent infinite loops
+        
+        while (checkId && depth < maxDepth) {
+          if (checkId === targetId) {
+            // This archived post is a previous version
+            chain.push(archivedPost)
+            break
+          }
+          // Follow the chain
+          const nextPost = await prisma.marketPost.findUnique({
+            where: { id: checkId },
+            select: { replacedById: true }
+          })
+          checkId = nextPost?.replacedById
+          depth++
+        }
+      }
+      
+      return chain
+    }
+
+    const previousChain = await buildChain(postId)
+    
+    // Sort by createdAt ascending (oldest first)
+    previousChain.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+
+    // Build the complete history with version numbers
+    const fullHistory = previousChain.map((post, index) => ({
+      version: index + 1,
+      id: post.id,
+      title: post.title,
+      description: post.description,
+      price: post.price,
+      currency: post.currency,
+      status: post.status,
+      categoryId: post.categoryId,
+      categoryName: post.category?.name,
+      subcategoryId: post.subcategoryId,
+      subcategoryName: post.subcategory?.name,
+      createdAt: post.createdAt,
+      isArchived: post.isArchived,
+      replacedById: post.replacedById
+    }))
+
+    // Add current version as the latest
+    fullHistory.push({
+      version: fullHistory.length + 1,
+      id: currentPost.id,
+      title: currentPost.title,
+      description: currentPost.description,
+      price: currentPost.price,
+      currency: currentPost.currency,
+      status: currentPost.status,
+      categoryId: currentPost.categoryId,
+      categoryName: currentPost.category?.name,
+      subcategoryId: currentPost.subcategoryId,
+      subcategoryName: currentPost.subcategory?.name,
+      createdAt: currentPost.createdAt,
+      isArchived: currentPost.isArchived,
+      replacedById: currentPost.replacedById,
+      isCurrent: true
+    })
+
+    res.json({
+      success: true,
+      data: {
+        currentPost,
+        totalVersions: fullHistory.length,
+        hasBeenEdited: fullHistory.length > 1,
+        history: fullHistory
+      }
+    })
+  } catch (error) {
+    console.error('Error fetching post history:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
