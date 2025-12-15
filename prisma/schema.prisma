@@ -49,6 +49,7 @@ model User {
   // Relations
   driver        Driver?
   marketSeller  MarketSeller?
+  cart          Cart?
   ordersAsUser  Order[]   @relation("UserOrders")
   ordersAsDriver Order[]  @relation("DriverOrders")
   ratings       Rating[]  @relation("RatingsGiven")
@@ -642,6 +643,10 @@ model MarketPost {
   isArchived      Boolean  @default(false)
   replacedById    String?  // ID of the post that replaced this one
   
+  // Relations
+  shippingOptions ProductShippingOption[]
+  cartItems       CartItem[]
+  
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -658,6 +663,116 @@ enum MarketPostStatus {
   REJECTED        // Rejected by admin
   SOLD            // Marked as sold
   REMOVED         // Removed by seller
+}
+
+// =============================================================================
+// MARKET: Settings (Admin configurable - TVA, service fees, etc.)
+// =============================================================================
+
+model MarketSettings {
+  id              Int      @id @default(1) // Singleton
+  
+  // Tax Settings
+  tvaRate         Float    @default(0.20)  // TVA/VAT rate (20% default)
+  tvaEnabled      Boolean  @default(true)
+  
+  // Service Fee (platform commission)
+  serviceFeeRate  Float    @default(0.05)  // 5% service fee
+  serviceFeeMin   Float    @default(5)     // Minimum service fee (MAD)
+  serviceFeeMax   Float?                    // Maximum service fee cap (optional)
+  serviceFeeEnabled Boolean @default(true)
+  
+  // Currency
+  defaultCurrency String   @default("MAD")
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// =============================================================================
+// MARKET: Shipping Options (per product)
+// =============================================================================
+
+model ProductShippingOption {
+  id              String   @id @default(cuid())
+  postId          String
+  post            MarketPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  // Shipping Type
+  type            ShippingType
+  name            String           // "Standard Delivery", "Express", "In-Store Pickup"
+  description     String?
+  
+  // Pricing
+  price           Float            // Shipping cost (0 for free shipping or pickup)
+  freeAbove       Float?           // Free shipping if order above this amount
+  
+  // Delivery Time
+  minDays         Int?             // Minimum delivery days
+  maxDays         Int?             // Maximum delivery days
+  
+  // Availability
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  cartItems       CartItem[]
+
+  @@index([postId, isActive])
+}
+
+enum ShippingType {
+  PICKUP          // Customer picks up
+  LOCAL_DELIVERY  // Same city delivery
+  NATIONAL        // National shipping
+  INTERNATIONAL   // International shipping
+}
+
+// =============================================================================
+// MARKET: Shopping Cart
+// =============================================================================
+
+model Cart {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Cart Items
+  items           CartItem[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model CartItem {
+  id              String   @id @default(cuid())
+  cartId          String
+  cart            Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  
+  // Product Reference
+  postId          String
+  post            MarketPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  // Quantity
+  quantity        Int      @default(1)
+  
+  // Selected Shipping Option
+  shippingOptionId String?
+  shippingOption   ProductShippingOption? @relation(fields: [shippingOptionId], references: [id])
+  
+  // Price at time of adding (for history/comparison)
+  priceAtAdd      Float
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([cartId, postId])  // One entry per product in cart
+  @@index([cartId])
+  @@index([postId])
 }
 
 // =============================================================================

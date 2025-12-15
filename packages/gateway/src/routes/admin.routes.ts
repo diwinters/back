@@ -5,9 +5,11 @@
 
 import { Router } from 'express'
 import { prisma, logger } from '@gominiapp/core'
+import { CartService } from '@gominiapp/go-service'
 // import { requireAuth, requireAdmin } from '../middleware/auth'
 
 const router = Router()
+const cartService = new CartService()
 
 // TODO: Re-enable authentication for production
 // All admin routes require authentication and admin role
@@ -525,6 +527,99 @@ router.get('/cities', async (req, res, next) => {
     })
   } catch (error) {
     logger.error('Failed to list cities', { error })
+    next(error)
+  }
+})
+
+// =============================================================================
+// MARKET SETTINGS ADMIN ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/admin/market/settings
+ * Get current market settings (TVA, service fee, etc.)
+ */
+router.get('/market/settings', async (req, res, next) => {
+  try {
+    const settings = await cartService.getMarketSettings()
+    
+    res.json({
+      success: true,
+      data: {
+        tvaRate: settings.tvaRate,
+        tvaEnabled: settings.tvaEnabled,
+        serviceFeeRate: settings.serviceFeeRate,
+        serviceFeeMin: settings.serviceFeeMin,
+        serviceFeeMax: settings.serviceFeeMax,
+        serviceFeeEnabled: settings.serviceFeeEnabled,
+        defaultCurrency: settings.defaultCurrency,
+        updatedAt: settings.updatedAt
+      }
+    })
+  } catch (error) {
+    logger.error('Failed to get market settings', { error })
+    next(error)
+  }
+})
+
+/**
+ * PUT /api/admin/market/settings
+ * Update market settings (TVA, service fee, etc.)
+ */
+router.put('/market/settings', async (req, res, next) => {
+  try {
+    const {
+      tvaRate,
+      tvaEnabled,
+      serviceFeeRate,
+      serviceFeeMin,
+      serviceFeeMax,
+      serviceFeeEnabled,
+      defaultCurrency
+    } = req.body
+
+    // Validate rates are percentages (0-1)
+    if (tvaRate !== undefined && (tvaRate < 0 || tvaRate > 1)) {
+      return res.status(400).json({
+        success: false,
+        error: 'TVA rate must be between 0 and 1 (e.g., 0.20 for 20%)'
+      })
+    }
+    if (serviceFeeRate !== undefined && (serviceFeeRate < 0 || serviceFeeRate > 1)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Service fee rate must be between 0 and 1 (e.g., 0.05 for 5%)'
+      })
+    }
+
+    const settings = await cartService.updateMarketSettings({
+      tvaRate,
+      tvaEnabled,
+      serviceFeeRate,
+      serviceFeeMin,
+      serviceFeeMax,
+      serviceFeeEnabled,
+      defaultCurrency
+    })
+    
+    logger.info('Market settings updated', { settings })
+    
+    res.json({
+      success: true,
+      data: {
+        tvaRate: settings.tvaRate,
+        tvaEnabled: settings.tvaEnabled,
+        serviceFeeRate: settings.serviceFeeRate,
+        serviceFeeMin: settings.serviceFeeMin,
+        serviceFeeMax: settings.serviceFeeMax,
+        serviceFeeEnabled: settings.serviceFeeEnabled,
+        defaultCurrency: settings.defaultCurrency,
+        updatedAt: settings.updatedAt
+      },
+      message: 'Market settings updated successfully'
+    })
+  } catch (error) {
+    logger.error('Failed to update market settings', { error })
     next(error)
   }
 })

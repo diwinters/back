@@ -9,4 +9,5 @@ export { OrderService, createOrderSchema, acceptOrderSchema, updateOrderStatusSc
 export { RatingService, createRatingSchema } from './services/rating.service'
 export { UserService, updateUserSchema } from './services/user.service'
 export { MarketService } from './services/market.service'
+export { CartService } from './services/cart.service'
 
