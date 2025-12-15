@@ -3799,6 +3799,369 @@ app.get('/api/market/debug/posts', async (req, res) => {
 })
 
 // ============================================================================
+// CART API ROUTES
+// ============================================================================
+
+/**
+ * Helper: Get or create cart for user
+ */
+async function getOrCreateCart(did) {
+  // Find or create user first
+  let user = await prisma.user.findUnique({ where: { did } })
+  if (!user) {
+    user = await prisma.user.create({ data: { did } })
+  }
+
+  // Find or create cart
+  let cart = await prisma.cart.findUnique({
+    where: { userId: user.id },
+    include: {
+      items: {
+        include: {
+          post: {
+            include: {
+              seller: {
+                include: {
+                  user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+                }
+              },
+              category: true
+            }
+          }
+        }
+      }
+    }
+  })
+
+  if (!cart) {
+    cart = await prisma.cart.create({
+      data: { userId: user.id },
+      include: {
+        items: {
+          include: {
+            post: {
+              include: {
+                seller: {
+                  include: {
+                    user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+                  }
+                },
+                category: true
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  return cart
+}
+
+/**
+ * Helper: Get market settings (singleton)
+ */
+async function getMarketSettings() {
+  let settings = await prisma.marketSettings.findUnique({ where: { id: 1 } })
+  
+  if (!settings) {
+    settings = await prisma.marketSettings.create({
+      data: {
+        id: 1,
+        tvaRate: 0.20,
+        tvaEnabled: true,
+        serviceFeeRate: 0.05,
+        serviceFeeMin: 5,
+        serviceFeeEnabled: true,
+        defaultCurrency: 'MAD'
+      }
+    })
+  }
+
+  return settings
+}
+
+/**
+ * GET /api/cart - Get cart with totals
+ */
+app.get('/api/cart', async (req, res) => {
+  try {
+    const did = req.query.did
+    console.log(`[Cart] GET / did=${did}`)
+    
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did query parameter required' })
+    }
+
+    const cart = await getOrCreateCart(did)
+    const settings = await getMarketSettings()
+
+    // Calculate totals
+    let subtotal = 0
+    let totalShipping = 0
+    const itemsWithTotals = cart.items.map(item => {
+      const itemTotal = (item.post.price || 0) * item.quantity
+      subtotal += itemTotal
+      return {
+        ...item,
+        itemTotal,
+        shippingCost: 0
+      }
+    })
+
+    // Calculate fees
+    const serviceFee = settings.serviceFeeEnabled 
+      ? Math.max(subtotal * settings.serviceFeeRate, settings.serviceFeeMin)
+      : 0
+
+    const tvaAmount = settings.tvaEnabled 
+      ? (subtotal + serviceFee) * settings.tvaRate 
+      : 0
+
+    const total = subtotal + totalShipping + serviceFee + tvaAmount
+
+    res.json({
+      success: true,
+      data: {
+        cart: {
+          ...cart,
+          items: itemsWithTotals
+        },
+        totals: {
+          subtotal,
+          shipping: totalShipping,
+          serviceFee,
+          serviceFeeRate: settings.serviceFeeRate,
+          tvaAmount,
+          tvaRate: settings.tvaRate,
+          total,
+          currency: settings.defaultCurrency,
+          itemCount: cart.items.reduce((sum, item) => sum + item.quantity, 0)
+        }
+      }
+    })
+  } catch (error) {
+    console.error('[Cart] Error fetching cart:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/cart/items - Add item to cart
+ */
+app.post('/api/cart/items', async (req, res) => {
+  try {
+    console.log(`[Cart] POST /items`, req.body)
+    const { did, postId, quantity = 1 } = req.body
+
+    if (!did || !postId) {
+      return res.status(400).json({ success: false, error: 'did and postId are required' })
+    }
+
+    const cart = await getOrCreateCart(did)
+
+    // Verify post exists and is active
+    const post = await prisma.marketPost.findUnique({
+      where: { id: postId }
+    })
+
+    if (!post) {
+      return res.status(404).json({ success: false, error: 'Product not found' })
+    }
+    if (post.status !== 'ACTIVE' || post.isArchived) {
+      return res.status(400).json({ success: false, error: 'Product is not available' })
+    }
+    if (!post.isInStock || post.quantity < quantity) {
+      return res.status(400).json({ success: false, error: 'Insufficient stock' })
+    }
+
+    // Check if item already in cart
+    const existingItem = cart.items.find(item => item.postId === postId)
+
+    let result
+    if (existingItem) {
+      // Update quantity
+      const newQuantity = existingItem.quantity + quantity
+      if (newQuantity > post.quantity) {
+        return res.status(400).json({ success: false, error: 'Insufficient stock' })
+      }
+
+      result = await prisma.cartItem.update({
+        where: { id: existingItem.id },
+        data: { quantity: newQuantity },
+        include: {
+          post: {
+            include: {
+              seller: {
+                include: {
+                  user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+                }
+              }
+            }
+          }
+        }
+      })
+    } else {
+      // Add new item
+      result = await prisma.cartItem.create({
+        data: {
+          cartId: cart.id,
+          postId: postId,
+          quantity: quantity,
+          priceAtAdd: post.price || 0
+        },
+        include: {
+          post: {
+            include: {
+              seller: {
+                include: {
+                  user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+                }
+              }
+            }
+          }
+        }
+      })
+    }
+
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('[Cart] Error adding to cart:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/cart/items/:itemId - Update cart item
+ */
+app.put('/api/cart/items/:itemId', async (req, res) => {
+  try {
+    console.log(`[Cart] PUT /items/${req.params.itemId}`, req.body)
+    const { did, quantity } = req.body
+    const { itemId } = req.params
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const cart = await getOrCreateCart(did)
+    const item = cart.items.find(i => i.id === itemId)
+    
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Cart item not found' })
+    }
+
+    if (quantity <= 0) {
+      // Remove item
+      await prisma.cartItem.delete({ where: { id: itemId } })
+      return res.json({ success: true, data: null })
+    }
+
+    // Check stock
+    const post = await prisma.marketPost.findUnique({ where: { id: item.postId } })
+    if (!post || quantity > post.quantity) {
+      return res.status(400).json({ success: false, error: 'Insufficient stock' })
+    }
+
+    const result = await prisma.cartItem.update({
+      where: { id: itemId },
+      data: { quantity },
+      include: {
+        post: {
+          include: {
+            seller: {
+              include: {
+                user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+              }
+            }
+          }
+        }
+      }
+    })
+
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('[Cart] Error updating cart item:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/cart/items/:itemId - Remove item from cart
+ */
+app.delete('/api/cart/items/:itemId', async (req, res) => {
+  try {
+    const did = req.query.did
+    const { itemId } = req.params
+    console.log(`[Cart] DELETE /items/${itemId} did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did query parameter required' })
+    }
+
+    const cart = await getOrCreateCart(did)
+    const item = cart.items.find(i => i.id === itemId)
+    
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Cart item not found' })
+    }
+
+    await prisma.cartItem.delete({ where: { id: itemId } })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Cart] Error removing from cart:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/cart - Clear entire cart
+ */
+app.delete('/api/cart', async (req, res) => {
+  try {
+    const did = req.query.did
+    console.log(`[Cart] DELETE / did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did query parameter required' })
+    }
+
+    const cart = await getOrCreateCart(did)
+    await prisma.cartItem.deleteMany({ where: { cartId: cart.id } })
+    
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Cart] Error clearing cart:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/cart/settings - Get market settings (TVA, service fee)
+ */
+app.get('/api/cart/settings', async (req, res) => {
+  try {
+    const settings = await getMarketSettings()
+    res.json({
+      success: true,
+      data: {
+        tvaRate: settings.tvaRate,
+        tvaEnabled: settings.tvaEnabled,
+        serviceFeeRate: settings.serviceFeeRate,
+        serviceFeeMin: settings.serviceFeeMin,
+        serviceFeeMax: settings.serviceFeeMax,
+        serviceFeeEnabled: settings.serviceFeeEnabled,
+        defaultCurrency: settings.defaultCurrency,
+        updatedAt: settings.updatedAt
+      }
+    })
+  } catch (error) {
+    console.error('[Cart] Error fetching settings:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 
