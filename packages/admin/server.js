@@ -3879,7 +3879,13 @@ async function getMarketSettings() {
         tvaEnabled: true,
         serviceFeeRate: 0.05,
         serviceFeeMin: 5,
+        serviceFeeMax: null,
         serviceFeeEnabled: true,
+        primeCommissionRate: 0.10,
+        primeMonthlyFee: 0,
+        primeMinimumPayout: 100,
+        primeFreeShipping: true,
+        primeAutoApprove: false,
         defaultCurrency: 'MAD'
       }
     })
@@ -4453,6 +4459,484 @@ app.get('/api/prime/admin/sellers', async (req, res) => {
   } catch (error) {
     console.error('[Prime] Error fetching Prime sellers:', error)
     res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market Settings API
+// ============================================================================
+
+/**
+ * GET /api/settings - Get market settings (tax, service fee, Prime config)
+ */
+app.get('/api/settings', async (req, res) => {
+  try {
+    console.log('[Settings] GET /')
+    const settings = await getMarketSettings()
+    res.json({ success: true, data: settings })
+  } catch (error) {
+    console.error('[Settings] Error fetching settings:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/settings - Update market settings
+ */
+app.put('/api/settings', async (req, res) => {
+  try {
+    console.log('[Settings] PUT /', req.body)
+    
+    const {
+      // Tax settings
+      tvaRate,
+      tvaEnabled,
+      // Service fee settings
+      serviceFeeRate,
+      serviceFeeMin,
+      serviceFeeMax,
+      serviceFeeEnabled,
+      // Prime settings
+      primeCommissionRate,
+      primeMonthlyFee,
+      primeMinimumPayout,
+      primeFreeShipping,
+      primeAutoApprove,
+      // Currency
+      defaultCurrency
+    } = req.body
+
+    const updateData = {}
+
+    // Tax settings
+    if (tvaRate !== undefined) updateData.tvaRate = parseFloat(tvaRate)
+    if (tvaEnabled !== undefined) updateData.tvaEnabled = Boolean(tvaEnabled)
+    
+    // Service fee settings
+    if (serviceFeeRate !== undefined) updateData.serviceFeeRate = parseFloat(serviceFeeRate)
+    if (serviceFeeMin !== undefined) updateData.serviceFeeMin = parseFloat(serviceFeeMin)
+    if (serviceFeeMax !== undefined) updateData.serviceFeeMax = serviceFeeMax ? parseFloat(serviceFeeMax) : null
+    if (serviceFeeEnabled !== undefined) updateData.serviceFeeEnabled = Boolean(serviceFeeEnabled)
+    
+    // Prime settings
+    if (primeCommissionRate !== undefined) updateData.primeCommissionRate = parseFloat(primeCommissionRate)
+    if (primeMonthlyFee !== undefined) updateData.primeMonthlyFee = parseFloat(primeMonthlyFee)
+    if (primeMinimumPayout !== undefined) updateData.primeMinimumPayout = parseFloat(primeMinimumPayout)
+    if (primeFreeShipping !== undefined) updateData.primeFreeShipping = Boolean(primeFreeShipping)
+    if (primeAutoApprove !== undefined) updateData.primeAutoApprove = Boolean(primeAutoApprove)
+    
+    // Currency
+    if (defaultCurrency !== undefined) updateData.defaultCurrency = defaultCurrency
+
+    const settings = await prisma.marketSettings.upsert({
+      where: { id: 1 },
+      update: updateData,
+      create: {
+        id: 1,
+        ...updateData
+      }
+    })
+
+    res.json({ success: true, data: settings })
+  } catch (error) {
+    console.error('[Settings] Error updating settings:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Admin Dashboard HTML
+// ============================================================================
+
+/**
+ * GET /admin - Market Admin Dashboard
+ */
+app.get('/admin', async (req, res) => {
+  try {
+    const settings = await getMarketSettings()
+    
+    // Get some stats
+    const [sellerCount, productCount, primeSellerCount, pendingPrimeCount] = await Promise.all([
+      prisma.marketSeller.count({ where: { status: 'APPROVED' } }),
+      prisma.marketPost.count({ where: { status: 'ACTIVE' } }),
+      prisma.marketSeller.count({ where: { isPrime: true } }),
+      prisma.marketSeller.count({ where: { primeStatus: 'PENDING' } })
+    ])
+
+    res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market Admin Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: #f59e0b; margin-bottom: 30px; font-size: 28px; }
+    h2 { color: #94a3b8; margin-bottom: 20px; font-size: 18px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .stat-card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+    .stat-value { font-size: 32px; font-weight: 700; color: #f59e0b; }
+    .stat-label { color: #94a3b8; font-size: 14px; margin-top: 5px; }
+    
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 30px;
+    }
+    .settings-card {
+      background: #1e293b;
+      padding: 25px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+    }
+    .settings-card h3 {
+      color: #f8fafc;
+      font-size: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .settings-card h3 span { font-size: 20px; }
+    
+    .form-group { margin-bottom: 18px; }
+    .form-group label {
+      display: block;
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .form-group input[type="number"],
+    .form-group input[type="text"],
+    .form-group select {
+      width: 100%;
+      padding: 10px 14px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 14px;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: #f59e0b;
+    }
+    
+    .form-row {
+      display: flex;
+      gap: 15px;
+    }
+    .form-row .form-group { flex: 1; }
+    
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #334155;
+    }
+    .toggle-group:last-child { border-bottom: none; }
+    .toggle-label { color: #e2e8f0; font-size: 14px; }
+    .toggle-desc { color: #64748b; font-size: 12px; margin-top: 2px; }
+    
+    .toggle {
+      position: relative;
+      width: 48px;
+      height: 26px;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #334155;
+      border-radius: 26px;
+      transition: 0.3s;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    .toggle input:checked + .toggle-slider { background: #f59e0b; }
+    .toggle input:checked + .toggle-slider:before { transform: translateX(22px); }
+    
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #f59e0b;
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #d97706; }
+    .btn:disabled { background: #64748b; cursor: not-allowed; }
+    
+    .save-section {
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .message {
+      padding: 12px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .message.success { background: #166534; color: #bbf7d0; display: block; }
+    .message.error { background: #991b1b; color: #fecaca; display: block; }
+    
+    .hint { color: #64748b; font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🏪 Market Admin Dashboard</h1>
+    
+    <div id="message" class="message"></div>
+    
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value">${sellerCount}</div>
+        <div class="stat-label">Active Sellers</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${productCount}</div>
+        <div class="stat-label">Active Products</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #f59e0b">${primeSellerCount}</div>
+        <div class="stat-label">Prime Sellers</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #3b82f6">${pendingPrimeCount}</div>
+        <div class="stat-label">Pending Prime Requests</div>
+      </div>
+    </div>
+    
+    <form id="settingsForm">
+      <div class="settings-grid">
+        <!-- Tax Settings -->
+        <div class="settings-card">
+          <h3><span>💰</span> Tax Settings (TVA)</h3>
+          
+          <div class="toggle-group">
+            <div>
+              <div class="toggle-label">Enable TVA</div>
+              <div class="toggle-desc">Apply tax to all purchases</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" name="tvaEnabled" ${settings.tvaEnabled ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <div class="form-group" style="margin-top: 20px">
+            <label>TVA Rate (%)</label>
+            <input type="number" name="tvaRate" value="${(settings.tvaRate * 100).toFixed(0)}" min="0" max="100" step="1">
+            <div class="hint">Enter as percentage (e.g., 20 for 20%)</div>
+          </div>
+        </div>
+        
+        <!-- Service Fee Settings -->
+        <div class="settings-card">
+          <h3><span>🏷️</span> Service Fee (Platform Commission)</h3>
+          
+          <div class="toggle-group">
+            <div>
+              <div class="toggle-label">Enable Service Fee</div>
+              <div class="toggle-desc">Charge platform commission on sales</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" name="serviceFeeEnabled" ${settings.serviceFeeEnabled ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <div class="form-group" style="margin-top: 20px">
+            <label>Service Fee Rate (%)</label>
+            <input type="number" name="serviceFeeRate" value="${(settings.serviceFeeRate * 100).toFixed(0)}" min="0" max="50" step="1">
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>Min Fee (${settings.defaultCurrency})</label>
+              <input type="number" name="serviceFeeMin" value="${settings.serviceFeeMin}" min="0" step="1">
+            </div>
+            <div class="form-group">
+              <label>Max Fee (${settings.defaultCurrency})</label>
+              <input type="number" name="serviceFeeMax" value="${settings.serviceFeeMax || ''}" min="0" step="1" placeholder="No limit">
+            </div>
+          </div>
+        </div>
+        
+        <!-- Prime Settings -->
+        <div class="settings-card">
+          <h3><span>⭐</span> Prime Seller Settings</h3>
+          
+          <div class="toggle-group">
+            <div>
+              <div class="toggle-label">Auto-Approve Prime Requests</div>
+              <div class="toggle-desc">Automatically approve all Prime applications</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" name="primeAutoApprove" ${settings.primeAutoApprove ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <div class="toggle-group">
+            <div>
+              <div class="toggle-label">Free Shipping for Prime</div>
+              <div class="toggle-desc">Prime products get free shipping</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" name="primeFreeShipping" ${settings.primeFreeShipping ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          
+          <div class="form-group" style="margin-top: 20px">
+            <label>Prime Commission Rate (%)</label>
+            <input type="number" name="primeCommissionRate" value="${(settings.primeCommissionRate * 100).toFixed(0)}" min="0" max="50" step="1">
+            <div class="hint">Platform takes this % from Prime sales</div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>Monthly Fee (${settings.defaultCurrency})</label>
+              <input type="number" name="primeMonthlyFee" value="${settings.primeMonthlyFee}" min="0" step="1">
+            </div>
+            <div class="form-group">
+              <label>Min Payout (${settings.defaultCurrency})</label>
+              <input type="number" name="primeMinimumPayout" value="${settings.primeMinimumPayout}" min="0" step="1">
+            </div>
+          </div>
+        </div>
+        
+        <!-- Currency Settings -->
+        <div class="settings-card">
+          <h3><span>🌍</span> General Settings</h3>
+          
+          <div class="form-group">
+            <label>Default Currency</label>
+            <select name="defaultCurrency">
+              <option value="MAD" ${settings.defaultCurrency === 'MAD' ? 'selected' : ''}>MAD - Moroccan Dirham</option>
+              <option value="USD" ${settings.defaultCurrency === 'USD' ? 'selected' : ''}>USD - US Dollar</option>
+              <option value="EUR" ${settings.defaultCurrency === 'EUR' ? 'selected' : ''}>EUR - Euro</option>
+              <option value="GBP" ${settings.defaultCurrency === 'GBP' ? 'selected' : ''}>GBP - British Pound</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <div class="save-section">
+        <div class="hint">Changes will take effect immediately for all new transactions</div>
+        <button type="submit" class="btn" id="saveBtn">Save Settings</button>
+      </div>
+    </form>
+  </div>
+  
+  <script>
+    const form = document.getElementById('settingsForm');
+    const message = document.getElementById('message');
+    const saveBtn = document.getElementById('saveBtn');
+    
+    function showMessage(text, type) {
+      message.textContent = text;
+      message.className = 'message ' + type;
+      setTimeout(() => { message.className = 'message'; }, 5000);
+    }
+    
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      
+      try {
+        const formData = new FormData(form);
+        const data = {
+          tvaEnabled: formData.get('tvaEnabled') === 'on',
+          tvaRate: parseFloat(formData.get('tvaRate')) / 100,
+          serviceFeeEnabled: formData.get('serviceFeeEnabled') === 'on',
+          serviceFeeRate: parseFloat(formData.get('serviceFeeRate')) / 100,
+          serviceFeeMin: parseFloat(formData.get('serviceFeeMin')) || 0,
+          serviceFeeMax: formData.get('serviceFeeMax') ? parseFloat(formData.get('serviceFeeMax')) : null,
+          primeAutoApprove: formData.get('primeAutoApprove') === 'on',
+          primeFreeShipping: formData.get('primeFreeShipping') === 'on',
+          primeCommissionRate: parseFloat(formData.get('primeCommissionRate')) / 100,
+          primeMonthlyFee: parseFloat(formData.get('primeMonthlyFee')) || 0,
+          primeMinimumPayout: parseFloat(formData.get('primeMinimumPayout')) || 0,
+          defaultCurrency: formData.get('defaultCurrency')
+        };
+        
+        const response = await fetch('/api/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          showMessage('Settings saved successfully!', 'success');
+        } else {
+          showMessage('Error: ' + result.error, 'error');
+        }
+      } catch (error) {
+        showMessage('Error saving settings: ' + error.message, 'error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Settings';
+      }
+    });
+  </script>
+</body>
+</html>
+    `);
+  } catch (error) {
+    console.error('[Admin] Error rendering dashboard:', error)
+    res.status(500).send('Error loading dashboard: ' + error.message)
   }
 })
 
