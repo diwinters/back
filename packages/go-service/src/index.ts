@@ -8,3 +8,5 @@ export { DriverService, registerDriverSchema, updateLocationSchema, updateAvaila
 export { OrderService, createOrderSchema, acceptOrderSchema, updateOrderStatusSchema } from './services/order.service'
 export { RatingService, createRatingSchema } from './services/rating.service'
 export { UserService, updateUserSchema } from './services/user.service'
+export { MarketService } from './services/market.service'
+

@@ -3466,7 +3466,7 @@ app.get('/api/market/posts/active', async (req, res) => {
     const pageSize = parseInt(req.query.pageSize) || 20
     const categoryId = req.query.categoryId
     const subcategoryId = req.query.subcategoryId
-    const inStockOnly = req.query.inStockOnly === 'true'
+    const inStockOnly = req.query.inStockOnly !== 'false' // Default to true
 
     const where = { 
       status: 'ACTIVE',
@@ -3475,6 +3475,9 @@ app.get('/api/market/posts/active', async (req, res) => {
     if (categoryId) where.categoryId = categoryId
     if (subcategoryId) where.subcategoryId = subcategoryId
     if (inStockOnly) where.isInStock = true
+
+    console.log('[Market] GET /posts/active query:', req.query)
+    console.log('[Market] GET /posts/active where:', JSON.stringify(where))
 
     const [posts, total] = await Promise.all([
       prisma.marketPost.findMany({
@@ -3491,12 +3494,15 @@ app.get('/api/market/posts/active', async (req, res) => {
       prisma.marketPost.count({ where })
     ])
 
+    console.log(`[Market] Found ${posts.length} active posts (total: ${total})`)
+
     res.json({
       success: true,
       data: posts,
       meta: { total, page, pageSize }
     })
   } catch (error) {
+    console.error('[Market] Error fetching active posts:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
@@ -3542,6 +3548,44 @@ app.get('/api/market/stats', async (req, res) => {
       }
     })
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Debug Route - Check all market posts
+// ============================================================================
+
+app.get('/api/market/debug/posts', async (req, res) => {
+  try {
+    const allPosts = await prisma.marketPost.findMany({
+      include: {
+        seller: true,
+        category: true
+      }
+    })
+    
+    console.log('[Market Debug] All posts:')
+    allPosts.forEach(p => {
+      console.log(`  - ${p.id}: "${p.title}" status=${p.status} archived=${p.isArchived} inStock=${p.isInStock} qty=${p.quantity}`)
+    })
+    
+    res.json({
+      success: true,
+      total: allPosts.length,
+      posts: allPosts.map(p => ({
+        id: p.id,
+        title: p.title,
+        status: p.status,
+        isArchived: p.isArchived,
+        isInStock: p.isInStock,
+        quantity: p.quantity,
+        sellerId: p.sellerId,
+        categoryId: p.categoryId
+      }))
+    })
+  } catch (error) {
+    console.error('[Market Debug] Error:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
