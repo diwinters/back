@@ -2998,6 +2998,58 @@ app.get('/api/market/posts/pending', async (req, res) => {
 })
 
 /**
+ * GET /api/market/posts/active
+ * Get active posts for market display (public)
+ * NOTE: This route MUST be defined BEFORE /api/market/posts/:id
+ */
+app.get('/api/market/posts/active', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const categoryId = req.query.categoryId
+    const subcategoryId = req.query.subcategoryId
+    const inStockOnly = req.query.inStockOnly !== 'false' // Default to true
+
+    const where = { 
+      status: 'ACTIVE',
+      isArchived: false  // Exclude archived posts
+    }
+    if (categoryId) where.categoryId = categoryId
+    if (subcategoryId) where.subcategoryId = subcategoryId
+    if (inStockOnly) where.isInStock = true
+
+    console.log('[Market] GET /posts/active query:', req.query)
+    console.log('[Market] GET /posts/active where:', JSON.stringify(where))
+
+    const [posts, total] = await Promise.all([
+      prisma.marketPost.findMany({
+        where,
+        include: {
+          seller: { include: { user: { select: { handle: true, displayName: true, avatarUrl: true } } } },
+          category: true,
+          subcategory: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketPost.count({ where })
+    ])
+
+    console.log(`[Market] Found ${posts.length} active posts (total: ${total})`)
+
+    res.json({
+      success: true,
+      data: posts,
+      meta: { total, page, pageSize }
+    })
+  } catch (error) {
+    console.error('[Market] Error fetching active posts:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/posts/:id
  * Get post details
  */
@@ -3452,57 +3504,6 @@ app.post('/api/market/posts/:id/archive', async (req, res) => {
       message: 'Post archived successfully'
     })
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * GET /api/market/posts/active
- * Get active posts for market display (public)
- */
-app.get('/api/market/posts/active', async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1
-    const pageSize = parseInt(req.query.pageSize) || 20
-    const categoryId = req.query.categoryId
-    const subcategoryId = req.query.subcategoryId
-    const inStockOnly = req.query.inStockOnly !== 'false' // Default to true
-
-    const where = { 
-      status: 'ACTIVE',
-      isArchived: false  // Exclude archived posts
-    }
-    if (categoryId) where.categoryId = categoryId
-    if (subcategoryId) where.subcategoryId = subcategoryId
-    if (inStockOnly) where.isInStock = true
-
-    console.log('[Market] GET /posts/active query:', req.query)
-    console.log('[Market] GET /posts/active where:', JSON.stringify(where))
-
-    const [posts, total] = await Promise.all([
-      prisma.marketPost.findMany({
-        where,
-        include: {
-          seller: { include: { user: { select: { handle: true, displayName: true, avatarUrl: true } } } },
-          category: true,
-          subcategory: true
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize
-      }),
-      prisma.marketPost.count({ where })
-    ])
-
-    console.log(`[Market] Found ${posts.length} active posts (total: ${total})`)
-
-    res.json({
-      success: true,
-      data: posts,
-      meta: { total, page, pageSize }
-    })
-  } catch (error) {
-    console.error('[Market] Error fetching active posts:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
