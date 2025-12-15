@@ -588,6 +588,17 @@ model MarketSeller {
   verifiedAt      DateTime?
   rejectionReason String?
   
+  // Prime Seller Status
+  isPrime             Boolean  @default(false)
+  primeStatus         PrimeStatus @default(NOT_REQUESTED)
+  primeRequestedAt    DateTime?
+  primeApprovedAt     DateTime?
+  primeRejectionReason String?
+  
+  // Stripe Connect (for Prime sellers)
+  stripeConnectId     String?   // Stripe Connect account ID
+  stripeOnboarded     Boolean   @default(false)
+  
   // Relations
   posts           MarketPost[]
   
@@ -595,6 +606,15 @@ model MarketSeller {
   updatedAt       DateTime @updatedAt
 
   @@index([status])
+  @@index([isPrime])
+}
+
+enum PrimeStatus {
+  NOT_REQUESTED   // Seller hasn't requested Prime
+  PENDING         // Awaiting admin approval
+  APPROVED        // Prime seller
+  REJECTED        // Request rejected
+  SUSPENDED       // Prime suspended
 }
 
 enum MarketSellerStatus {
@@ -634,6 +654,9 @@ model MarketPost {
   soldCount       Int      @default(0)
   isInStock       Boolean  @default(true)
   
+  // Prime Product (only if seller is Prime and chooses to list as Prime)
+  isPrime         Boolean  @default(false)
+  
   // Status
   status          MarketPostStatus @default(PENDING_REVIEW)
   reviewedAt      DateTime?
@@ -655,6 +678,7 @@ model MarketPost {
   @@index([subcategoryId])
   @@index([status])
   @@index([isArchived])
+  @@index([isPrime])
 }
 
 enum MarketPostStatus {
@@ -681,6 +705,13 @@ model MarketSettings {
   serviceFeeMin   Float    @default(5)     // Minimum service fee (MAD)
   serviceFeeMax   Float?                    // Maximum service fee cap (optional)
   serviceFeeEnabled Boolean @default(true)
+  
+  // Prime Seller Settings
+  primeCommissionRate   Float    @default(0.10)  // 10% commission on Prime sales
+  primeMonthlyFee       Float    @default(0)     // Optional monthly Prime subscription
+  primeMinimumPayout    Float    @default(100)   // Minimum payout amount
+  primeFreeShipping     Boolean  @default(true)  // Free shipping on Prime products
+  primeAutoApprove      Boolean  @default(false) // Auto-approve Prime requests
   
   // Currency
   defaultCurrency String   @default("MAD")
