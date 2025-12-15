@@ -2020,6 +2020,7 @@ async function deleteWalkthrough() {
 
 let marketCategoriesCache = []
 let currentMarketSubtab = 'categories'
+let marketSettingsCache = null
 
 // Market Subtab Navigation
 function showMarketSubtab(subtab) {
@@ -2045,6 +2046,12 @@ function showMarketSubtab(subtab) {
     } else if (subtab === 'posts') {
         document.getElementById('marketPosts').style.display = 'block'
         loadMarketPosts()
+    } else if (subtab === 'prime') {
+        document.getElementById('marketPrime').style.display = 'block'
+        loadPrimeSellers()
+    } else if (subtab === 'settings') {
+        document.getElementById('marketSettings').style.display = 'block'
+        loadMarketSettings()
     }
 }
 
@@ -2063,7 +2070,254 @@ async function loadMarketStats() {
     } catch (error) {
         console.error('Failed to load market stats:', error)
     }
+    
+    // Also load Prime stats
+    try {
+        const primeRes = await fetch(`${API_BASE}/api/prime/admin/sellers`)
+        const primeData = await primeRes.json()
+        if (primeData.success) {
+            const primeSellers = primeData.data.filter(s => s.isPrime).length
+            const pendingPrime = primeData.data.filter(s => s.primeStatus === 'PENDING').length
+            document.getElementById('statMarketPrimeSellers').textContent = primeSellers
+            document.getElementById('statMarketPendingPrime').textContent = pendingPrime
+        }
+    } catch (error) {
+        console.error('Failed to load prime stats:', error)
+        document.getElementById('statMarketPrimeSellers').textContent = '-'
+        document.getElementById('statMarketPendingPrime').textContent = '-'
+    }
 }
+
+// ============================================================================
+// Prime Seller Management
+// ============================================================================
+
+async function loadPrimeSellers() {
+    const statusFilter = document.getElementById('primeStatusFilter').value
+    
+    try {
+        let url = `${API_BASE}/api/prime/admin/sellers`
+        if (statusFilter) {
+            url = `${API_BASE}/api/prime/admin/${statusFilter === 'PENDING' ? 'pending' : 'sellers'}` 
+        }
+        
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            let sellers = data.data
+            if (statusFilter && statusFilter !== 'PENDING') {
+                sellers = sellers.filter(s => s.primeStatus === statusFilter)
+            }
+            renderPrimeSellers(sellers)
+        }
+    } catch (error) {
+        console.error('Failed to load prime sellers:', error)
+        showMarketMessage('Failed to load Prime sellers: ' + error.message, 'error')
+    }
+}
+
+function renderPrimeSellers(sellers) {
+    const tbody = document.getElementById('marketPrimeBody')
+    
+    if (!sellers || sellers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #6b7280;">No Prime sellers found</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = sellers.map(seller => {
+        const statusBadge = getPrimeStatusBadge(seller.primeStatus)
+        const requestedDate = seller.primeRequestedAt ? new Date(seller.primeRequestedAt).toLocaleDateString() : '-'
+        const approvedDate = seller.primeApprovedAt ? new Date(seller.primeApprovedAt).toLocaleDateString() : '-'
+        const stripeStatus = seller.stripeOnboarded ? '✅ Connected' : (seller.stripeConnectId ? '⏳ Pending' : '❌ Not setup')
+        
+        return `
+            <tr>
+                <td><strong>${seller.storeName || 'Unnamed Store'}</strong></td>
+                <td>${seller.user?.handle || seller.user?.displayName || seller.userId}</td>
+                <td>${statusBadge}</td>
+                <td>${requestedDate}</td>
+                <td>${approvedDate}</td>
+                <td>${stripeStatus}</td>
+                <td>
+                    ${seller.primeStatus === 'PENDING' ? `
+                        <button class="btn btn-success" onclick="approvePrime('${seller.id}')" style="padding: 5px 10px; font-size: 12px;">✓ Approve</button>
+                        <button class="btn btn-danger" onclick="rejectPrime('${seller.id}')" style="padding: 5px 10px; font-size: 12px;">✗ Reject</button>
+                    ` : ''}
+                    ${seller.primeStatus === 'APPROVED' ? `
+                        <button class="btn btn-danger" onclick="suspendPrime('${seller.id}')" style="padding: 5px 10px; font-size: 12px;">Suspend</button>
+                    ` : ''}
+                    ${seller.primeStatus === 'SUSPENDED' || seller.primeStatus === 'REJECTED' ? `
+                        <button class="btn btn-success" onclick="approvePrime('${seller.id}')" style="padding: 5px 10px; font-size: 12px;">Reactivate</button>
+                    ` : ''}
+                </td>
+            </tr>
+        `
+    }).join('')
+}
+
+function getPrimeStatusBadge(status) {
+    const badges = {
+        'NOT_REQUESTED': '<span style="background: #9ca3af; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">Not Requested</span>',
+        'PENDING': '<span style="background: #3b82f6; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">Pending</span>',
+        'APPROVED': '<span style="background: #f59e0b; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">⭐ Prime</span>',
+        'REJECTED': '<span style="background: #ef4444; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">Rejected</span>',
+        'SUSPENDED': '<span style="background: #6b7280; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">Suspended</span>'
+    }
+    return badges[status] || status
+}
+
+async function approvePrime(sellerId) {
+    if (!confirm('Approve this seller for Prime status?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/prime/admin/approve/${sellerId}`, { method: 'POST' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMarketMessage('Prime status approved!', 'success')
+            loadPrimeSellers()
+            loadMarketStats()
+        } else {
+            showMarketMessage('Failed to approve: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error: ' + error.message, 'error')
+    }
+}
+
+async function rejectPrime(sellerId) {
+    const reason = prompt('Enter rejection reason (optional):')
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/prime/admin/reject/${sellerId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMarketMessage('Prime request rejected', 'success')
+            loadPrimeSellers()
+            loadMarketStats()
+        } else {
+            showMarketMessage('Failed to reject: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error: ' + error.message, 'error')
+    }
+}
+
+async function suspendPrime(sellerId) {
+    const reason = prompt('Enter suspension reason (optional):')
+    if (!confirm('Suspend this seller\'s Prime status?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/prime/admin/suspend/${sellerId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMarketMessage('Prime status suspended', 'success')
+            loadPrimeSellers()
+            loadMarketStats()
+        } else {
+            showMarketMessage('Failed to suspend: ' + data.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Market Settings Management
+// ============================================================================
+
+async function loadMarketSettings() {
+    try {
+        const res = await fetch(`${API_BASE}/api/settings`)
+        const data = await res.json()
+        
+        if (data.success) {
+            marketSettingsCache = data.data
+            populateSettingsForm(data.data)
+        }
+    } catch (error) {
+        console.error('Failed to load market settings:', error)
+        showMarketMessage('Failed to load settings: ' + error.message, 'error')
+    }
+}
+
+function populateSettingsForm(settings) {
+    // Tax settings
+    document.getElementById('settingsTvaEnabled').checked = settings.tvaEnabled
+    document.getElementById('settingsTvaRate').value = Math.round(settings.tvaRate * 100)
+    
+    // Service fee settings
+    document.getElementById('settingsServiceFeeEnabled').checked = settings.serviceFeeEnabled
+    document.getElementById('settingsServiceFeeRate').value = Math.round(settings.serviceFeeRate * 100)
+    document.getElementById('settingsServiceFeeMin').value = settings.serviceFeeMin || 0
+    document.getElementById('settingsServiceFeeMax').value = settings.serviceFeeMax || ''
+    
+    // Prime settings
+    document.getElementById('settingsPrimeAutoApprove').checked = settings.primeAutoApprove
+    document.getElementById('settingsPrimeFreeShipping').checked = settings.primeFreeShipping
+    document.getElementById('settingsPrimeCommissionRate').value = Math.round(settings.primeCommissionRate * 100)
+    document.getElementById('settingsPrimeMonthlyFee').value = settings.primeMonthlyFee || 0
+    document.getElementById('settingsPrimeMinimumPayout').value = settings.primeMinimumPayout || 0
+    
+    // Currency
+    document.getElementById('settingsDefaultCurrency').value = settings.defaultCurrency || 'MAD'
+}
+
+async function saveMarketSettings(e) {
+    e.preventDefault()
+    
+    const data = {
+        tvaEnabled: document.getElementById('settingsTvaEnabled').checked,
+        tvaRate: parseFloat(document.getElementById('settingsTvaRate').value) / 100,
+        serviceFeeEnabled: document.getElementById('settingsServiceFeeEnabled').checked,
+        serviceFeeRate: parseFloat(document.getElementById('settingsServiceFeeRate').value) / 100,
+        serviceFeeMin: parseFloat(document.getElementById('settingsServiceFeeMin').value) || 0,
+        serviceFeeMax: document.getElementById('settingsServiceFeeMax').value ? parseFloat(document.getElementById('settingsServiceFeeMax').value) : null,
+        primeAutoApprove: document.getElementById('settingsPrimeAutoApprove').checked,
+        primeFreeShipping: document.getElementById('settingsPrimeFreeShipping').checked,
+        primeCommissionRate: parseFloat(document.getElementById('settingsPrimeCommissionRate').value) / 100,
+        primeMonthlyFee: parseFloat(document.getElementById('settingsPrimeMonthlyFee').value) || 0,
+        primeMinimumPayout: parseFloat(document.getElementById('settingsPrimeMinimumPayout').value) || 0,
+        defaultCurrency: document.getElementById('settingsDefaultCurrency').value
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/settings`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage('Settings saved successfully!', 'success')
+            marketSettingsCache = result.data
+        } else {
+            showMarketMessage('Failed to save settings: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error saving settings: ' + error.message, 'error')
+    }
+}
+
+// Add event listener for settings form
+document.addEventListener('DOMContentLoaded', function() {
+    const settingsForm = document.getElementById('marketSettingsForm')
+    if (settingsForm) {
+        settingsForm.addEventListener('submit', saveMarketSettings)
+    }
+})
 
 // ============================================================================
 // Category Management

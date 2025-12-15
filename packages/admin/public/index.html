@@ -1020,6 +1020,14 @@
                 <div class="stat-label">Pending Posts</div>
                 <div class="stat-value" id="statMarketPendingPosts">-</div>
             </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                <div class="stat-label" style="color: rgba(255,255,255,0.9);">Prime Sellers</div>
+                <div class="stat-value" id="statMarketPrimeSellers" style="color: #fff;">-</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                <div class="stat-label" style="color: rgba(255,255,255,0.9);">Pending Prime</div>
+                <div class="stat-value" id="statMarketPendingPrime" style="color: #fff;">-</div>
+            </div>
         </div>
         
         <!-- Market Subtabs -->
@@ -1027,6 +1035,8 @@
             <button class="tab active" id="marketSubtabCategories" onclick="showMarketSubtab('categories')">📁 Categories</button>
             <button class="tab" id="marketSubtabSellers" onclick="showMarketSubtab('sellers')">👤 Sellers</button>
             <button class="tab" id="marketSubtabPosts" onclick="showMarketSubtab('posts')">📋 Posts</button>
+            <button class="tab" id="marketSubtabPrime" onclick="showMarketSubtab('prime')">⭐ Prime</button>
+            <button class="tab" id="marketSubtabSettings" onclick="showMarketSubtab('settings')">⚙️ Settings</button>
         </div>
         
         <!-- Categories Subtab -->
@@ -1117,6 +1127,145 @@
                 <tbody id="marketPostsBody"></tbody>
             </table>
             <div id="marketPostsPagination" class="pagination"></div>
+        </div>
+
+        <!-- Prime Subtab -->
+        <div id="marketPrime" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <select id="primeStatusFilter" onchange="loadPrimeSellers()">
+                    <option value="">All Prime Status</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="REJECTED">Rejected</option>
+                    <option value="SUSPENDED">Suspended</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadPrimeSellers()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Store Name</th>
+                        <th>User</th>
+                        <th>Prime Status</th>
+                        <th>Requested</th>
+                        <th>Approved</th>
+                        <th>Stripe</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketPrimeBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Settings Subtab -->
+        <div id="marketSettings" class="market-subtab" style="display: none;">
+            <form id="marketSettingsForm" style="margin-top: 20px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 30px;">
+                    
+                    <!-- Tax Settings -->
+                    <div class="settings-panel" style="background: #f8fafc; padding: 25px; border-radius: 12px; border: 1px solid #e5e7eb;">
+                        <h3 style="margin-bottom: 20px; color: #374151;">💰 Tax Settings (TVA)</h3>
+                        
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="settingsTvaEnabled" style="width: 18px; height: 18px;">
+                                <span>Enable TVA</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>TVA Rate (%)</label>
+                            <input type="number" id="settingsTvaRate" min="0" max="100" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            <small style="color: #6b7280;">Enter as percentage (e.g., 20 for 20%)</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Service Fee Settings -->
+                    <div class="settings-panel" style="background: #f8fafc; padding: 25px; border-radius: 12px; border: 1px solid #e5e7eb;">
+                        <h3 style="margin-bottom: 20px; color: #374151;">🏷️ Service Fee (Platform Commission)</h3>
+                        
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="settingsServiceFeeEnabled" style="width: 18px; height: 18px;">
+                                <span>Enable Service Fee</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Service Fee Rate (%)</label>
+                            <input type="number" id="settingsServiceFeeRate" min="0" max="50" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>Min Fee</label>
+                                <input type="number" id="settingsServiceFeeMin" min="0" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Fee (optional)</label>
+                                <input type="number" id="settingsServiceFeeMax" min="0" step="1" placeholder="No limit" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Prime Settings -->
+                    <div class="settings-panel" style="background: #fffbeb; padding: 25px; border-radius: 12px; border: 1px solid #f59e0b;">
+                        <h3 style="margin-bottom: 20px; color: #92400e;">⭐ Prime Seller Settings</h3>
+                        
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="settingsPrimeAutoApprove" style="width: 18px; height: 18px;">
+                                <span>Auto-Approve Prime Requests</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-group" style="margin-bottom: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="settingsPrimeFreeShipping" style="width: 18px; height: 18px;">
+                                <span>Free Shipping for Prime</span>
+                            </label>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Prime Commission Rate (%)</label>
+                            <input type="number" id="settingsPrimeCommissionRate" min="0" max="50" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            <small style="color: #6b7280;">Platform takes this % from Prime sales</small>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div class="form-group">
+                                <label>Monthly Fee</label>
+                                <input type="number" id="settingsPrimeMonthlyFee" min="0" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            </div>
+                            <div class="form-group">
+                                <label>Min Payout</label>
+                                <input type="number" id="settingsPrimeMinimumPayout" min="0" step="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Currency Settings -->
+                    <div class="settings-panel" style="background: #f8fafc; padding: 25px; border-radius: 12px; border: 1px solid #e5e7eb;">
+                        <h3 style="margin-bottom: 20px; color: #374151;">🌍 General Settings</h3>
+                        
+                        <div class="form-group">
+                            <label>Default Currency</label>
+                            <select id="settingsDefaultCurrency" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="MAD">MAD - Moroccan Dirham</option>
+                                <option value="USD">USD - US Dollar</option>
+                                <option value="EUR">EUR - Euro</option>
+                                <option value="GBP">GBP - British Pound</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <small style="color: #6b7280;">Changes will take effect immediately for all new transactions</small>
+                    <button type="submit" class="btn btn-success">💾 Save Settings</button>
+                </div>
+            </form>
         </div>
     </div>
 
