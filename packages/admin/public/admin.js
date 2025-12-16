@@ -2040,6 +2040,9 @@ function showMarketSubtab(subtab) {
     if (subtab === 'categories') {
         document.getElementById('marketCategories').style.display = 'block'
         loadMarketCategories()
+    } else if (subtab === 'promoCards') {
+        document.getElementById('marketPromoCards').style.display = 'block'
+        loadMarketPromoCards()
     } else if (subtab === 'sellers') {
         document.getElementById('marketSellers').style.display = 'block'
         loadMarketSellers()
@@ -2404,6 +2407,254 @@ document.getElementById('subcategoryForm')?.addEventListener('submit', async fun
     } catch (error) {
         showMessage('marketMessage', 'Failed to save subcategory', 'error')
     }
+})
+
+// ============================================================================
+// Promo Cards Management
+// ============================================================================
+
+let marketPromoCardsCache = []
+
+async function loadMarketPromoCards() {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/promo-cards?includeInactive=true`)
+        const data = await res.json()
+        
+        if (data.success) {
+            marketPromoCardsCache = data.data
+            renderMarketPromoCards(data.data)
+        }
+    } catch (error) {
+        console.error('Failed to load promo cards:', error)
+        showMessage('marketMessage', 'Failed to load promo cards', 'error')
+    }
+}
+
+function renderMarketPromoCards(promoCards) {
+    const tbody = document.getElementById('marketPromoCardsBody')
+    
+    if (promoCards.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No promo cards yet. Click "Add Promo Card" or "Seed Defaults" to create some.</td></tr>'
+        return
+    }
+    
+    const positionLabels = {
+        1: '<span style="background:#e0f2fe;padding:3px 8px;border-radius:4px;">Top Left</span>',
+        2: '<span style="background:#fef3c7;padding:3px 8px;border-radius:4px;">Bottom Left</span>',
+        3: '<span style="background:#d1fae5;padding:3px 8px;border-radius:4px;">Carousel</span>'
+    }
+    
+    tbody.innerHTML = promoCards.map(card => `
+        <tr>
+            <td>
+                <div style="width:80px;height:55px;border-radius:8px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;color:white;font-weight:600;font-size:9px;background:linear-gradient(135deg, ${card.gradientStart}, ${card.gradientEnd});">
+                    <span style="font-size:14px;">${card.emoji || ''}</span>
+                    <span style="white-space:pre-line;line-height:1.1;overflow:hidden;">${card.title.substring(0, 20)}...</span>
+                </div>
+            </td>
+            <td><strong style="white-space:pre-line;">${card.title}</strong></td>
+            <td style="font-size:24px;">${card.emoji || '-'}</td>
+            <td>${positionLabels[card.position] || card.position}</td>
+            <td>${card.position === 3 ? card.carouselOrder : '-'}</td>
+            <td>
+                <div style="display:flex;gap:4px;align-items:center;">
+                    <div style="width:20px;height:20px;border-radius:4px;background:${card.gradientStart};"></div>
+                    <span>→</span>
+                    <div style="width:20px;height:20px;border-radius:4px;background:${card.gradientEnd};"></div>
+                </div>
+            </td>
+            <td><span class="badge ${card.isActive ? 'badge-success' : 'badge-danger'}">${card.isActive ? 'Active' : 'Inactive'}</span></td>
+            <td>
+                <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="editPromoCard('${card.id}')">Edit</button>
+                <button class="btn btn-danger" style="padding:6px 12px;font-size:12px;" onclick="deletePromoCard('${card.id}')">Delete</button>
+            </td>
+        </tr>
+    `).join('')
+}
+
+function showPromoCardForm(cardId = null) {
+    document.getElementById('promoCardFormModal').style.display = 'flex'
+    document.getElementById('promoCardFormTitle').textContent = cardId ? 'Edit Promo Card' : 'Add Promo Card'
+    document.getElementById('promoCardId').value = cardId || ''
+    
+    if (cardId) {
+        const card = marketPromoCardsCache.find(c => c.id === cardId)
+        if (card) {
+            document.getElementById('promoCardTitle').value = card.title
+            document.getElementById('promoCardTitleAr').value = card.titleAr || ''
+            document.getElementById('promoCardEmoji').value = card.emoji || ''
+            document.getElementById('promoCardPosition').value = card.position
+            document.getElementById('promoCardCarouselOrder').value = card.carouselOrder
+            document.getElementById('promoCardGradientStart').value = card.gradientStart || '#667eea'
+            document.getElementById('promoCardGradientEnd').value = card.gradientEnd || '#764ba2'
+            document.getElementById('promoCardLinkUrl').value = card.linkUrl || ''
+            document.getElementById('promoCardLinkType').value = card.linkType || ''
+            document.getElementById('promoCardSortOrder').value = card.sortOrder
+            document.getElementById('promoCardIsActive').value = card.isActive ? 'true' : 'false'
+            
+            // Show existing image if any
+            if (card.imageUrl) {
+                document.getElementById('promoCardImagePreview').innerHTML = `<img src="${card.imageUrl}" alt="Preview" style="max-height:100px;">`
+                document.getElementById('promoCardImageZone').classList.add('has-image')
+            }
+            
+            updatePromoCardPreview()
+        }
+    } else {
+        document.getElementById('promoCardForm').reset()
+        document.getElementById('promoCardGradientStart').value = '#667eea'
+        document.getElementById('promoCardGradientEnd').value = '#764ba2'
+        resetPromoCardImagePreview()
+        updatePromoCardPreview()
+    }
+    
+    // Show/hide carousel order based on position
+    toggleCarouselOrder()
+}
+
+function hidePromoCardForm() {
+    document.getElementById('promoCardFormModal').style.display = 'none'
+    document.getElementById('promoCardForm').reset()
+    resetPromoCardImagePreview()
+}
+
+function resetPromoCardImagePreview() {
+    const preview = document.getElementById('promoCardImagePreview')
+    const zone = document.getElementById('promoCardImageZone')
+    preview.innerHTML = '<span class="upload-icon">🖼️</span><span>Click to upload image</span>'
+    zone.classList.remove('has-image')
+}
+
+function previewPromoCardImage(input) {
+    const preview = document.getElementById('promoCardImagePreview')
+    const zone = document.getElementById('promoCardImageZone')
+    
+    if (input.files && input.files[0]) {
+        const reader = new FileReader()
+        reader.onload = function(e) {
+            preview.innerHTML = `<img src="${e.target.result}" alt="Preview" style="max-height:100px;">`
+            zone.classList.add('has-image')
+        }
+        reader.readAsDataURL(input.files[0])
+    }
+}
+
+function editPromoCard(cardId) {
+    showPromoCardForm(cardId)
+}
+
+async function deletePromoCard(cardId) {
+    if (!confirm('Delete this promo card? This cannot be undone.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/promo-cards/${cardId}`, { method: 'DELETE' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Promo card deleted', 'success')
+            loadMarketPromoCards()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to delete promo card', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to delete promo card', 'error')
+    }
+}
+
+async function seedDefaultPromoCards() {
+    if (!confirm('This will create default promo cards. Continue?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/promo-cards/seed-defaults`, { method: 'POST' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', data.message, 'success')
+            loadMarketPromoCards()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to seed defaults', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to seed defaults: ' + error.message, 'error')
+    }
+}
+
+function toggleCarouselOrder() {
+    const position = document.getElementById('promoCardPosition').value
+    const carouselGroup = document.getElementById('carouselOrderGroup')
+    carouselGroup.style.display = position === '3' ? 'block' : 'none'
+}
+
+function updatePromoCardPreview() {
+    const title = document.getElementById('promoCardTitle').value || 'Sample\nTitle'
+    const emoji = document.getElementById('promoCardEmoji').value || '🎄'
+    const gradientStart = document.getElementById('promoCardGradientStart').value || '#667eea'
+    const gradientEnd = document.getElementById('promoCardGradientEnd').value || '#764ba2'
+    
+    const preview = document.getElementById('promoCardPreview')
+    preview.style.background = `linear-gradient(135deg, ${gradientStart}, ${gradientEnd})`
+    document.getElementById('previewEmoji').textContent = emoji
+    document.getElementById('previewTitle').textContent = title.replace(/\\n/g, '\n')
+}
+
+// Promo Card form submission
+document.getElementById('promoCardForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault()
+    
+    const cardId = document.getElementById('promoCardId').value
+    const formData = new FormData()
+    
+    formData.append('title', document.getElementById('promoCardTitle').value)
+    formData.append('titleAr', document.getElementById('promoCardTitleAr').value)
+    formData.append('emoji', document.getElementById('promoCardEmoji').value)
+    formData.append('position', document.getElementById('promoCardPosition').value)
+    formData.append('carouselOrder', document.getElementById('promoCardCarouselOrder').value)
+    formData.append('gradientStart', document.getElementById('promoCardGradientStart').value)
+    formData.append('gradientEnd', document.getElementById('promoCardGradientEnd').value)
+    formData.append('linkUrl', document.getElementById('promoCardLinkUrl').value)
+    formData.append('linkType', document.getElementById('promoCardLinkType').value)
+    formData.append('sortOrder', document.getElementById('promoCardSortOrder').value)
+    formData.append('isActive', document.getElementById('promoCardIsActive').value)
+    
+    const imageInput = document.getElementById('promoCardImageInput')
+    if (imageInput.files && imageInput.files[0]) {
+        formData.append('image', imageInput.files[0])
+    }
+    
+    try {
+        const url = cardId 
+            ? `${API_BASE}/api/market/promo-cards/${cardId}` 
+            : `${API_BASE}/api/market/promo-cards`
+        const method = cardId ? 'PUT' : 'POST'
+        
+        const res = await fetch(url, { method, body: formData })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', `Promo card ${cardId ? 'updated' : 'created'} successfully`, 'success')
+            hidePromoCardForm()
+            loadMarketPromoCards()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to save promo card', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to save promo card', 'error')
+    }
+})
+
+// Event listeners for live preview updates
+document.addEventListener('DOMContentLoaded', function() {
+    const titleInput = document.getElementById('promoCardTitle')
+    const emojiInput = document.getElementById('promoCardEmoji')
+    const gradientStartInput = document.getElementById('promoCardGradientStart')
+    const gradientEndInput = document.getElementById('promoCardGradientEnd')
+    const positionSelect = document.getElementById('promoCardPosition')
+    
+    if (titleInput) titleInput.addEventListener('input', updatePromoCardPreview)
+    if (emojiInput) emojiInput.addEventListener('input', updatePromoCardPreview)
+    if (gradientStartInput) gradientStartInput.addEventListener('input', updatePromoCardPreview)
+    if (gradientEndInput) gradientEndInput.addEventListener('input', updatePromoCardPreview)
+    if (positionSelect) positionSelect.addEventListener('change', toggleCarouselOrder)
 })
 
 // ============================================================================

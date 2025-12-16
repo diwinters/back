@@ -1025,6 +1025,7 @@
         <!-- Market Subtabs -->
         <div class="tabs" style="margin-top: 20px;">
             <button class="tab active" id="marketSubtabCategories" onclick="showMarketSubtab('categories')">📁 Categories</button>
+            <button class="tab" id="marketSubtabPromoCards" onclick="showMarketSubtab('promoCards')">🎴 Promo Cards</button>
             <button class="tab" id="marketSubtabSellers" onclick="showMarketSubtab('sellers')">👤 Sellers</button>
             <button class="tab" id="marketSubtabPosts" onclick="showMarketSubtab('posts')">📋 Posts</button>
             <button class="tab" id="marketSubtabSettings" onclick="showMarketSubtab('settings')">⚙️ Settings</button>
@@ -1051,6 +1052,38 @@
                     </tr>
                 </thead>
                 <tbody id="marketCategoriesBody"></tbody>
+            </table>
+        </div>
+        
+        <!-- Promo Cards Subtab -->
+        <div id="marketPromoCards" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <button class="btn btn-success" onclick="showPromoCardForm()">➕ Add Promo Card</button>
+                <button class="btn btn-warning" onclick="seedDefaultPromoCards()">🌱 Seed Defaults</button>
+                <button class="btn btn-primary" onclick="loadMarketPromoCards()">🔄 Refresh</button>
+            </div>
+            
+            <p style="margin: 15px 0; color: #6b7280; font-size: 14px;">
+                📐 <strong>Position Guide:</strong> 
+                <span style="background:#e0f2fe;padding:3px 8px;border-radius:4px;margin:0 5px;">1 = Top Left</span>
+                <span style="background:#fef3c7;padding:3px 8px;border-radius:4px;margin:0 5px;">2 = Bottom Left</span>
+                <span style="background:#d1fae5;padding:3px 8px;border-radius:4px;margin:0 5px;">3 = Carousel (Right)</span>
+            </p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Preview</th>
+                        <th>Title</th>
+                        <th>Emoji</th>
+                        <th>Position</th>
+                        <th>Carousel #</th>
+                        <th>Gradient</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketPromoCardsBody"></tbody>
             </table>
         </div>
         
@@ -1310,6 +1343,107 @@
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="hideSubcategoryForm()">Cancel</button>
                     <button type="submit" class="btn btn-success">Save Subcategory</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Promo Card Form Modal -->
+    <div id="promoCardFormModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <h3 id="promoCardFormTitle">Add Promo Card</h3>
+            <form id="promoCardForm" enctype="multipart/form-data">
+                <input type="hidden" id="promoCardId">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <div class="form-group">
+                            <label>Title * (use \n for line breaks)</label>
+                            <textarea id="promoCardTitle" required placeholder="e.g., Встречаем&#10;Новый год&#10;с Лавкой" rows="3" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Title (Arabic)</label>
+                            <textarea id="promoCardTitleAr" placeholder="Arabic title" dir="rtl" rows="3" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Emoji</label>
+                            <input type="text" id="promoCardEmoji" placeholder="e.g., 🎄, 🎁, 🚀" maxlength="4">
+                        </div>
+                        <div class="form-group">
+                            <label>Position *</label>
+                            <select id="promoCardPosition" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="1">1 - Top Left</option>
+                                <option value="2">2 - Bottom Left</option>
+                                <option value="3">3 - Carousel (Right)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="carouselOrderGroup">
+                            <label>Carousel Order (for position 3)</label>
+                            <input type="number" id="promoCardCarouselOrder" value="0" min="0">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <label>Background Image (optional)</label>
+                            <div class="upload-zone" id="promoCardImageZone" onclick="document.getElementById('promoCardImageInput').click()">
+                                <input type="file" id="promoCardImageInput" name="image" accept="image/*" style="display:none" onchange="previewPromoCardImage(this)">
+                                <div id="promoCardImagePreview" class="upload-preview">
+                                    <span class="upload-icon">🖼️</span>
+                                    <span>Click to upload image</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Gradient Start</label>
+                            <input type="color" id="promoCardGradientStart" value="#667eea" style="width: 100%; height: 40px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Gradient End</label>
+                            <input type="color" id="promoCardGradientEnd" value="#764ba2" style="width: 100%; height: 40px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Link URL (optional)</label>
+                            <input type="text" id="promoCardLinkUrl" placeholder="e.g., /category/electronics">
+                        </div>
+                        <div class="form-group">
+                            <label>Link Type</label>
+                            <select id="promoCardLinkType" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="">None</option>
+                                <option value="category">Category</option>
+                                <option value="product">Product</option>
+                                <option value="url">External URL</option>
+                                <option value="promo">Promo</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px;">
+                    <div class="form-group">
+                        <label>Sort Order</label>
+                        <input type="number" id="promoCardSortOrder" value="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="promoCardIsActive">
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Live Preview -->
+                <div style="margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 8px;">
+                    <label style="font-weight: 600; margin-bottom: 10px; display: block;">Live Preview:</label>
+                    <div id="promoCardPreview" style="width: 150px; height: 100px; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; color: white; font-weight: 600; font-size: 12px; background: linear-gradient(135deg, #667eea, #764ba2);">
+                        <span id="previewEmoji" style="font-size: 20px;">🎄</span>
+                        <span id="previewTitle" style="white-space: pre-line; line-height: 1.2;">Sample\nTitle</span>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hidePromoCardForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Promo Card</button>
                 </div>
             </form>
         </div>

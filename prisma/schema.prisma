@@ -721,6 +721,46 @@ model MarketSettings {
 }
 
 // =============================================================================
+// MARKET: Promo Cards (Admin configurable - Home screen banners)
+// =============================================================================
+
+model MarketPromoCard {
+  id              String   @id @default(cuid())
+  
+  // Position: 1=top-left, 2=bottom-left, 3=carousel (right side)
+  position        Int      @default(1)
+  
+  // Content
+  title           String              // Card title (supports \n for newlines)
+  titleAr         String?             // Arabic title
+  emoji           String?             // Emoji icon (e.g., 🎄, 🎁, 🚀)
+  
+  // Images
+  imageUrl        String?             // Optional background image URL
+  
+  // Gradient colors
+  gradientStart   String   @default("#667eea")  // Gradient start color
+  gradientEnd     String   @default("#764ba2")  // Gradient end color
+  
+  // Action
+  linkUrl         String?             // Deep link or URL when tapped
+  linkType        String?             // "category", "product", "url", etc.
+  
+  // Carousel specific (for position=3)
+  carouselOrder   Int      @default(0)  // Order within the carousel
+  
+  // Status
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([position, isActive])
+  @@index([carouselOrder])
+}
+
+// =============================================================================
 // MARKET: Shipping Options (per product)
 // =============================================================================
 

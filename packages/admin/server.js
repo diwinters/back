@@ -2649,6 +2649,294 @@ app.delete('/api/market/subcategories/:id', async (req, res) => {
 })
 
 // ============================================================================
+// Market: Promo Cards Management CRUD Endpoints
+// ============================================================================
+
+// Configure multer for promo card image uploads
+const promoCardStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads/market/promo-cards')
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+    const ext = path.extname(file.originalname)
+    cb(null, 'promo-' + uniqueSuffix + ext)
+  }
+})
+
+const promoCardUpload = multer({
+  storage: promoCardStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and SVG are allowed.'))
+    }
+  }
+})
+
+/**
+ * GET /api/market/promo-cards
+ * List all promo cards
+ */
+app.get('/api/market/promo-cards', async (req, res) => {
+  try {
+    const includeInactive = req.query.includeInactive === 'true'
+    const position = req.query.position ? parseInt(req.query.position) : null
+    
+    const where = {}
+    if (!includeInactive) where.isActive = true
+    if (position !== null) where.position = position
+    
+    const promoCards = await prisma.marketPromoCard.findMany({
+      where,
+      orderBy: [
+        { position: 'asc' },
+        { carouselOrder: 'asc' },
+        { sortOrder: 'asc' }
+      ]
+    })
+    
+    res.json({ success: true, data: promoCards })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/promo-cards/:id
+ * Get a single promo card
+ */
+app.get('/api/market/promo-cards/:id', async (req, res) => {
+  try {
+    const promoCard = await prisma.marketPromoCard.findUnique({
+      where: { id: req.params.id }
+    })
+    
+    if (!promoCard) {
+      return res.status(404).json({ success: false, error: 'Promo card not found' })
+    }
+    
+    res.json({ success: true, data: promoCard })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/promo-cards
+ * Create a new promo card
+ */
+app.post('/api/market/promo-cards', promoCardUpload.single('image'), async (req, res) => {
+  try {
+    const { 
+      position, title, titleAr, emoji, 
+      gradientStart, gradientEnd, 
+      linkUrl, linkType,
+      carouselOrder, sortOrder, isActive 
+    } = req.body
+
+    if (!title) {
+      return res.status(400).json({ success: false, error: 'Title is required' })
+    }
+
+    const imageUrl = req.file ? `/uploads/market/promo-cards/${req.file.filename}` : null
+
+    const promoCard = await prisma.marketPromoCard.create({
+      data: {
+        position: parseInt(position) || 1,
+        title,
+        titleAr: titleAr || null,
+        emoji: emoji || null,
+        imageUrl,
+        gradientStart: gradientStart || '#667eea',
+        gradientEnd: gradientEnd || '#764ba2',
+        linkUrl: linkUrl || null,
+        linkType: linkType || null,
+        carouselOrder: parseInt(carouselOrder) || 0,
+        sortOrder: parseInt(sortOrder) || 0,
+        isActive: isActive !== 'false'
+      }
+    })
+
+    res.status(201).json({ success: true, data: promoCard })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/promo-cards/:id
+ * Update a promo card
+ */
+app.put('/api/market/promo-cards/:id', promoCardUpload.single('image'), async (req, res) => {
+  try {
+    const { 
+      position, title, titleAr, emoji, 
+      gradientStart, gradientEnd, 
+      linkUrl, linkType,
+      carouselOrder, sortOrder, isActive 
+    } = req.body
+
+    const existing = await prisma.marketPromoCard.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Promo card not found' })
+    }
+
+    const updateData = {}
+    if (position !== undefined) updateData.position = parseInt(position)
+    if (title !== undefined) updateData.title = title
+    if (titleAr !== undefined) updateData.titleAr = titleAr || null
+    if (emoji !== undefined) updateData.emoji = emoji || null
+    if (gradientStart !== undefined) updateData.gradientStart = gradientStart
+    if (gradientEnd !== undefined) updateData.gradientEnd = gradientEnd
+    if (linkUrl !== undefined) updateData.linkUrl = linkUrl || null
+    if (linkType !== undefined) updateData.linkType = linkType || null
+    if (carouselOrder !== undefined) updateData.carouselOrder = parseInt(carouselOrder)
+    if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder)
+    if (isActive !== undefined) updateData.isActive = isActive !== 'false'
+    
+    // Handle new image upload
+    if (req.file) {
+      // Delete old image if exists
+      if (existing.imageUrl) {
+        const oldPath = path.join(__dirname, existing.imageUrl)
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath)
+        }
+      }
+      updateData.imageUrl = `/uploads/market/promo-cards/${req.file.filename}`
+    }
+
+    const promoCard = await prisma.marketPromoCard.update({
+      where: { id: req.params.id },
+      data: updateData
+    })
+
+    res.json({ success: true, data: promoCard })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/promo-cards/:id
+ * Delete a promo card
+ */
+app.delete('/api/market/promo-cards/:id', async (req, res) => {
+  try {
+    const existing = await prisma.marketPromoCard.findUnique({ where: { id: req.params.id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Promo card not found' })
+    }
+
+    // Delete image file if exists
+    if (existing.imageUrl) {
+      const imagePath = path.join(__dirname, existing.imageUrl)
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath)
+      }
+    }
+
+    await prisma.marketPromoCard.delete({ where: { id: req.params.id } })
+
+    res.json({ success: true, message: 'Promo card deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/promo-cards/seed-defaults
+ * Seed default promo cards (one-time setup)
+ */
+app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
+  try {
+    // Check if any promo cards exist
+    const count = await prisma.marketPromoCard.count()
+    if (count > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Promo cards already exist. Delete all to re-seed.' 
+      })
+    }
+
+    // Default promo cards
+    const defaults = [
+      // Position 1: Top-left card
+      {
+        position: 1,
+        title: 'Встречаем\nНовый год\nс Лавкой',
+        emoji: '🎄',
+        gradientStart: '#00ccff',
+        gradientEnd: '#66ff66',
+        sortOrder: 0,
+        isActive: true
+      },
+      // Position 2: Bottom-left card
+      {
+        position: 2,
+        title: 'Скидки\nна всё\nдо 50%',
+        emoji: '🎁',
+        gradientStart: '#9933ff',
+        gradientEnd: '#ff3399',
+        sortOrder: 0,
+        isActive: true
+      },
+      // Position 3: Carousel slides (right side)
+      {
+        position: 3,
+        title: 'Быстрая\nдоставка\nза 15 мин',
+        emoji: '🚀',
+        gradientStart: '#ff3333',
+        gradientEnd: '#ff9933',
+        carouselOrder: 0,
+        sortOrder: 0,
+        isActive: true
+      },
+      {
+        position: 3,
+        title: 'Свежие\nпродукты\nкаждый день',
+        emoji: '🥬',
+        gradientStart: '#00cc66',
+        gradientEnd: '#66ff99',
+        carouselOrder: 1,
+        sortOrder: 0,
+        isActive: true
+      },
+      {
+        position: 3,
+        title: 'Бесплатная\nдоставка\nот 500₽',
+        emoji: '🎉',
+        gradientStart: '#ff6633',
+        gradientEnd: '#ffcc00',
+        carouselOrder: 2,
+        sortOrder: 0,
+        isActive: true
+      }
+    ]
+
+    const created = await prisma.marketPromoCard.createMany({
+      data: defaults
+    })
+
+    res.status(201).json({ 
+      success: true, 
+      message: `Created ${created.count} default promo cards`,
+      count: created.count 
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Market: Seller Management Endpoints
 // ============================================================================
 
