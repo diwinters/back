@@ -3444,7 +3444,7 @@ app.post('/api/market/sellers/apply', async (req, res) => {
  */
 app.post('/api/market/posts/submit', async (req, res) => {
   try {
-    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency, quantity, isPrime } = req.body
+    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency, quantity } = req.body
 
     if (!did || !postUri || !postCid || !categoryId || !title) {
       return res.status(400).json({ 
@@ -3469,12 +3469,6 @@ app.post('/api/market/posts/submit', async (req, res) => {
         success: false, 
         error: `Cannot submit posts. Your seller status is: ${seller.status}` 
       })
-    }
-
-    // Validate Prime status - can only mark as Prime if seller is Prime
-    const shouldBePrime = isPrime && seller.isPrime
-    if (isPrime && !seller.isPrime) {
-      console.log(`[Market] Seller ${seller.id} tried to create Prime post but is not Prime seller`)
     }
 
     // Check category exists
@@ -3514,7 +3508,6 @@ app.post('/api/market/posts/submit', async (req, res) => {
         currency: currency || 'MAD',
         quantity: validQuantity,
         isInStock: validQuantity > 0,
-        isPrime: shouldBePrime,
         status: 'PENDING_REVIEW'
       },
       include: {
@@ -3881,11 +3874,6 @@ async function getMarketSettings() {
         serviceFeeMin: 5,
         serviceFeeMax: null,
         serviceFeeEnabled: true,
-        primeCommissionRate: 0.10,
-        primeMonthlyFee: 0,
-        primeMinimumPayout: 100,
-        primeFreeShipping: true,
-        primeAutoApprove: false,
         defaultCurrency: 'MAD'
       }
     })
@@ -4165,12 +4153,6 @@ app.get('/api/cart/settings', async (req, res) => {
         serviceFeeMax: settings.serviceFeeMax,
         serviceFeeEnabled: settings.serviceFeeEnabled,
         defaultCurrency: settings.defaultCurrency,
-        // Prime settings
-        primeCommissionRate: settings.primeCommissionRate,
-        primeMonthlyFee: settings.primeMonthlyFee,
-        primeMinimumPayout: settings.primeMinimumPayout,
-        primeFreeShipping: settings.primeFreeShipping,
-        primeAutoApprove: settings.primeAutoApprove,
         updatedAt: settings.updatedAt
       }
     })
@@ -4181,303 +4163,11 @@ app.get('/api/cart/settings', async (req, res) => {
 })
 
 // ============================================================================
-// PRIME SELLER API ROUTES
-// ============================================================================
-
-/**
- * GET /api/prime/status - Get Prime status for a seller
- */
-app.get('/api/prime/status', async (req, res) => {
-  try {
-    const did = req.query.did
-    console.log(`[Prime] GET /status did=${did}`)
-
-    if (!did) {
-      return res.status(400).json({ success: false, error: 'did query parameter required' })
-    }
-
-    const seller = await prisma.marketSeller.findFirst({
-      where: { user: { did } },
-      include: { user: true }
-    })
-
-    if (!seller) {
-      return res.json({
-        success: true,
-        data: {
-          isSeller: false,
-          isPrime: false,
-          primeStatus: 'NOT_REQUESTED'
-        }
-      })
-    }
-
-    res.json({
-      success: true,
-      data: {
-        isSeller: true,
-        sellerId: seller.id,
-        sellerStatus: seller.status,
-        isPrime: seller.isPrime,
-        primeStatus: seller.primeStatus,
-        primeRequestedAt: seller.primeRequestedAt,
-        primeApprovedAt: seller.primeApprovedAt,
-        primeRejectionReason: seller.primeRejectionReason,
-        stripeOnboarded: seller.stripeOnboarded
-      }
-    })
-  } catch (error) {
-    console.error('[Prime] Error fetching status:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * POST /api/prime/request - Request Prime status
- */
-app.post('/api/prime/request', async (req, res) => {
-  try {
-    const { did } = req.body
-    console.log(`[Prime] POST /request did=${did}`)
-
-    if (!did) {
-      return res.status(400).json({ success: false, error: 'did is required' })
-    }
-
-    const seller = await prisma.marketSeller.findFirst({
-      where: { user: { did } }
-    })
-
-    if (!seller) {
-      return res.status(404).json({ success: false, error: 'Seller profile not found. Register as seller first.' })
-    }
-
-    if (seller.status !== 'APPROVED') {
-      return res.status(400).json({ success: false, error: 'Seller must be approved before requesting Prime' })
-    }
-
-    if (seller.isPrime) {
-      return res.status(400).json({ success: false, error: 'Already a Prime seller' })
-    }
-
-    if (seller.primeStatus === 'PENDING') {
-      return res.status(400).json({ success: false, error: 'Prime request already pending' })
-    }
-
-    // Check if auto-approve is enabled
-    const settings = await getMarketSettings()
-    
-    const updatedSeller = await prisma.marketSeller.update({
-      where: { id: seller.id },
-      data: {
-        primeStatus: settings.primeAutoApprove ? 'APPROVED' : 'PENDING',
-        primeRequestedAt: new Date(),
-        isPrime: settings.primeAutoApprove,
-        primeApprovedAt: settings.primeAutoApprove ? new Date() : null,
-        primeRejectionReason: null
-      }
-    })
-
-    res.json({
-      success: true,
-      data: {
-        isPrime: updatedSeller.isPrime,
-        primeStatus: updatedSeller.primeStatus,
-        primeRequestedAt: updatedSeller.primeRequestedAt,
-        autoApproved: settings.primeAutoApprove
-      },
-      message: settings.primeAutoApprove 
-        ? 'Prime status approved automatically!' 
-        : 'Prime request submitted. Awaiting admin approval.'
-    })
-  } catch (error) {
-    console.error('[Prime] Error requesting Prime:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * POST /api/prime/admin/approve/:sellerId - Admin approve Prime request
- */
-app.post('/api/prime/admin/approve/:sellerId', async (req, res) => {
-  try {
-    const { sellerId } = req.params
-    console.log(`[Prime] POST /admin/approve sellerId=${sellerId}`)
-
-    const seller = await prisma.marketSeller.findUnique({ where: { id: sellerId } })
-
-    if (!seller) {
-      return res.status(404).json({ success: false, error: 'Seller not found' })
-    }
-
-    if (seller.isPrime) {
-      return res.status(400).json({ success: false, error: 'Already a Prime seller' })
-    }
-
-    const updatedSeller = await prisma.marketSeller.update({
-      where: { id: sellerId },
-      data: {
-        isPrime: true,
-        primeStatus: 'APPROVED',
-        primeApprovedAt: new Date(),
-        primeRejectionReason: null
-      },
-      include: { user: true }
-    })
-
-    res.json({
-      success: true,
-      data: updatedSeller,
-      message: 'Prime status approved'
-    })
-  } catch (error) {
-    console.error('[Prime] Error approving Prime:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * POST /api/prime/admin/reject/:sellerId - Admin reject Prime request
- */
-app.post('/api/prime/admin/reject/:sellerId', async (req, res) => {
-  try {
-    const { sellerId } = req.params
-    const { reason } = req.body
-    console.log(`[Prime] POST /admin/reject sellerId=${sellerId}`)
-
-    const seller = await prisma.marketSeller.findUnique({ where: { id: sellerId } })
-
-    if (!seller) {
-      return res.status(404).json({ success: false, error: 'Seller not found' })
-    }
-
-    const updatedSeller = await prisma.marketSeller.update({
-      where: { id: sellerId },
-      data: {
-        isPrime: false,
-        primeStatus: 'REJECTED',
-        primeRejectionReason: reason || 'Prime request not approved'
-      },
-      include: { user: true }
-    })
-
-    res.json({
-      success: true,
-      data: updatedSeller,
-      message: 'Prime request rejected'
-    })
-  } catch (error) {
-    console.error('[Prime] Error rejecting Prime:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * POST /api/prime/admin/suspend/:sellerId - Admin suspend Prime status
- */
-app.post('/api/prime/admin/suspend/:sellerId', async (req, res) => {
-  try {
-    const { sellerId } = req.params
-    const { reason } = req.body
-    console.log(`[Prime] POST /admin/suspend sellerId=${sellerId}`)
-
-    const seller = await prisma.marketSeller.findUnique({ where: { id: sellerId } })
-
-    if (!seller) {
-      return res.status(404).json({ success: false, error: 'Seller not found' })
-    }
-
-    if (!seller.isPrime) {
-      return res.status(400).json({ success: false, error: 'Seller is not Prime' })
-    }
-
-    const updatedSeller = await prisma.marketSeller.update({
-      where: { id: sellerId },
-      data: {
-        isPrime: false,
-        primeStatus: 'SUSPENDED',
-        primeRejectionReason: reason || 'Prime status suspended'
-      },
-      include: { user: true }
-    })
-
-    res.json({
-      success: true,
-      data: updatedSeller,
-      message: 'Prime status suspended'
-    })
-  } catch (error) {
-    console.error('[Prime] Error suspending Prime:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * GET /api/prime/admin/pending - Get all pending Prime requests (admin)
- */
-app.get('/api/prime/admin/pending', async (req, res) => {
-  try {
-    const sellers = await prisma.marketSeller.findMany({
-      where: { primeStatus: 'PENDING' },
-      include: { 
-        user: true,
-        _count: { select: { posts: true } }
-      },
-      orderBy: { primeRequestedAt: 'asc' }
-    })
-
-    res.json({
-      success: true,
-      data: sellers,
-      meta: { total: sellers.length }
-    })
-  } catch (error) {
-    console.error('[Prime] Error fetching pending requests:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-/**
- * GET /api/prime/admin/sellers - Get all sellers with Prime status (admin)
- */
-app.get('/api/prime/admin/sellers', async (req, res) => {
-  try {
-    const { status } = req.query
-    
-    let where = {}
-    if (status) {
-      where.primeStatus = status
-    } else {
-      // Return all sellers who have any Prime interaction (not just NOT_REQUESTED)
-      where.primeStatus = { not: 'NOT_REQUESTED' }
-    }
-    
-    const sellers = await prisma.marketSeller.findMany({
-      where,
-      include: { 
-        user: true,
-        _count: { select: { posts: true } }
-      },
-      orderBy: { primeRequestedAt: 'desc' }
-    })
-
-    res.json({
-      success: true,
-      data: sellers,
-      meta: { total: sellers.length }
-    })
-  } catch (error) {
-    console.error('[Prime] Error fetching Prime sellers:', error)
-    res.status(500).json({ success: false, error: error.message })
-  }
-})
-
-// ============================================================================
 // Market Settings API
 // ============================================================================
 
 /**
- * GET /api/settings - Get market settings (tax, service fee, Prime config)
+ * GET /api/settings - Get market settings (tax, service fee config)
  */
 app.get('/api/settings', async (req, res) => {
   try {
@@ -4506,12 +4196,6 @@ app.put('/api/settings', async (req, res) => {
       serviceFeeMin,
       serviceFeeMax,
       serviceFeeEnabled,
-      // Prime settings
-      primeCommissionRate,
-      primeMonthlyFee,
-      primeMinimumPayout,
-      primeFreeShipping,
-      primeAutoApprove,
       // Currency
       defaultCurrency
     } = req.body
@@ -4527,13 +4211,6 @@ app.put('/api/settings', async (req, res) => {
     if (serviceFeeMin !== undefined) updateData.serviceFeeMin = parseFloat(serviceFeeMin)
     if (serviceFeeMax !== undefined) updateData.serviceFeeMax = serviceFeeMax ? parseFloat(serviceFeeMax) : null
     if (serviceFeeEnabled !== undefined) updateData.serviceFeeEnabled = Boolean(serviceFeeEnabled)
-    
-    // Prime settings
-    if (primeCommissionRate !== undefined) updateData.primeCommissionRate = parseFloat(primeCommissionRate)
-    if (primeMonthlyFee !== undefined) updateData.primeMonthlyFee = parseFloat(primeMonthlyFee)
-    if (primeMinimumPayout !== undefined) updateData.primeMinimumPayout = parseFloat(primeMinimumPayout)
-    if (primeFreeShipping !== undefined) updateData.primeFreeShipping = Boolean(primeFreeShipping)
-    if (primeAutoApprove !== undefined) updateData.primeAutoApprove = Boolean(primeAutoApprove)
     
     // Currency
     if (defaultCurrency !== undefined) updateData.defaultCurrency = defaultCurrency
