@@ -2098,18 +2098,16 @@ async function loadPrimeSellers() {
     try {
         let url = `${API_BASE}/api/prime/admin/sellers`
         if (statusFilter) {
-            url = `${API_BASE}/api/prime/admin/${statusFilter === 'PENDING' ? 'pending' : 'sellers'}` 
+            url = `${API_BASE}/api/prime/admin/sellers?status=${statusFilter}`
         }
         
         const res = await fetch(url)
         const data = await res.json()
         
         if (data.success) {
-            let sellers = data.data
-            if (statusFilter && statusFilter !== 'PENDING') {
-                sellers = sellers.filter(s => s.primeStatus === statusFilter)
-            }
-            renderPrimeSellers(sellers)
+            renderPrimeSellers(data.data)
+        } else {
+            showMarketMessage('Failed to load Prime sellers: ' + (data.error || 'Unknown error'), 'error')
         }
     } catch (error) {
         console.error('Failed to load prime sellers:', error)

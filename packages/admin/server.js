@@ -4438,17 +4438,27 @@ app.get('/api/prime/admin/pending', async (req, res) => {
 })
 
 /**
- * GET /api/prime/admin/sellers - Get all Prime sellers (admin)
+ * GET /api/prime/admin/sellers - Get all sellers with Prime status (admin)
  */
 app.get('/api/prime/admin/sellers', async (req, res) => {
   try {
+    const { status } = req.query
+    
+    let where = {}
+    if (status) {
+      where.primeStatus = status
+    } else {
+      // Return all sellers who have any Prime interaction (not just NOT_REQUESTED)
+      where.primeStatus = { not: 'NOT_REQUESTED' }
+    }
+    
     const sellers = await prisma.marketSeller.findMany({
-      where: { isPrime: true },
+      where,
       include: { 
         user: true,
         _count: { select: { posts: true } }
       },
-      orderBy: { primeApprovedAt: 'desc' }
+      orderBy: { primeRequestedAt: 'desc' }
     })
 
     res.json({
