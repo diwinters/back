@@ -2684,15 +2684,27 @@ const promoCardUpload = multer({
 /**
  * GET /api/market/promo-cards
  * List all promo cards
+ * @query includeInactive - Include inactive promo cards
+ * @query position - Filter by position (1=top-left, 2=bottom-left, 3=carousel)
+ * @query cityId - Filter by city (null cityId means global/all cities)
  */
 app.get('/api/market/promo-cards', async (req, res) => {
   try {
     const includeInactive = req.query.includeInactive === 'true'
     const position = req.query.position ? parseInt(req.query.position) : null
+    const cityId = req.query.cityId || null
     
     const where = {}
     if (!includeInactive) where.isActive = true
     if (position !== null) where.position = position
+    
+    // City filtering: show promo cards that are either global (null cityId) or match the user's city
+    if (cityId) {
+      where.OR = [
+        { cityId: null },      // Global promo cards
+        { cityId: cityId }     // City-specific promo cards
+      ]
+    }
     
     const promoCards = await prisma.marketPromoCard.findMany({
       where,
@@ -2700,7 +2712,12 @@ app.get('/api/market/promo-cards', async (req, res) => {
         { position: 'asc' },
         { carouselOrder: 'asc' },
         { sortOrder: 'asc' }
-      ]
+      ],
+      include: {
+        city: {
+          select: { id: true, name: true, code: true }
+        }
+      }
     })
     
     res.json({ success: true, data: promoCards })
@@ -2739,7 +2756,8 @@ app.post('/api/market/promo-cards', promoCardUpload.single('image'), async (req,
       position, title, titleAr, emoji, 
       gradientStart, gradientEnd, 
       linkUrl, linkType,
-      carouselOrder, sortOrder, isActive 
+      carouselOrder, sortOrder, isActive,
+      cityId
     } = req.body
 
     if (!title) {
@@ -2761,7 +2779,8 @@ app.post('/api/market/promo-cards', promoCardUpload.single('image'), async (req,
         linkType: linkType || null,
         carouselOrder: parseInt(carouselOrder) || 0,
         sortOrder: parseInt(sortOrder) || 0,
-        isActive: isActive !== 'false'
+        isActive: isActive !== 'false',
+        cityId: cityId || null
       }
     })
 
@@ -2781,7 +2800,8 @@ app.put('/api/market/promo-cards/:id', promoCardUpload.single('image'), async (r
       position, title, titleAr, emoji, 
       gradientStart, gradientEnd, 
       linkUrl, linkType,
-      carouselOrder, sortOrder, isActive 
+      carouselOrder, sortOrder, isActive,
+      cityId
     } = req.body
 
     const existing = await prisma.marketPromoCard.findUnique({ where: { id: req.params.id } })
@@ -2801,6 +2821,7 @@ app.put('/api/market/promo-cards/:id', promoCardUpload.single('image'), async (r
     if (carouselOrder !== undefined) updateData.carouselOrder = parseInt(carouselOrder)
     if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder)
     if (isActive !== undefined) updateData.isActive = isActive !== 'false'
+    if (cityId !== undefined) updateData.cityId = cityId || null
     
     // Handle new image upload
     if (req.file) {
@@ -2867,13 +2888,14 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
       })
     }
 
-    // Default promo cards
+    // Default promo cards with sample images
     const defaults = [
       // Position 1: Top-left card
       {
         position: 1,
         title: 'Встречаем\nНовый год\nс Лавкой',
         emoji: '🎄',
+        imageUrl: 'https://images.unsplash.com/photo-1512389142860-9c449e58a814?w=200&h=200&fit=crop',
         gradientStart: '#00ccff',
         gradientEnd: '#66ff66',
         sortOrder: 0,
@@ -2884,6 +2906,7 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
         position: 2,
         title: 'Скидки\nна всё\nдо 50%',
         emoji: '🎁',
+        imageUrl: 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=200&h=200&fit=crop',
         gradientStart: '#9933ff',
         gradientEnd: '#ff3399',
         sortOrder: 0,
@@ -2894,6 +2917,7 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
         position: 3,
         title: 'Быстрая\nдоставка\nза 15 мин',
         emoji: '🚀',
+        imageUrl: 'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=200&h=200&fit=crop',
         gradientStart: '#ff3333',
         gradientEnd: '#ff9933',
         carouselOrder: 0,
@@ -2904,6 +2928,7 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
         position: 3,
         title: 'Свежие\nпродукты\nкаждый день',
         emoji: '🥬',
+        imageUrl: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=200&h=200&fit=crop',
         gradientStart: '#00cc66',
         gradientEnd: '#66ff99',
         carouselOrder: 1,
@@ -2914,6 +2939,7 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
         position: 3,
         title: 'Бесплатная\nдоставка\nот 500₽',
         emoji: '🎉',
+        imageUrl: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=200&h=200&fit=crop',
         gradientStart: '#ff6633',
         gradientEnd: '#ffcc00',
         carouselOrder: 2,
@@ -3368,6 +3394,7 @@ app.get('/api/market/posts/pending', async (req, res) => {
  * GET /api/market/posts/active
  * Get active posts for market display (public)
  * NOTE: This route MUST be defined BEFORE /api/market/posts/:id
+ * @query cityId - Filter by city (also includes posts from sellers without city - multi-city sellers)
  */
 app.get('/api/market/posts/active', async (req, res) => {
   try {
@@ -3376,6 +3403,7 @@ app.get('/api/market/posts/active', async (req, res) => {
     const categoryId = req.query.categoryId
     const subcategoryId = req.query.subcategoryId
     const inStockOnly = req.query.inStockOnly !== 'false' // Default to true
+    const cityId = req.query.cityId || null
 
     const where = { 
       status: 'ACTIVE',
@@ -3384,6 +3412,16 @@ app.get('/api/market/posts/active', async (req, res) => {
     if (categoryId) where.categoryId = categoryId
     if (subcategoryId) where.subcategoryId = subcategoryId
     if (inStockOnly) where.isInStock = true
+    
+    // City filtering: show posts from this city OR posts without city (multi-city/national sellers)
+    if (cityId) {
+      where.OR = [
+        { cityId: null },       // Posts from multi-city/national sellers
+        { cityId: cityId },     // Posts from city-specific sellers
+        { seller: { cityId: cityId } },  // Posts where seller is in this city (even if post doesn't have cityId)
+        { seller: { cityId: null } }     // Posts from multi-city sellers
+      ]
+    }
 
     console.log('[Market] GET /posts/active query:', req.query)
     console.log('[Market] GET /posts/active where:', JSON.stringify(where))
@@ -3682,7 +3720,7 @@ app.get('/api/market/posts/:id/history', async (req, res) => {
  */
 app.post('/api/market/sellers/apply', async (req, res) => {
   try {
-    const { did, storeName, storeDescription, contactPhone, contactEmail } = req.body
+    const { did, storeName, storeDescription, contactPhone, contactEmail, cityId } = req.body
 
     if (!did || !storeName) {
       return res.status(400).json({ success: false, error: 'DID and store name are required' })
@@ -3704,6 +3742,14 @@ app.post('/api/market/sellers/apply', async (req, res) => {
       })
     }
 
+    // Validate city if provided
+    if (cityId) {
+      const city = await prisma.city.findUnique({ where: { id: cityId } })
+      if (!city) {
+        return res.status(400).json({ success: false, error: 'Invalid city' })
+      }
+    }
+
     const seller = await prisma.marketSeller.create({
       data: {
         userId: user.id,
@@ -3711,9 +3757,13 @@ app.post('/api/market/sellers/apply', async (req, res) => {
         storeDescription: storeDescription || null,
         contactPhone: contactPhone || null,
         contactEmail: contactEmail || null,
+        cityId: cityId || null,  // null = multi-city/national seller
         status: 'PENDING'
       },
-      include: { user: true }
+      include: { 
+        user: true,
+        city: { select: { id: true, name: true, code: true } }
+      }
     })
 
     res.status(201).json({ 
@@ -3783,6 +3833,9 @@ app.post('/api/market/posts/submit', async (req, res) => {
     const parsedQuantity = quantity !== undefined ? parseInt(quantity, 10) : 1
     const validQuantity = isNaN(parsedQuantity) || parsedQuantity < 0 ? 1 : parsedQuantity
 
+    // Inherit city from seller if not specified
+    const postCityId = seller.cityId
+
     const post = await prisma.marketPost.create({
       data: {
         sellerId: seller.id,
@@ -3796,12 +3849,14 @@ app.post('/api/market/posts/submit', async (req, res) => {
         currency: currency || 'MAD',
         quantity: validQuantity,
         isInStock: validQuantity > 0,
+        cityId: postCityId,  // Inherit from seller
         status: 'PENDING_REVIEW'
       },
       include: {
         seller: { include: { user: true } },
         category: true,
-        subcategory: true
+        subcategory: true,
+        city: { select: { id: true, name: true, code: true } }
       }
     })
 
@@ -4107,7 +4162,15 @@ async function getOrCreateCart(did) {
       items: {
         include: {
           post: {
-            include: {
+            select: {
+              id: true,
+              postUri: true,
+              title: true,
+              description: true,
+              price: true,
+              currency: true,
+              quantity: true,
+              isInStock: true,
               seller: {
                 include: {
                   user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
@@ -4128,7 +4191,15 @@ async function getOrCreateCart(did) {
         items: {
           include: {
             post: {
-              include: {
+              select: {
+                id: true,
+                postUri: true,
+                title: true,
+                description: true,
+                price: true,
+                currency: true,
+                quantity: true,
+                isInStock: true,
                 seller: {
                   include: {
                     user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
@@ -4515,6 +4586,384 @@ app.put('/api/settings', async (req, res) => {
     res.json({ success: true, data: settings })
   } catch (error) {
     console.error('[Settings] Error updating settings:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// CHECKOUT & PAYMENTS (Stripe Integration)
+// ============================================================================
+
+// Initialize Stripe (only if secret key is configured)
+let stripe = null
+if (process.env.STRIPE_SECRET_KEY) {
+  const Stripe = require('stripe')
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+  console.log('✅ Stripe initialized')
+} else {
+  console.warn('⚠️ STRIPE_SECRET_KEY not set - payments disabled')
+}
+
+/**
+ * POST /api/checkout/create-intent
+ * Create a Stripe PaymentIntent for checkout
+ */
+app.post('/api/checkout/create-intent', async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ 
+        success: false, 
+        error: 'Payment system not configured' 
+      })
+    }
+
+    const { did, cartItems, shippingAddress, buyerMessage, currency = 'MAD' } = req.body
+
+    if (!did || !cartItems || cartItems.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid checkout data - DID and cart items required' 
+      })
+    }
+
+    // Fetch market settings for fees
+    const settings = await prisma.marketSettings.findUnique({ where: { id: 1 } })
+    const serviceFeeRate = settings?.serviceFeeRate || 0.05
+
+    // Calculate totals and validate items
+    let subtotal = 0
+    const orderItems = []
+
+    for (const item of cartItems) {
+      const marketPost = await prisma.marketPost.findUnique({
+        where: { id: item.postId },
+        include: { seller: true }
+      })
+
+      if (!marketPost) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Product not found: ${item.postId}` 
+        })
+      }
+
+      if (marketPost.status !== 'ACTIVE') {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Product not available: ${marketPost.title}` 
+        })
+      }
+
+      const price = marketPost.price || 0
+      const itemTotal = price * item.quantity
+      subtotal += itemTotal
+
+      orderItems.push({
+        postId: item.postId,
+        sellerId: marketPost.sellerId,
+        sellerDid: marketPost.seller.did,
+        title: marketPost.title,
+        price: price,
+        quantity: item.quantity,
+        total: itemTotal,
+      })
+    }
+
+    // Calculate fees
+    const shippingFee = 0 // Free shipping for now
+    const serviceFee = Math.round(subtotal * serviceFeeRate * 100) / 100
+    const total = subtotal + shippingFee + serviceFee
+
+    // Create Stripe PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(total * 100), // Stripe uses cents/smallest currency unit
+      currency: currency.toLowerCase(),
+      metadata: {
+        buyerDid: did,
+        itemCount: orderItems.length,
+        orderItems: JSON.stringify(orderItems.map(i => ({ 
+          postId: i.postId, 
+          qty: i.quantity,
+          sellerId: i.sellerId
+        }))),
+      },
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    })
+
+    // Create pending order in database
+    const order = await prisma.marketOrder.create({
+      data: {
+        buyerDid: did,
+        status: 'PENDING_PAYMENT',
+        subtotal,
+        shippingFee,
+        serviceFee,
+        total,
+        currency,
+        shippingAddress: shippingAddress || null,
+        buyerMessage: buyerMessage || null,
+        stripePaymentIntentId: paymentIntent.id,
+        items: {
+          create: orderItems.map(item => ({
+            marketPostId: item.postId,
+            sellerId: item.sellerId,
+            title: item.title,
+            price: item.price,
+            quantity: item.quantity,
+            total: item.total,
+          }))
+        }
+      },
+      include: { items: true }
+    })
+
+    console.log(`[Checkout] Created order ${order.id} with PaymentIntent ${paymentIntent.id}`)
+
+    res.json({
+      success: true,
+      clientSecret: paymentIntent.client_secret,
+      orderId: order.id,
+      subtotal,
+      shippingFee,
+      serviceFee,
+      total,
+      currency,
+    })
+  } catch (error) {
+    console.error('[Checkout] Create payment intent error:', error)
+    res.status(500).json({ success: false, error: 'Failed to create payment' })
+  }
+})
+
+/**
+ * POST /api/webhooks/stripe
+ * Handle Stripe webhook events (payment success/failure)
+ * IMPORTANT: This endpoint needs raw body, must be registered before express.json()
+ */
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) {
+    return res.status(503).send('Payment system not configured')
+  }
+
+  const sig = req.headers['stripe-signature']
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+
+  if (!webhookSecret) {
+    console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET not configured')
+    return res.status(500).send('Webhook secret not configured')
+  }
+
+  let event
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+  } catch (err) {
+    console.error('[Stripe Webhook] Signature verification failed:', err.message)
+    return res.status(400).send(`Webhook Error: ${err.message}`)
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'payment_intent.succeeded': {
+      const paymentIntent = event.data.object
+      
+      // Update order status
+      const order = await prisma.marketOrder.updateMany({
+        where: { stripePaymentIntentId: paymentIntent.id },
+        data: { 
+          status: 'PAID',
+          paidAt: new Date(),
+        }
+      })
+      
+      console.log(`[Stripe Webhook] Payment succeeded: ${paymentIntent.id}`)
+      
+      // TODO: Send notification to buyer and seller(s)
+      // TODO: Create chat thread between buyer and seller(s)
+      break
+    }
+
+    case 'payment_intent.payment_failed': {
+      const failedPayment = event.data.object
+      
+      await prisma.marketOrder.updateMany({
+        where: { stripePaymentIntentId: failedPayment.id },
+        data: { status: 'CANCELLED' }
+      })
+      
+      console.log(`[Stripe Webhook] Payment failed: ${failedPayment.id}`)
+      break
+    }
+
+    default:
+      console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
+  }
+
+  res.json({ received: true })
+})
+
+/**
+ * POST /api/checkout/confirm
+ * Manually confirm payment (for testing without webhooks)
+ */
+app.post('/api/checkout/confirm', async (req, res) => {
+  try {
+    const { orderId, paymentIntentId } = req.body
+
+    if (!orderId && !paymentIntentId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'orderId or paymentIntentId required' 
+      })
+    }
+
+    const where = orderId 
+      ? { id: orderId }
+      : { stripePaymentIntentId: paymentIntentId }
+
+    const order = await prisma.marketOrder.update({
+      where,
+      data: { 
+        status: 'PAID',
+        paidAt: new Date(),
+      },
+      include: { items: true }
+    })
+
+    console.log(`[Checkout] Manually confirmed order ${order.id}`)
+
+    res.json({ success: true, data: order })
+  } catch (error) {
+    console.error('[Checkout] Confirm error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders/:id
+ * Get order details
+ */
+app.get('/api/orders/:id', async (req, res) => {
+  try {
+    const order = await prisma.marketOrder.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          include: {
+            marketPost: true,
+            seller: true,
+          }
+        }
+      }
+    })
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+
+    res.json({ success: true, data: order })
+  } catch (error) {
+    console.error('[Orders] Get order error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders
+ * Get orders for a user (as buyer or seller)
+ */
+app.get('/api/orders', async (req, res) => {
+  try {
+    const { did, role = 'buyer', status, page = 1, pageSize = 20 } = req.query
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID required' })
+    }
+
+    let where = {}
+    
+    if (role === 'seller') {
+      // Get orders containing items from this seller
+      const seller = await prisma.marketSeller.findUnique({ where: { did } })
+      if (seller) {
+        where = { items: { some: { sellerId: seller.id } } }
+      } else {
+        return res.json({ success: true, data: [], total: 0 })
+      }
+    } else {
+      where = { buyerDid: did }
+    }
+
+    if (status) {
+      where.status = status
+    }
+
+    const [orders, total] = await Promise.all([
+      prisma.marketOrder.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              marketPost: true,
+              seller: true,
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (parseInt(page) - 1) * parseInt(pageSize),
+        take: parseInt(pageSize),
+      }),
+      prisma.marketOrder.count({ where })
+    ])
+
+    res.json({ 
+      success: true, 
+      data: orders,
+      total,
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      totalPages: Math.ceil(total / parseInt(pageSize))
+    })
+  } catch (error) {
+    console.error('[Orders] Get orders error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/orders/:id/status
+ * Update order status (for sellers to mark shipped, etc.)
+ */
+app.put('/api/orders/:id/status', async (req, res) => {
+  try {
+    const { status, sellerDid } = req.body
+    const orderId = req.params.id
+
+    const validStatuses = ['PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+      })
+    }
+
+    const updateData = { status }
+    if (status === 'SHIPPED') updateData.shippedAt = new Date()
+    if (status === 'DELIVERED') updateData.deliveredAt = new Date()
+
+    const order = await prisma.marketOrder.update({
+      where: { id: orderId },
+      data: updateData,
+      include: { items: true }
+    })
+
+    console.log(`[Orders] Updated order ${orderId} status to ${status}`)
+
+    res.json({ success: true, data: order })
+  } catch (error) {
+    console.error('[Orders] Update status error:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })

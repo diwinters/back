@@ -43,6 +43,10 @@ model User {
   // Settings
   defaultPaymentMethod String?
   
+  // Preferred City (for Market/Discover/Go)
+  preferredCityId String?
+  preferredCity   City?    @relation("UserPreferredCity", fields: [preferredCityId], references: [id])
+  
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   
@@ -103,6 +107,12 @@ model City {
   drivers     Driver[]
   orders      Order[]
   walkthrough CityWalkthrough?
+  
+  // Market Relations
+  marketSellers     MarketSeller[]
+  marketPosts       MarketPost[]
+  marketPromoCards  MarketPromoCard[]
+  usersPreferred    User[]  @relation("UserPreferredCity")
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -577,6 +587,10 @@ model MarketSeller {
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  // City (for location-based filtering)
+  cityId          String?
+  city            City?    @relation(fields: [cityId], references: [id])
+  
   // Store Information
   storeName       String
   storeDescription String?
@@ -601,12 +615,14 @@ model MarketSeller {
   
   // Relations
   posts           MarketPost[]
+  orderItems      MarketOrderItem[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([status])
   @@index([isPrime])
+  @@index([cityId])
 }
 
 enum PrimeStatus {
@@ -632,6 +648,10 @@ model MarketPost {
   id              String   @id @default(cuid())
   sellerId        String
   seller          MarketSeller @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  
+  // City (for location-based filtering)
+  cityId          String?
+  city            City?    @relation(fields: [cityId], references: [id])
   
   // Bluesky Post Reference
   postUri         String   @unique  // at://did:plc:xxx/app.bsky.feed.post/xxx
@@ -669,6 +689,7 @@ model MarketPost {
   // Relations
   shippingOptions ProductShippingOption[]
   cartItems       CartItem[]
+  orderItems      MarketOrderItem[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -679,6 +700,7 @@ model MarketPost {
   @@index([status])
   @@index([isArchived])
   @@index([isPrime])
+  @@index([cityId])
 }
 
 enum MarketPostStatus {
@@ -727,6 +749,10 @@ model MarketSettings {
 model MarketPromoCard {
   id              String   @id @default(cuid())
   
+  // City (for location-based filtering, null = all cities)
+  cityId          String?
+  city            City?    @relation(fields: [cityId], references: [id])
+  
   // Position: 1=top-left, 2=bottom-left, 3=carousel (right side)
   position        Int      @default(1)
   
@@ -758,6 +784,7 @@ model MarketPromoCard {
   
   @@index([position, isActive])
   @@index([carouselOrder])
+  @@index([cityId])
 }
 
 // =============================================================================
@@ -844,6 +871,95 @@ model CartItem {
   @@unique([cartId, postId])  // One entry per product in cart
   @@index([cartId])
   @@index([postId])
+}
+
+// =============================================================================
+// MARKET: Orders
+// =============================================================================
+
+model MarketOrder {
+  id                    String            @id @default(cuid())
+  buyerDid              String            // Bluesky DID of buyer
+  
+  // Order Status
+  status                MarketOrderStatus @default(PENDING_PAYMENT)
+  
+  // Pricing
+  subtotal              Float             // Sum of item prices
+  shippingFee           Float             @default(0)
+  serviceFee            Float             @default(0)
+  total                 Float             // Final total
+  currency              String            @default("MAD")
+  
+  // Shipping
+  shippingAddress       Json?             // {fullName, phone, street, city, state, postalCode, country}
+  
+  // Payment
+  stripePaymentIntentId String?           @unique
+  paidAt                DateTime?
+  
+  // Fulfillment
+  shippedAt             DateTime?
+  deliveredAt           DateTime?
+  
+  // Optional message from buyer
+  buyerMessage          String?
+  
+  // Relations
+  items                 MarketOrderItem[]
+  
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([buyerDid])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum MarketOrderStatus {
+  PENDING_PAYMENT     // Awaiting payment
+  PAID                // Payment received
+  PROCESSING          // Seller preparing order
+  SHIPPED             // Order shipped
+  DELIVERED           // Order delivered
+  CANCELLED           // Order cancelled
+  REFUNDED            // Payment refunded
+}
+
+model MarketOrderItem {
+  id            String            @id @default(cuid())
+  orderId       String
+  order         MarketOrder       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Product snapshot (in case product changes/deleted)
+  marketPostId  String
+  marketPost    MarketPost        @relation(fields: [marketPostId], references: [id])
+  sellerId      String
+  seller        MarketSeller      @relation(fields: [sellerId], references: [id])
+  
+  // Product details at time of purchase
+  title         String
+  price         Float
+  quantity      Int
+  total         Float
+  
+  // Item-level status (for multi-seller orders)
+  status        MarketOrderItemStatus @default(PENDING)
+  
+  createdAt     DateTime          @default(now())
+
+  @@index([orderId])
+  @@index([sellerId])
+  @@index([marketPostId])
+}
+
+enum MarketOrderItemStatus {
+  PENDING       // Awaiting seller confirmation
+  CONFIRMED     // Seller confirmed
+  SHIPPED       // Item shipped
+  DELIVERED     // Item delivered
+  CANCELLED     // Item cancelled
+  REFUNDED      // Item refunded
 }
 
 // =============================================================================

@@ -76,4 +76,40 @@ router.put('/me/push-token', async (req: any, res, next) => {
   }
 })
 
+/**
+ * GET /api/users/me/preferred-city
+ * Get user's preferred city for Market/Discover/Go
+ */
+router.get('/me/preferred-city', async (req: any, res, next) => {
+  try {
+    const city = await userService.getPreferredCity(req.user.id)
+    
+    res.json({
+      success: true,
+      data: city,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
+ * PUT /api/users/me/preferred-city
+ * Set user's preferred city
+ */
+router.put('/me/preferred-city', async (req: any, res, next) => {
+  try {
+    const { cityId } = req.body
+    
+    const user = await userService.setPreferredCity(req.user.id, cityId || null)
+    
+    res.json({
+      success: true,
+      data: user.preferredCity,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 export { router as userRouter }

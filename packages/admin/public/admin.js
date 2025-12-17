@@ -2434,7 +2434,7 @@ function renderMarketPromoCards(promoCards) {
     const tbody = document.getElementById('marketPromoCardsBody')
     
     if (promoCards.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No promo cards yet. Click "Add Promo Card" or "Seed Defaults" to create some.</td></tr>'
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#666;">No promo cards yet. Click "Add Promo Card" or "Seed Defaults" to create some.</td></tr>'
         return
     }
     
@@ -2463,6 +2463,7 @@ function renderMarketPromoCards(promoCards) {
                     <div style="width:20px;height:20px;border-radius:4px;background:${card.gradientEnd};"></div>
                 </div>
             </td>
+            <td>${card.city ? `<span style="background:#e0e7ff;padding:3px 8px;border-radius:4px;">${card.city.name}</span>` : '<span style="background:#f3f4f6;padding:3px 8px;border-radius:4px;">All Cities</span>'}</td>
             <td><span class="badge ${card.isActive ? 'badge-success' : 'badge-danger'}">${card.isActive ? 'Active' : 'Inactive'}</span></td>
             <td>
                 <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="editPromoCard('${card.id}')">Edit</button>
@@ -2476,6 +2477,9 @@ function showPromoCardForm(cardId = null) {
     document.getElementById('promoCardFormModal').style.display = 'flex'
     document.getElementById('promoCardFormTitle').textContent = cardId ? 'Edit Promo Card' : 'Add Promo Card'
     document.getElementById('promoCardId').value = cardId || ''
+    
+    // Load cities for dropdown
+    loadCitiesForPromoCard()
     
     if (cardId) {
         const card = marketPromoCardsCache.find(c => c.id === cardId)
@@ -2491,6 +2495,7 @@ function showPromoCardForm(cardId = null) {
             document.getElementById('promoCardLinkType').value = card.linkType || ''
             document.getElementById('promoCardSortOrder').value = card.sortOrder
             document.getElementById('promoCardIsActive').value = card.isActive ? 'true' : 'false'
+            document.getElementById('promoCardCityId').value = card.cityId || ''
             
             // Show existing image if any
             if (card.imageUrl) {
@@ -2504,12 +2509,41 @@ function showPromoCardForm(cardId = null) {
         document.getElementById('promoCardForm').reset()
         document.getElementById('promoCardGradientStart').value = '#667eea'
         document.getElementById('promoCardGradientEnd').value = '#764ba2'
+        document.getElementById('promoCardCityId').value = ''
         resetPromoCardImagePreview()
         updatePromoCardPreview()
     }
     
     // Show/hide carousel order based on position
     toggleCarouselOrder()
+}
+
+// Load cities for promo card dropdown
+async function loadCitiesForPromoCard() {
+    try {
+        const res = await fetch(`${API_BASE}/api/cities`)
+        const data = await res.json()
+        
+        if (data.success && data.data) {
+            const select = document.getElementById('promoCardCityId')
+            const currentValue = select.value
+            
+            // Keep first option (All Cities)
+            select.innerHTML = '<option value="">All Cities (Global)</option>'
+            
+            data.data.forEach(city => {
+                const option = document.createElement('option')
+                option.value = city.id
+                option.textContent = `${city.name} (${city.code})`
+                select.appendChild(option)
+            })
+            
+            // Restore selected value
+            select.value = currentValue
+        }
+    } catch (error) {
+        console.error('Failed to load cities:', error)
+    }
 }
 
 function hidePromoCardForm() {
@@ -2615,6 +2649,7 @@ document.getElementById('promoCardForm')?.addEventListener('submit', async funct
     formData.append('linkType', document.getElementById('promoCardLinkType').value)
     formData.append('sortOrder', document.getElementById('promoCardSortOrder').value)
     formData.append('isActive', document.getElementById('promoCardIsActive').value)
+    formData.append('cityId', document.getElementById('promoCardCityId').value)
     
     const imageInput = document.getElementById('promoCardImageInput')
     if (imageInput.files && imageInput.files[0]) {

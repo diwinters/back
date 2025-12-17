@@ -218,4 +218,35 @@ export class UserService {
       take: limit,
     })
   }
+
+  /**
+   * Get user's preferred city
+   */
+  async getPreferredCity(userId: string): Promise<any | null> {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        preferredCity: true,
+      },
+    })
+
+    return user?.preferredCity || null
+  }
+
+  /**
+   * Set user's preferred city
+   */
+  async setPreferredCity(userId: string, cityId: string | null): Promise<any> {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { preferredCityId: cityId },
+      include: {
+        preferredCity: true,
+      },
+    })
+
+    logger.info('User preferred city updated', { userId, cityId })
+
+    return user
+  }
 }
