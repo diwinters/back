@@ -10,6 +10,7 @@ const router = Router()
 
 /**
  * Detect which city a location is in based on distance from city center
+ * Returns the NEAREST city if within any city's radius
  */
 async function detectCity(latitude: number, longitude: number): Promise<{ 
   id: string; 
@@ -30,20 +31,31 @@ async function detectCity(latitude: number, longitude: number): Promise<{
     }
   })
 
+  // Find the nearest city that the user is within
+  let nearestCity: typeof activeCities[0] | null = null
+  let nearestDistance = Infinity
+
   for (const city of activeCities) {
     const distanceKm = GeoService.calculateDistance(
       { latitude, longitude },
       { latitude: city.centerLatitude, longitude: city.centerLongitude }
     )
     
-    if (distanceKm <= city.radiusKm) {
-      return { 
-        id: city.id, 
-        name: city.name, 
-        currency: city.currency,
-        centerLatitude: city.centerLatitude,
-        centerLongitude: city.centerLongitude,
-      }
+    // Only consider cities where user is within the radius
+    if (distanceKm <= city.radiusKm && distanceKm < nearestDistance) {
+      nearestCity = city
+      nearestDistance = distanceKm
+    }
+  }
+
+  if (nearestCity) {
+    logger.debug(`Detected city: ${nearestCity.name} (${nearestDistance.toFixed(1)}km from center)`)
+    return { 
+      id: nearestCity.id, 
+      name: nearestCity.name, 
+      currency: nearestCity.currency,
+      centerLatitude: nearestCity.centerLatitude,
+      centerLongitude: nearestCity.centerLongitude,
     }
   }
 
@@ -387,6 +399,45 @@ router.get('/walkthrough/:cityId', async (req, res, next) => {
     })
   } catch (error) {
     logger.error('Failed to fetch walkthrough', { error })
+    next(error)
+  }
+})
+
+// =============================================================================
+// CITIES LIST (Public endpoint for Market/Go mini apps)
+// =============================================================================
+
+/**
+ * GET /api/config/cities
+ * List all active cities (for client selection/filtering)
+ * Public endpoint - no auth required
+ */
+router.get('/cities', async (req, res, next) => {
+  try {
+    const cities = await prisma.city.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        country: true,
+        currency: true,
+        centerLatitude: true,
+        centerLongitude: true,
+        radiusKm: true,
+        imageUrl: true,
+      },
+      orderBy: { name: 'asc' }
+    })
+
+    logger.info(`Fetched ${cities.length} active cities`)
+
+    res.json({
+      success: true,
+      data: cities
+    })
+  } catch (error) {
+    logger.error('Failed to list cities', { error })
     next(error)
   }
 })

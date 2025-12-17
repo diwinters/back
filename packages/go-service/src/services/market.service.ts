@@ -31,12 +31,13 @@ export class MarketService {
     pageSize?: number
     categoryId?: string
     subcategoryId?: string
+    cityId?: string
   }) {
     const page = params.page || 1
     const pageSize = params.pageSize || 20
     const skip = (page - 1) * pageSize
 
-    logger.info(`[MarketService] Fetching active posts page=${page} pageSize=${pageSize}`)
+    logger.info(`[MarketService] Fetching active posts page=${page} pageSize=${pageSize} cityId=${params.cityId || 'all'}`)
 
     const where: any = {
       status: 'ACTIVE',
@@ -46,6 +47,7 @@ export class MarketService {
 
     if (params.categoryId) where.categoryId = params.categoryId
     if (params.subcategoryId) where.subcategoryId = params.subcategoryId
+    if (params.cityId) where.cityId = params.cityId
 
     logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
 

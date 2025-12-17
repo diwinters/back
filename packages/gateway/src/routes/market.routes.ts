@@ -21,13 +21,14 @@ router.get('/categories', async (req, res, next) => {
 router.get('/posts/active', async (req, res, next) => {
   try {
     logger.info('[Market] GET /posts/active', req.query)
-    const { page, pageSize, categoryId, subcategoryId } = req.query
+    const { page, pageSize, categoryId, subcategoryId, cityId } = req.query
 
     const result = await marketService.getActivePosts({
       page: page ? Number(page) : 1,
       pageSize: pageSize ? Number(pageSize) : 20,
       categoryId: categoryId as string,
-      subcategoryId: subcategoryId as string
+      subcategoryId: subcategoryId as string,
+      cityId: cityId as string
     })
 
     logger.info(`[Market] Found ${result.data.length} active posts`)
