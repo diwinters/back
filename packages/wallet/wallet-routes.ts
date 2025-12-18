@@ -63,6 +63,96 @@ router.get('/transactions', requireAuth, async (req: Request, res: Response) => 
   }
 })
 
+// =============================================================================
+// PIN Management Routes
+// =============================================================================
+
+/**
+ * GET /api/wallet/pin/status
+ * Check if PIN is set
+ */
+router.get('/pin/status', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userDid = (req as any).userDid
+    const hasPin = await walletService.hasPinSet(userDid)
+    res.json({ success: true, data: { hasPinSet: hasPin } })
+  } catch (error: any) {
+    console.error('[Wallet] PIN status error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/pin/set
+ * Set wallet PIN for first time
+ */
+router.post('/pin/set', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userDid = (req as any).userDid
+    const { pin, confirmPin } = req.body
+    
+    if (!pin || !confirmPin) {
+      return res.status(400).json({ error: 'PIN and confirmation required' })
+    }
+    
+    if (pin !== confirmPin) {
+      return res.status(400).json({ error: 'PINs do not match' })
+    }
+    
+    await walletService.setWalletPin(userDid, pin)
+    res.json({ success: true, data: { message: 'PIN set successfully' } })
+  } catch (error: any) {
+    console.error('[Wallet] Set PIN error:', error)
+    res.status(400).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/pin/change
+ * Change wallet PIN
+ */
+router.post('/pin/change', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userDid = (req as any).userDid
+    const { currentPin, newPin, confirmNewPin } = req.body
+    
+    if (!currentPin || !newPin || !confirmNewPin) {
+      return res.status(400).json({ error: 'All PIN fields required' })
+    }
+    
+    if (newPin !== confirmNewPin) {
+      return res.status(400).json({ error: 'New PINs do not match' })
+    }
+    
+    await walletService.changeWalletPin(userDid, currentPin, newPin)
+    res.json({ success: true, data: { message: 'PIN changed successfully' } })
+  } catch (error: any) {
+    console.error('[Wallet] Change PIN error:', error)
+    res.status(400).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/wallet/pin/verify
+ * Verify wallet PIN
+ */
+router.post('/pin/verify', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userDid = (req as any).userDid
+    const { pin } = req.body
+    
+    if (!pin) {
+      return res.status(400).json({ error: 'PIN required' })
+    }
+    
+    const valid = await walletService.verifyWalletPin(userDid, pin)
+    res.json({ success: true, data: { valid } })
+  } catch (error: any) {
+    console.error('[Wallet] Verify PIN error:', error)
+    res.status(400).json({ error: error.message })
+  }
+})
+
 /**
  * POST /api/wallet/deposit
  * Initiate a deposit

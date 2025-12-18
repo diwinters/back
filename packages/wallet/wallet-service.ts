@@ -121,6 +121,79 @@ export async function getWalletTransactions(
 }
 
 // =============================================================================
+// PIN Management
+// =============================================================================
+
+import crypto from 'crypto'
+
+function hashPin(pin: string): string {
+  return crypto.createHash('sha256').update(pin + process.env.PIN_SALT || 'wallet-pin-salt').digest('hex')
+}
+
+export async function setWalletPin(userDid: string, pin: string): Promise<boolean> {
+  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+    throw new Error('PIN must be exactly 4 digits')
+  }
+  
+  const wallet = await getOrCreateWallet(userDid)
+  
+  if (wallet.pinHash) {
+    throw new Error('PIN already set. Use changePin to update.')
+  }
+  
+  await prisma.wallet.update({
+    where: { id: wallet.id },
+    data: {
+      pinHash: hashPin(pin),
+      lastPinChange: new Date()
+    }
+  })
+  
+  return true
+}
+
+export async function changeWalletPin(userDid: string, currentPin: string, newPin: string): Promise<boolean> {
+  if (!newPin || newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+    throw new Error('New PIN must be exactly 4 digits')
+  }
+  
+  const wallet = await getOrCreateWallet(userDid)
+  
+  if (!wallet.pinHash) {
+    throw new Error('No PIN set. Use setPin first.')
+  }
+  
+  if (hashPin(currentPin) !== wallet.pinHash) {
+    throw new Error('Current PIN is incorrect')
+  }
+  
+  await prisma.wallet.update({
+    where: { id: wallet.id },
+    data: {
+      pinHash: hashPin(newPin),
+      lastPinChange: new Date()
+    }
+  })
+  
+  return true
+}
+
+export async function verifyWalletPin(userDid: string, pin: string): Promise<boolean> {
+  const wallet = await getOrCreateWallet(userDid)
+  
+  if (!wallet.pinHash) {
+    throw new Error('No PIN set')
+  }
+  
+  return hashPin(pin) === wallet.pinHash
+}
+
+export async function hasPinSet(userDid: string): Promise<boolean> {
+  const wallet = await getOrCreateWallet(userDid)
+  return !!wallet.pinHash
+}
+
+// =============================================================================
 // Fee Calculation
 // =============================================================================
 
@@ -754,5 +827,10 @@ export default {
   processPayment,
   releaseEscrow,
   refundEscrow,
-  getNearbyCashPoints
+  getNearbyCashPoints,
+  // PIN management
+  setWalletPin,
+  changeWalletPin,
+  verifyWalletPin,
+  hasPinSet
 }

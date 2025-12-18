@@ -22,6 +22,7 @@ import { configRouter } from './routes/config.routes'
 import { adminRouter } from './routes/admin.routes'
 import { marketRouter } from './routes/market.routes'
 import { cartRouter } from './routes/cart.routes'
+import { walletRoutes, walletAdminRoutes } from '@gominiapp/wallet'
 
 const app = express()
 const server = createServer(app)
@@ -172,6 +173,8 @@ app.use('/api/orders', orderRouter)
 app.use('/api/admin', adminRouter)
 app.use('/api/market', marketRouter)
 app.use('/api/cart', cartRouter)
+app.use('/api/wallet', walletRoutes)
+app.use('/api/admin/wallet', walletAdminRoutes)
 
 // 404 handler
 app.use((req, res) => {
