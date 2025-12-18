@@ -3784,7 +3784,9 @@ app.post('/api/market/sellers/apply', async (req, res) => {
  */
 app.post('/api/market/posts/submit', async (req, res) => {
   try {
-    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency, quantity } = req.body
+    const { did, postUri, postCid, categoryId, subcategoryId, title, description, price, currency, quantity, cityId } = req.body
+
+    console.log('[Market] Post submit request - cityId:', cityId)
 
     if (!did || !postUri || !postCid || !categoryId || !title) {
       return res.status(400).json({ 
@@ -3835,8 +3837,9 @@ app.post('/api/market/posts/submit', async (req, res) => {
     const parsedQuantity = quantity !== undefined ? parseInt(quantity, 10) : 1
     const validQuantity = isNaN(parsedQuantity) || parsedQuantity < 0 ? 1 : parsedQuantity
 
-    // Inherit city from seller if not specified
-    const postCityId = seller.cityId
+    // Use provided cityId, or fall back to seller's city
+    const postCityId = cityId || seller.cityId || null
+    console.log('[Market] Final cityId for post:', postCityId)
 
     const post = await prisma.marketPost.create({
       data: {
@@ -3851,7 +3854,7 @@ app.post('/api/market/posts/submit', async (req, res) => {
         currency: currency || 'MAD',
         quantity: validQuantity,
         isInStock: validQuantity > 0,
-        cityId: postCityId,  // Inherit from seller
+        cityId: postCityId,  // Use submitted cityId or fallback to seller's city
         status: 'PENDING_REVIEW'
       },
       include: {
@@ -3861,6 +3864,8 @@ app.post('/api/market/posts/submit', async (req, res) => {
         city: { select: { id: true, name: true, code: true } }
       }
     })
+
+    console.log('[Market] Post created with city:', post.city?.name || 'Global')
 
     res.status(201).json({ 
       success: true, 
