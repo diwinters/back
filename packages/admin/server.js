@@ -3394,7 +3394,7 @@ app.get('/api/market/posts/pending', async (req, res) => {
  * GET /api/market/posts/active
  * Get active posts for market display (public)
  * NOTE: This route MUST be defined BEFORE /api/market/posts/:id
- * @query cityId - Filter by city (also includes posts from sellers without city - multi-city sellers)
+ * @query cityId - Filter by city (STRICT - only posts with matching cityId)
  */
 app.get('/api/market/posts/active', async (req, res) => {
   try {
@@ -3413,14 +3413,13 @@ app.get('/api/market/posts/active', async (req, res) => {
     if (subcategoryId) where.subcategoryId = subcategoryId
     if (inStockOnly) where.isInStock = true
     
-    // City filtering: show posts from this city OR posts without city (multi-city/national sellers)
+    // STRICT City filtering: only posts with matching cityId when specified
+    // Posts with cityId=null will NOT show when a city is selected
     if (cityId) {
-      where.OR = [
-        { cityId: null },       // Posts from multi-city/national sellers
-        { cityId: cityId },     // Posts from city-specific sellers
-        { seller: { cityId: cityId } },  // Posts where seller is in this city (even if post doesn't have cityId)
-        { seller: { cityId: null } }     // Posts from multi-city sellers
-      ]
+      where.cityId = cityId
+      console.log(`[Market] Filtering by cityId: ${cityId} (STRICT - no null cityId posts)`)
+    } else {
+      console.log(`[Market] No city filter - showing all posts`)
     }
 
     console.log('[Market] GET /posts/active query:', req.query)
