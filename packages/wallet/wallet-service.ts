@@ -76,6 +76,36 @@ export async function getOrCreateWallet(userDid: string) {
   return wallet
 }
 
+export interface WalletInfo {
+  id: string
+  userDid: string
+  available: number
+  pending: number
+  held: number
+  total: number
+  currency: string
+  lastPinChange: Date | null
+  hasPinSet: boolean
+  createdAt: Date
+}
+
+export async function getWalletInfo(userDid: string): Promise<WalletInfo> {
+  const wallet = await getOrCreateWallet(userDid)
+  
+  return {
+    id: wallet.id,
+    userDid: wallet.userDid,
+    available: wallet.balance,
+    pending: wallet.pendingBalance,
+    held: 0, // TODO: Calculate from escrow
+    total: wallet.balance + wallet.pendingBalance,
+    currency: wallet.currency,
+    lastPinChange: wallet.lastPinChange,
+    hasPinSet: !!wallet.pinHash,
+    createdAt: wallet.createdAt
+  }
+}
+
 export async function getWalletBalance(userDid: string): Promise<WalletBalance> {
   const wallet = await getOrCreateWallet(userDid)
   
@@ -832,5 +862,7 @@ export default {
   setWalletPin,
   changeWalletPin,
   verifyWalletPin,
-  hasPinSet
+  hasPinSet,
+  // Wallet info
+  getWalletInfo
 }

@@ -27,15 +27,15 @@ function requireAuth(req: Request, res: Response, next: Function) {
 
 /**
  * GET /api/wallet
- * Get wallet balance and info
+ * Get wallet info including PIN status
  */
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const userDid = (req as any).userDid
-    const balance = await walletService.getWalletBalance(userDid)
-    res.json({ success: true, data: balance })
+    const walletInfo = await walletService.getWalletInfo(userDid)
+    res.json({ success: true, data: walletInfo })
   } catch (error: any) {
-    console.error('[Wallet] Get balance error:', error)
+    console.error('[Wallet] Get wallet info error:', error)
     res.status(500).json({ error: error.message })
   }
 })
