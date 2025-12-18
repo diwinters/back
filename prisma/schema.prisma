@@ -140,6 +140,11 @@ model City {
   crossCityPricingFrom CrossCityPricing[] @relation("FromCity")
   crossCityPricingTo   CrossCityPricing[] @relation("ToCity")
   
+  // Wallet Relations
+  cashPoints        CashPoint[]
+  walletFeeConfigs  WalletFeeConfig[] @relation("CityFeeConfigs")
+  walletConfigs     WalletConfig[]    @relation("CityWalletConfigs")
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1076,4 +1081,337 @@ model MarketSubcategory {
 
   @@unique([categoryId, name])
   @@index([categoryId, isActive, sortOrder])
+}
+
+// =============================================================================
+// WALLET: Digital Wallet & Payment System
+// =============================================================================
+
+model Wallet {
+  id              String   @id @default(cuid())
+  userDid         String   @unique
+  
+  // Balances
+  balance         Float    @default(0)        // Available balance
+  pendingBalance  Float    @default(0)        // Held in escrow
+  lifetimeEarned  Float    @default(0)        // Total earned
+  lifetimeSpent   Float    @default(0)        // Total spent
+  
+  currency        String   @default("MAD")
+  isActive        Boolean  @default(true)
+  isFrozen        Boolean  @default(false)    // Admin can freeze
+  
+  // Security
+  pinHash         String?                     // Hashed PIN
+  lastPinChange   DateTime?
+  failedPinAttempts Int    @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  transactions    WalletTransaction[]
+  escrowAsbuyer   EscrowHold[]       @relation("EscrowBuyer")
+  escrowAsSeller  EscrowHold[]       @relation("EscrowSeller")
+  paymentMethods  PaymentMethod[]
+
+  @@index([userDid])
+}
+
+model WalletTransaction {
+  id              String   @id @default(cuid())
+  walletId        String
+  wallet          Wallet   @relation(fields: [walletId], references: [id])
+  
+  type            WalletTransactionType
+  amount          Float                       // Original amount
+  fee             Float    @default(0)        // Fee charged
+  netAmount       Float                       // Amount after fee
+  
+  status          WalletTransactionStatus @default(PENDING)
+  
+  // Reference to related entity
+  referenceId     String?                     // order_id, ride_id, etc.
+  referenceType   String?                     // ORDER, RIDE, DEPOSIT, WITHDRAWAL
+  
+  // Cash point reference (for cash transactions)
+  cashPointId     String?
+  cashPoint       CashPoint? @relation(fields: [cashPointId], references: [id])
+  
+  // Additional data
+  description     String?
+  metadata        Json?
+  
+  // Processing
+  processedAt     DateTime?
+  failureReason   String?
+  
+  createdAt       DateTime @default(now())
+
+  @@index([walletId, createdAt])
+  @@index([type, status])
+  @@index([referenceId, referenceType])
+}
+
+enum WalletTransactionType {
+  DEPOSIT_CASH        // Cash deposited at agent
+  DEPOSIT_CARD        // Stripe payment
+  DEPOSIT_BANK        // Bank transfer
+  WITHDRAWAL_CASH     // Cash pickup
+  WITHDRAWAL_BANK     // Bank transfer out
+  PAYMENT_MARKET      // Market purchase
+  PAYMENT_RIDE        // Ride payment
+  REFUND              // Refunded transaction
+  ESCROW_HOLD         // Funds held in escrow
+  ESCROW_RELEASE      // Funds released from escrow
+  FEE_PLATFORM        // Platform fee deduction
+  TRANSFER_P2P        // Peer-to-peer transfer
+  TRANSFER_IN         // Received P2P transfer
+  ADJUSTMENT          // Admin adjustment
+}
+
+enum WalletTransactionStatus {
+  PENDING             // Awaiting processing
+  PROCESSING          // Being processed
+  COMPLETED           // Successfully completed
+  FAILED              // Failed
+  CANCELLED           // Cancelled by user/admin
+  REFUNDED            // Refunded
+}
+
+model EscrowHold {
+  id              String   @id @default(cuid())
+  
+  buyerWalletId   String
+  buyerWallet     Wallet   @relation("EscrowBuyer", fields: [buyerWalletId], references: [id])
+  
+  sellerWalletId  String
+  sellerWallet    Wallet   @relation("EscrowSeller", fields: [sellerWalletId], references: [id])
+  
+  amount          Float                       // Total held amount
+  feeAmount       Float                       // Platform fee to deduct
+  sellerAmount    Float                       // Amount seller will receive
+  
+  // Reference
+  orderId         String?
+  rideId          String?
+  
+  status          EscrowStatus @default(HELD)
+  
+  // Timing
+  releaseAt       DateTime?                   // Auto-release time
+  releasedAt      DateTime?
+  
+  // Dispute
+  disputeReason   String?
+  disputedAt      DateTime?
+  resolvedAt      DateTime?
+  resolution      String?                     // REFUND_BUYER, RELEASE_SELLER, SPLIT
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([buyerWalletId])
+  @@index([sellerWalletId])
+  @@index([orderId])
+  @@index([status])
+}
+
+enum EscrowStatus {
+  HELD              // Funds are held
+  RELEASED          // Released to seller
+  REFUNDED          // Refunded to buyer
+  DISPUTED          // Under dispute
+  PARTIAL_RELEASE   // Partially released (split)
+}
+
+// =============================================================================
+// WALLET: Cash Points Network
+// =============================================================================
+
+model CashPoint {
+  id              String   @id @default(cuid())
+  
+  name            String
+  nameAr          String?                     // Arabic name
+  type            CashPointType
+  
+  // Location
+  cityId          String
+  city            City     @relation(fields: [cityId], references: [id])
+  address         String
+  addressAr       String?
+  latitude        Float
+  longitude       Float
+  
+  // Operating info
+  operatingHours  Json?                       // { mon: {open: "09:00", close: "18:00"}, ... }
+  phone           String?
+  
+  // Limits (override global config)
+  dailyDepositLimit    Float?
+  dailyWithdrawalLimit Float?
+  
+  // Agent
+  agentId         String?
+  agent           CashPointAgent? @relation(fields: [agentId], references: [id])
+  
+  // Status
+  isActive        Boolean  @default(true)
+  isVerified      Boolean  @default(false)
+  
+  // Stats
+  rating          Float    @default(0)
+  ratingCount     Int      @default(0)
+  totalDeposits   Float    @default(0)
+  totalWithdrawals Float   @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  transactions    WalletTransaction[]
+
+  @@index([cityId, isActive])
+  @@index([type, isActive])
+  @@index([latitude, longitude])
+}
+
+enum CashPointType {
+  CAFE              // Local cafés
+  SHOP              // Convenience stores
+  AGENCY_BARID      // Barid Bank
+  AGENCY_WAFACASH   // Wafacash
+  AGENCY_OTHER      // Other agencies
+  ATM               // ATM (future)
+}
+
+model CashPointAgent {
+  id              String   @id @default(cuid())
+  
+  userDid         String?                     // Linked user account
+  name            String
+  phone           String
+  email           String?
+  nationalId      String?                     // CIN/ID number
+  
+  // Commission
+  commissionRate  Float    @default(0.01)     // 1% default
+  
+  // Balance (earnings from commissions)
+  balance         Float    @default(0)
+  lifetimeEarned  Float    @default(0)
+  
+  // Status
+  isVerified      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  
+  // Documents (URLs to uploaded docs)
+  documents       Json?                       // { cin: "url", contract: "url" }
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  cashPoints      CashPoint[]
+
+  @@index([userDid])
+  @@index([phone])
+}
+
+// =============================================================================
+// WALLET: Payment Methods & Configuration
+// =============================================================================
+
+model PaymentMethod {
+  id              String   @id @default(cuid())
+  walletId        String
+  wallet          Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  type            PaymentMethodType
+  provider        String?                     // stripe, bank_name
+  
+  // Card details (masked)
+  lastFour        String?
+  brand           String?                     // visa, mastercard
+  expiryMonth     Int?
+  expiryYear      Int?
+  
+  // Bank details (masked)
+  bankName        String?
+  accountLastFour String?
+  
+  // Stripe
+  stripePaymentMethodId String?
+  
+  isDefault       Boolean  @default(false)
+  isVerified      Boolean  @default(false)
+  
+  metadata        Json?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([stripePaymentMethodId])
+}
+
+enum PaymentMethodType {
+  CARD              // Credit/Debit card
+  BANK_ACCOUNT      // Bank account
+  MOBILE_MONEY      // Mobile money (future)
+}
+
+model WalletFeeConfig {
+  id              String   @id @default(cuid())
+  
+  name            String
+  code            String   @unique           // platform_fee_market, withdrawal_fee_cash, etc.
+  description     String?
+  
+  type            FeeType
+  value           Float                       // Percentage or fixed amount
+  minAmount       Float?                      // Minimum fee (for percentage)
+  maxAmount       Float?                      // Maximum fee (for percentage)
+  
+  // Tiered fees (JSON array)
+  tiers           Json?                       // [{ upTo: 100, fee: 5 }, { upTo: 500, fee: 3 }]
+  
+  // Scope
+  appliesTo       String[]                    // ['MARKET', 'RIDE', 'WITHDRAWAL', 'DEPOSIT']
+  cityId          String?                     // null = global, or city-specific
+  city            City?    @relation("CityFeeConfigs", fields: [cityId], references: [id])
+  
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([code, cityId])
+  @@index([isActive])
+}
+
+enum FeeType {
+  PERCENTAGE        // Percentage of amount
+  FIXED             // Fixed amount
+  TIERED            // Tiered based on amount
+}
+
+model WalletConfig {
+  id              String   @id @default(cuid())
+  
+  key             String   @unique           // Config key
+  value           String                     // JSON string value
+  description     String?
+  
+  // Scope
+  cityId          String?                    // null = global
+  city            City?    @relation("CityWalletConfigs", fields: [cityId], references: [id])
+  
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([key, cityId])
 }
