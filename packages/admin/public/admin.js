@@ -2206,6 +2206,16 @@ function populateCategoryFilters() {
         filterSelect.innerHTML = '<option value="">All Categories</option>' + 
             marketCategoriesCache.map(cat => `<option value="${cat.id}">${cat.name}</option>`).join('')
     }
+    
+    // Also populate city filter (uses citiesCache from cities management)
+    const cityFilterSelect = document.getElementById('postCityFilter')
+    if (cityFilterSelect && citiesCache && citiesCache.length > 0) {
+        cityFilterSelect.innerHTML = '<option value="">All Cities</option>' + 
+            citiesCache
+                .filter(c => c.isActive)
+                .map(c => `<option value="${c.id}">📍 ${c.name}</option>`)
+                .join('')
+    }
 }
 
 function showCategoryForm(categoryId = null) {
@@ -2896,12 +2906,14 @@ async function loadMarketPosts(page = 1) {
     currentPostPage = page
     const status = document.getElementById('postStatusFilter').value
     const categoryId = document.getElementById('postCategoryFilter').value
+    const cityId = document.getElementById('postCityFilter')?.value || ''
     const search = document.getElementById('postSearch').value
     
     try {
         let url = `${API_BASE}/api/market/posts?page=${page}&pageSize=20`
         if (status) url += `&status=${status}`
         if (categoryId) url += `&categoryId=${categoryId}`
+        if (cityId) url += `&cityId=${cityId}`
         if (search) url += `&search=${encodeURIComponent(search)}`
         
         const res = await fetch(url)
@@ -2921,7 +2933,7 @@ function renderMarketPosts(posts) {
     const tbody = document.getElementById('marketPostsBody')
     
     if (posts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No posts found</td></tr>'
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#666;">No posts found</td></tr>'
         return
     }
     
@@ -2945,6 +2957,9 @@ function renderMarketPosts(posts) {
             <td>
                 ${post.category?.name || 'N/A'}
                 ${post.subcategory ? `<br><span style="font-size:10px;color:#666;">→ ${post.subcategory.name}</span>` : ''}
+            </td>
+            <td>
+                ${post.city ? `<span style="display:inline-flex;align-items:center;gap:4px;">📍 ${post.city.name}</span>` : '<span style="color:#999;">Global</span>'}
             </td>
             <td>${post.price ? `${post.price} ${post.currency}` : '-'}</td>
             <td><span class="badge ${getPostStatusBadge(post.status)}">${post.status.replace('_', ' ')}</span></td>

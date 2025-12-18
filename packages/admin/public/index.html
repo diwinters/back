@@ -1134,6 +1134,10 @@
                 <select id="postCategoryFilter" onchange="loadMarketPosts()">
                     <option value="">All Categories</option>
                 </select>
+                <select id="postCityFilter" onchange="loadMarketPosts()">
+                    <option value="">All Cities</option>
+                    <!-- Populated by JS -->
+                </select>
                 <button class="btn btn-primary" onclick="loadMarketPosts()">🔄 Refresh</button>
             </div>
             
@@ -1143,6 +1147,7 @@
                         <th>Title</th>
                         <th>Seller</th>
                         <th>Category</th>
+                        <th>City</th>
                         <th>Price</th>
                         <th>Status</th>
                         <th>Created</th>

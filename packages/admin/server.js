@@ -3263,12 +3263,14 @@ app.get('/api/market/posts', async (req, res) => {
     const pageSize = parseInt(req.query.pageSize) || 20
     const status = req.query.status
     const categoryId = req.query.categoryId
+    const cityId = req.query.cityId
     const sellerId = req.query.sellerId
     const search = req.query.search || ''
 
     const where = {}
     if (status) where.status = status
     if (categoryId) where.categoryId = categoryId
+    if (cityId) where.cityId = cityId
     if (sellerId) where.sellerId = sellerId
     if (search) {
       where.OR = [
@@ -3283,7 +3285,8 @@ app.get('/api/market/posts', async (req, res) => {
         include: {
           seller: { include: { user: true } },
           category: true,
-          subcategory: true
+          subcategory: true,
+          city: true  // Include city relation
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
