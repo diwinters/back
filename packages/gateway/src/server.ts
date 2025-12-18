@@ -10,7 +10,7 @@ import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import { createServer } from 'http'
 
-import { logger, errorHandler, WebSocketServer, setWebSocketServer, getRedisService } from '@gominiapp/core'
+import { logger, errorHandler, WebSocketServer, setWebSocketServer, getRedisService, prisma } from '@gominiapp/core'
 
 // Routes
 import { authRouter } from './routes/auth.routes'
@@ -73,6 +73,32 @@ app.use('/health', healthRouter)
 
 // Public config endpoints (no auth required)
 app.use('/api/config', configRouter)
+
+// Direct /api/cities endpoint (alias for /api/config/cities)
+app.get('/api/cities', async (req, res, next) => {
+  try {
+    const cities = await prisma.city.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        country: true,
+        currency: true,
+        centerLatitude: true,
+        centerLongitude: true,
+        radiusKm: true,
+        imageUrl: true,
+      },
+      orderBy: { name: 'asc' }
+    })
+    logger.info(`[/api/cities] Fetched ${cities.length} active cities`)
+    res.json({ success: true, data: cities })
+  } catch (error) {
+    logger.error('[/api/cities] Failed to list cities', { error })
+    next(error)
+  }
+})
 
 // API routes
 app.use('/api/auth', authRouter)
