@@ -75,8 +75,11 @@ app.use('/health', healthRouter)
 app.use('/api/config', configRouter)
 
 // Direct /api/cities endpoint (alias for /api/config/cities)
+// *** CANONICAL CITIES API - Use this endpoint for all city data ***
 app.get('/api/cities', async (req, res, next) => {
   try {
+    const { service } = req.query // Optional filter: ?service=market
+    
     const cities = await prisma.city.findMany({
       where: { isActive: true },
       select: {
@@ -85,17 +88,78 @@ app.get('/api/cities', async (req, res, next) => {
         name: true,
         country: true,
         currency: true,
+        timezone: true,
         centerLatitude: true,
         centerLongitude: true,
         radiusKm: true,
         imageUrl: true,
+        enabledServices: true,
+        allowCrossCityOrders: true,
+        linkedCityIds: true,
+        boundaryPolygon: true,
+        usePolygonBoundary: true,
       },
       orderBy: { name: 'asc' }
     })
-    logger.info(`[/api/cities] Fetched ${cities.length} active cities`)
-    res.json({ success: true, data: cities })
+
+    // Filter by service if specified
+    let filteredCities = cities
+    if (service && typeof service === 'string') {
+      filteredCities = cities.filter(c => 
+        (c.enabledServices as string[])?.includes(service) ?? true
+      )
+    }
+
+    logger.info(`[/api/cities] Fetched ${filteredCities.length} active cities`, { 
+      service: service || 'all' 
+    })
+    res.json({ success: true, data: filteredCities })
   } catch (error) {
     logger.error('[/api/cities] Failed to list cities', { error })
+    next(error)
+  }
+})
+
+// City detection endpoint - find nearest city from coordinates
+app.get('/api/cities/detect', async (req, res, next) => {
+  try {
+    const { lat, lng, service } = req.query
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_COORDS', message: 'lat and lng query parameters required' }
+      })
+    }
+
+    const latitude = parseFloat(lat as string)
+    const longitude = parseFloat(lng as string)
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_COORDS', message: 'lat and lng must be valid numbers' }
+      })
+    }
+
+    // Use the canonical GeoService for detection
+    const { GeoService } = await import('@gominiapp/core')
+    const result = await GeoService.detectCity(
+      latitude, 
+      longitude, 
+      service as string | undefined
+    )
+
+    logger.info('[/api/cities/detect] City detection result', {
+      latitude,
+      longitude,
+      detectedCity: result.city?.name,
+      citiesInRange: result.allCitiesInRange.length
+    })
+
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[/api/cities/detect] City detection failed', { error })
     next(error)
   }
 })

@@ -1,6 +1,10 @@
 /**
  * Geo Service
  * Geographic utilities and PostGIS queries for proximity search
+ * 
+ * *** CANONICAL IMPLEMENTATION ***
+ * This is the SINGLE source of truth for all geographic calculations.
+ * Do NOT duplicate Haversine or city detection logic elsewhere.
  */
 
 import { prisma } from '../db/prisma'
@@ -16,6 +20,28 @@ export interface BoundingBox {
   south: number
   east: number
   west: number
+}
+
+export interface CityInfo {
+  id: string
+  code: string
+  name: string
+  country: string
+  currency: string
+  timezone: string | null
+  centerLatitude: number
+  centerLongitude: number
+  radiusKm: number
+  enabledServices: string[]
+  allowCrossCityOrders: boolean
+  linkedCityIds: string[]
+  distanceKm: number  // Distance from user to city center
+}
+
+export interface CityDetectionResult {
+  city: CityInfo | null
+  allCitiesInRange: CityInfo[]  // All cities user is within radius of
+  nearestCity: CityInfo | null   // Nearest city even if outside radius
 }
 
 // Earth's radius in kilometers
@@ -239,6 +265,258 @@ export class GeoService {
   ): number {
     const route = this.estimateRoute(driverLocation, pickupLocation)
     return Math.ceil(route.durationMinutes * trafficMultiplier)
+  }
+
+  // =============================================================================
+  // CITY DETECTION - CANONICAL IMPLEMENTATION
+  // =============================================================================
+
+  /**
+   * Detect the nearest city within service radius
+   * Returns the NEAREST city (not first match) to handle overlapping service areas
+   * 
+   * @param latitude User's latitude
+   * @param longitude User's longitude
+   * @param serviceFilter Optional: filter cities by enabled service ('market', 'rides', 'delivery')
+   */
+  static async detectCity(
+    latitude: number,
+    longitude: number,
+    serviceFilter?: string
+  ): Promise<CityDetectionResult> {
+    logger.info('[GeoService] Detecting city', { latitude, longitude, serviceFilter })
+
+    try {
+      const cities = await prisma.city.findMany({
+        where: { isActive: true }
+      })
+
+      if (cities.length === 0) {
+        logger.warn('[GeoService] No active cities found in database')
+        return { city: null, allCitiesInRange: [], nearestCity: null }
+      }
+
+      const citiesWithDistance: CityInfo[] = cities.map(city => {
+        const distanceKm = this.calculateDistance(
+          { latitude, longitude },
+          { latitude: city.centerLatitude, longitude: city.centerLongitude }
+        )
+
+        return {
+          id: city.id,
+          code: city.code,
+          name: city.name,
+          country: city.country,
+          currency: city.currency,
+          timezone: city.timezone,
+          centerLatitude: city.centerLatitude,
+          centerLongitude: city.centerLongitude,
+          radiusKm: city.radiusKm,
+          enabledServices: (city as any).enabledServices || ['market', 'rides', 'delivery'],
+          allowCrossCityOrders: (city as any).allowCrossCityOrders || false,
+          linkedCityIds: (city as any).linkedCityIds || [],
+          distanceKm
+        }
+      })
+
+      // Filter by service if specified
+      let filteredCities = citiesWithDistance
+      if (serviceFilter) {
+        filteredCities = citiesWithDistance.filter(c => 
+          c.enabledServices.includes(serviceFilter)
+        )
+      }
+
+      // Sort by distance (nearest first)
+      filteredCities.sort((a, b) => a.distanceKm - b.distanceKm)
+
+      // Find all cities within their respective radius
+      const citiesInRange = filteredCities.filter(c => c.distanceKm <= c.radiusKm)
+      
+      // The nearest city (even if outside radius)
+      const nearestCity = filteredCities[0] || null
+
+      // The selected city is the nearest one within range
+      const selectedCity = citiesInRange[0] || null
+
+      logger.info('[GeoService] City detection result', {
+        selectedCity: selectedCity?.name,
+        citiesInRange: citiesInRange.length,
+        nearestCity: nearestCity?.name,
+        nearestDistance: nearestCity?.distanceKm?.toFixed(2)
+      })
+
+      return {
+        city: selectedCity,
+        allCitiesInRange: citiesInRange,
+        nearestCity
+      }
+    } catch (error) {
+      logger.error('[GeoService] City detection failed', { error, latitude, longitude })
+      return { city: null, allCitiesInRange: [], nearestCity: null }
+    }
+  }
+
+  /**
+   * Check if a point is inside a polygon (for advanced city boundaries)
+   * Uses ray-casting algorithm
+   * 
+   * @param point The point to check
+   * @param polygon Array of [longitude, latitude] coordinates (GeoJSON style)
+   */
+  static isPointInPolygon(point: Coordinates, polygon: number[][]): boolean {
+    const x = point.longitude
+    const y = point.latitude
+    let inside = false
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1]
+      const xj = polygon[j][0], yj = polygon[j][1]
+
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        inside = !inside
+      }
+    }
+
+    return inside
+  }
+
+  /**
+   * Detect city using polygon boundaries (for cities with usePolygonBoundary=true)
+   * Falls back to radius-based detection
+   */
+  static async detectCityAdvanced(
+    latitude: number,
+    longitude: number,
+    serviceFilter?: string
+  ): Promise<CityDetectionResult> {
+    logger.info('[GeoService] Advanced city detection', { latitude, longitude, serviceFilter })
+
+    try {
+      const cities = await prisma.city.findMany({
+        where: { isActive: true }
+      })
+
+      const point = { latitude, longitude }
+      const citiesWithDistance: CityInfo[] = []
+
+      for (const city of cities) {
+        const cityData = city as any
+        const distanceKm = this.calculateDistance(
+          point,
+          { latitude: city.centerLatitude, longitude: city.centerLongitude }
+        )
+
+        // Check if city uses polygon boundary
+        let isInCity = false
+        if (cityData.usePolygonBoundary && cityData.boundaryPolygon) {
+          isInCity = this.isPointInPolygon(point, cityData.boundaryPolygon)
+        } else {
+          isInCity = distanceKm <= city.radiusKm
+        }
+
+        const cityInfo: CityInfo = {
+          id: city.id,
+          code: city.code,
+          name: city.name,
+          country: city.country,
+          currency: city.currency,
+          timezone: city.timezone,
+          centerLatitude: city.centerLatitude,
+          centerLongitude: city.centerLongitude,
+          radiusKm: city.radiusKm,
+          enabledServices: cityData.enabledServices || ['market', 'rides', 'delivery'],
+          allowCrossCityOrders: cityData.allowCrossCityOrders || false,
+          linkedCityIds: cityData.linkedCityIds || [],
+          distanceKm
+        }
+
+        citiesWithDistance.push(cityInfo)
+      }
+
+      // Filter by service
+      let filteredCities = citiesWithDistance
+      if (serviceFilter) {
+        filteredCities = citiesWithDistance.filter(c => 
+          c.enabledServices.includes(serviceFilter)
+        )
+      }
+
+      // Sort by distance
+      filteredCities.sort((a, b) => a.distanceKm - b.distanceKm)
+
+      // For polygon cities, re-check which ones contain the point
+      const citiesInRange = filteredCities.filter(c => c.distanceKm <= c.radiusKm)
+      const nearestCity = filteredCities[0] || null
+      const selectedCity = citiesInRange[0] || null
+
+      return {
+        city: selectedCity,
+        allCitiesInRange: citiesInRange,
+        nearestCity
+      }
+    } catch (error) {
+      logger.error('[GeoService] Advanced city detection failed', { error })
+      // Fallback to simple detection
+      return this.detectCity(latitude, longitude, serviceFilter)
+    }
+  }
+
+  /**
+   * Check if two cities allow cross-city orders
+   */
+  static async canCrossCityOrder(fromCityId: string, toCityId: string): Promise<boolean> {
+    if (fromCityId === toCityId) return true
+
+    const fromCity = await prisma.city.findUnique({
+      where: { id: fromCityId }
+    })
+
+    if (!fromCity) return false
+
+    const cityData = fromCity as any
+    if (!cityData.allowCrossCityOrders) return false
+    
+    // Check if target city is in linked cities
+    const linkedCities = cityData.linkedCityIds || []
+    return linkedCities.includes(toCityId)
+  }
+
+  /**
+   * Get cross-city pricing if available
+   */
+  static async getCrossCityPricing(
+    fromCityId: string,
+    toCityId: string,
+    vehicleTypeCode: string
+  ): Promise<{
+    flatRate?: number
+    baseFare?: number
+    perKmRate?: number
+    minimumFare?: number
+    estimatedDistanceKm?: number
+    estimatedDurationMin?: number
+  } | null> {
+    const pricing = await prisma.crossCityPricing.findUnique({
+      where: {
+        fromCityId_toCityId_vehicleTypeCode: {
+          fromCityId,
+          toCityId,
+          vehicleTypeCode
+        }
+      }
+    })
+
+    if (!pricing || !pricing.isActive) return null
+
+    return {
+      flatRate: pricing.flatRate || undefined,
+      baseFare: pricing.baseFare || undefined,
+      perKmRate: pricing.perKmRate || undefined,
+      minimumFare: pricing.minimumFare || undefined,
+      estimatedDistanceKm: pricing.estimatedDistanceKm || undefined,
+      estimatedDurationMin: pricing.estimatedDurationMin || undefined
+    }
   }
 
   private static toRadians(degrees: number): number {

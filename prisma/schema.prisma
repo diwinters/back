@@ -94,10 +94,32 @@ model City {
   currency    String   @default("MAD")
   isActive    Boolean  @default(true)
   
-  // Geofencing
+  // ===========================================
+  // GEOFENCING - Circle-based (simple)
+  // ===========================================
   centerLatitude  Float
   centerLongitude Float
   radiusKm        Float    @default(50)  // Service radius from center
+  
+  // ===========================================
+  // GEOFENCING - Polygon-based (advanced)
+  // For irregular city boundaries (Yandex-style)
+  // Store as JSON array of [lng, lat] coordinates
+  // ===========================================
+  boundaryPolygon Json?    // [[lng1,lat1], [lng2,lat2], ...] GeoJSON-style
+  usePolygonBoundary Boolean @default(false)  // If true, use polygon instead of radius
+  
+  // ===========================================
+  // SERVICE FEATURE FLAGS
+  // Control which services are available per city
+  // ===========================================
+  enabledServices String[] @default(["market", "rides", "delivery"])  // market, rides, delivery, food
+  
+  // ===========================================
+  // CROSS-CITY CONFIGURATION
+  // ===========================================
+  allowCrossCityOrders Boolean @default(false)  // Can orders pickup/dropoff in different cities?
+  linkedCityIds        String[] @default([])    // Cities this city can do cross-city with
   
   // Display
   imageUrl    String?  // City banner/background image
@@ -113,6 +135,10 @@ model City {
   marketPosts       MarketPost[]
   marketPromoCards  MarketPromoCard[]
   usersPreferred    User[]  @relation("UserPreferredCity")
+  
+  // Cross-city pricing
+  crossCityPricingFrom CrossCityPricing[] @relation("FromCity")
+  crossCityPricingTo   CrossCityPricing[] @relation("ToCity")
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -196,6 +222,43 @@ model CityVehiclePricing {
 
   @@unique([cityId, vehicleTypeCode])
   @@index([cityId, isActive])
+}
+
+// =============================================================================
+// CROSS-CITY PRICING
+// Special pricing for rides between different cities
+// =============================================================================
+
+model CrossCityPricing {
+  id              String   @id @default(cuid())
+  
+  // Route
+  fromCityId      String
+  fromCity        City     @relation("FromCity", fields: [fromCityId], references: [id], onDelete: Cascade)
+  toCityId        String
+  toCity          City     @relation("ToCity", fields: [toCityId], references: [id], onDelete: Cascade)
+  vehicleTypeCode String   // ECONOMY, COMFORT, etc.
+  
+  // Flat rate pricing for intercity
+  flatRate        Float?   // If set, use this instead of per-km calculation
+  
+  // Or distance-based pricing
+  baseFare        Float?
+  perKmRate       Float?
+  minimumFare     Float?
+  
+  // Estimated trip info (for display)
+  estimatedDistanceKm Float?
+  estimatedDurationMin Int?
+  
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([fromCityId, toCityId, vehicleTypeCode])
+  @@index([fromCityId, isActive])
+  @@index([toCityId, isActive])
 }
 
 // =============================================================================

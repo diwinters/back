@@ -19,7 +19,7 @@ export { RedisService, getRedisService } from './realtime/redis'
 
 // Geo
 export { GeoService } from './geo/geo'
-export type { Coordinates, BoundingBox } from './geo/geo'
+export type { Coordinates, BoundingBox, CityInfo, CityDetectionResult } from './geo/geo'
 
 // Bluesky Integration
 export { BlueskyMessaging, getBlueskyMessaging } from './bluesky/messaging'

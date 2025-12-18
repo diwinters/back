@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod'
-import { prisma, logger, AppError, ErrorCode, NotFoundError, ConflictError } from '@gominiapp/core'
+import { prisma, logger, AppError, ErrorCode, NotFoundError, ConflictError, GeoService } from '@gominiapp/core'
 
 // Validation schemas
 export const registerDriverSchema = z.object({
@@ -150,16 +150,17 @@ export class DriverService {
     }
 
     // Calculate distance from last location
+    // *** USE SHARED GeoService - distance in meters ***
     let shouldUpdate = true
     let distance: number | undefined
 
     if (driver.currentLatitude && driver.currentLongitude) {
-      distance = this.calculateDistance(
-        driver.currentLatitude,
-        driver.currentLongitude,
-        validated.latitude,
-        validated.longitude
+      // GeoService returns km, convert to meters
+      const distanceKm = GeoService.calculateDistance(
+        { latitude: driver.currentLatitude, longitude: driver.currentLongitude },
+        { latitude: validated.latitude, longitude: validated.longitude }
       )
+      distance = distanceKm * 1000 // Convert to meters
 
       // Only update if moved more than threshold
       shouldUpdate = distance >= LOCATION_UPDATE_THRESHOLD_METERS
@@ -224,19 +225,17 @@ export class DriverService {
       take: limit,
     })
 
-    // Calculate actual distances and filter
+    // Calculate actual distances and filter using shared GeoService
     return drivers
       .map(d => {
-        const dist = this.calculateDistance(
-          latitude,
-          longitude,
-          d.currentLatitude!,
-          d.currentLongitude!
+        const distKm = GeoService.calculateDistance(
+          { latitude, longitude },
+          { latitude: d.currentLatitude!, longitude: d.currentLongitude! }
         )
         return {
           ...d,
-          distanceKm: dist / 1000,
-          etaMinutes: Math.ceil((dist / 1000) / 30 * 60), // Assume 30 km/h
+          distanceKm: distKm,
+          etaMinutes: Math.ceil(distKm / 30 * 60), // Assume 30 km/h
         }
       })
       .filter(d => d.distanceKm <= radiusKm)
@@ -290,23 +289,7 @@ export class DriverService {
     return drivers
   }
 
-  /**
-   * Calculate distance between two points in meters (Haversine formula)
-   */
-  private calculateDistance(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number
-  ): number {
-    const R = 6371000 // Earth's radius in meters
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLon = (lon2 - lon1) * Math.PI / 180
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    return R * c
-  }
+  // *** REMOVED: Private calculateDistance method ***
+  // Now using shared GeoService.calculateDistance from @gominiapp/core
+  // This eliminates duplicate Haversine implementations
 }

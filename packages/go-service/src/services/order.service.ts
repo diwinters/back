@@ -78,30 +78,15 @@ export class OrderService {
   }
 
   /**
-   * Detect which city a location is in based on distance from city center
-   * Returns the closest city where the location is within the radius
+   * Detect which city a location is in
+   * *** USES CANONICAL GeoService.detectCity - finds NEAREST city within radius ***
    */
   async detectCity(latitude: number, longitude: number): Promise<{ cityId: string; cityName: string } | null> {
-    const activeCities = await prisma.city.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        centerLatitude: true,
-        centerLongitude: true,
-        radiusKm: true,
-      }
-    })
-
-    for (const city of activeCities) {
-      const distanceKm = GeoService.calculateDistance(
-        { latitude, longitude },
-        { latitude: city.centerLatitude, longitude: city.centerLongitude }
-      )
-      
-      if (distanceKm <= city.radiusKm) {
-        return { cityId: city.id, cityName: city.name }
-      }
+    // Use the canonical GeoService for consistent NEAREST city detection
+    const result = await GeoService.detectCity(latitude, longitude, 'rides')
+    
+    if (result.city) {
+      return { cityId: result.city.id, cityName: result.city.name }
     }
 
     return null
