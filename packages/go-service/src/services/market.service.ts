@@ -48,12 +48,9 @@ export class MarketService {
     if (params.categoryId) where.categoryId = params.categoryId
     if (params.subcategoryId) where.subcategoryId = params.subcategoryId
     
-    // City filtering: if cityId provided, show posts for that city OR posts without a city (legacy posts)
+    // City filtering: only posts for this city when specified
     if (params.cityId) {
-      where.OR = [
-        { cityId: params.cityId },
-        { cityId: null }
-      ]
+      where.cityId = params.cityId
     }
 
     logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
