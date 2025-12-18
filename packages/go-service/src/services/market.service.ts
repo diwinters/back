@@ -48,9 +48,14 @@ export class MarketService {
     if (params.categoryId) where.categoryId = params.categoryId
     if (params.subcategoryId) where.subcategoryId = params.subcategoryId
     
-    // City filtering: only posts for this city when specified
+    // City filtering: STRICT - only posts for this specific city when specified
+    // Posts with cityId=null will NOT show when a city is selected
     if (params.cityId) {
       where.cityId = params.cityId
+      logger.info(`[MarketService] Filtering by cityId: ${params.cityId} (STRICT - no null cityId posts)`)
+    } else {
+      // When no city filter, show all posts (including those with null cityId)
+      logger.info(`[MarketService] No city filter - showing all posts`)
     }
 
     logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
