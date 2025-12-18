@@ -3159,4 +3159,1002 @@ window.showTab = function(tabName) {
         loadMarketStats()
         showMarketSubtab(currentMarketSubtab)
     }
+    if (tabName === 'wallet') {
+        loadWalletStats()
+        showWalletSubtab(currentWalletSubtab)
+    }
 }
+
+// ============================================================================
+// Wallet Management Functions
+// ============================================================================
+
+let currentWalletSubtab = 'dashboard'
+let walletCitiesCache = []
+let walletAgentsCache = []
+let currentTransactionPage = 1
+
+// Wallet Subtab Navigation
+function showWalletSubtab(subtab) {
+    currentWalletSubtab = subtab
+    
+    // Update tab buttons
+    document.querySelectorAll('#wallet .tabs .tab').forEach(btn => {
+        btn.classList.remove('active')
+    })
+    const subtabBtn = document.getElementById(`walletSubtab${subtab.charAt(0).toUpperCase() + subtab.slice(1)}`)
+    if (subtabBtn) subtabBtn.classList.add('active')
+    
+    // Show/hide content
+    document.querySelectorAll('.wallet-subtab').forEach(el => {
+        el.style.display = 'none'
+    })
+    
+    if (subtab === 'dashboard') {
+        document.getElementById('walletDashboard').style.display = 'block'
+        loadWalletDashboard()
+    } else if (subtab === 'transactions') {
+        document.getElementById('walletTransactions').style.display = 'block'
+        loadWalletTransactions()
+    } else if (subtab === 'cashPoints') {
+        document.getElementById('walletCashPoints').style.display = 'block'
+        loadWalletCashPoints()
+    } else if (subtab === 'agents') {
+        document.getElementById('walletAgents').style.display = 'block'
+        loadWalletAgents()
+    } else if (subtab === 'escrow') {
+        document.getElementById('walletEscrow').style.display = 'block'
+        loadWalletEscrow()
+    } else if (subtab === 'fees') {
+        document.getElementById('walletFees').style.display = 'block'
+        loadWalletFees()
+    } else if (subtab === 'settings') {
+        document.getElementById('walletSettings').style.display = 'block'
+        loadWalletConfigs()
+    }
+}
+
+// Load Wallet Stats (header cards)
+async function loadWalletStats() {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/stats`)
+        const data = await res.json()
+        
+        if (data.success) {
+            document.getElementById('statWallets').textContent = data.data.totalWallets || 0
+            document.getElementById('statTotalBalance').textContent = formatMAD(data.data.totalBalance || 0)
+            document.getElementById('statTodayDeposits').textContent = formatMAD(data.data.todayDeposits || 0)
+            document.getElementById('statPendingEscrow').textContent = formatMAD(data.data.pendingEscrow || 0)
+        }
+    } catch (error) {
+        console.error('Failed to load wallet stats:', error)
+    }
+}
+
+// Load Wallet Dashboard
+async function loadWalletDashboard() {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/stats`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const stats = data.data
+            
+            // Financial Overview
+            document.getElementById('walletFinancialOverview').innerHTML = `
+                <div style="display: grid; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Balance:</span>
+                        <strong>${formatMAD(stats.totalBalance || 0)}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Today's Deposits:</span>
+                        <strong style="color: #10b981;">${formatMAD(stats.todayDeposits || 0)}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Today's Withdrawals:</span>
+                        <strong style="color: #ef4444;">${formatMAD(stats.todayWithdrawals || 0)}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Pending Escrow:</span>
+                        <strong style="color: #f59e0b;">${formatMAD(stats.pendingEscrow || 0)}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Fees Collected Today:</span>
+                        <strong style="color: #667eea;">${formatMAD(stats.todayFees || 0)}</strong>
+                    </div>
+                </div>
+            `
+            
+            // Cash Points Summary
+            document.getElementById('walletCashPointsSummary').innerHTML = `
+                <div style="display: grid; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Cash Points:</span>
+                        <strong>${stats.totalCashPoints || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Active:</span>
+                        <strong style="color: #10b981;">${stats.activeCashPoints || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Verified:</span>
+                        <strong style="color: #3b82f6;">${stats.verifiedCashPoints || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Agents:</span>
+                        <strong>${stats.totalAgents || 0}</strong>
+                    </div>
+                </div>
+            `
+            
+            // Recent Activity
+            document.getElementById('walletRecentActivity').innerHTML = `
+                <div style="display: grid; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Transactions Today:</span>
+                        <strong>${stats.todayTransactions || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>New Wallets Today:</span>
+                        <strong>${stats.todayNewWallets || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Active Escrows:</span>
+                        <strong>${stats.activeEscrows || 0}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Disputed:</span>
+                        <strong style="color: #ef4444;">${stats.disputedEscrows || 0}</strong>
+                    </div>
+                </div>
+            `
+        }
+    } catch (error) {
+        console.error('Failed to load wallet dashboard:', error)
+        showMessage('walletMessage', 'Failed to load dashboard: ' + error.message, 'error')
+    }
+}
+
+// Format currency
+function formatMAD(amount) {
+    return new Intl.NumberFormat('fr-MA', { 
+        style: 'currency', 
+        currency: 'MAD',
+        minimumFractionDigits: 2
+    }).format(amount)
+}
+
+// ============================================================================
+// Wallet Transactions
+// ============================================================================
+
+async function loadWalletTransactions(page = 1) {
+    currentTransactionPage = page
+    const tbody = document.getElementById('walletTransactionsBody')
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;">Loading...</td></tr>'
+    
+    try {
+        const type = document.getElementById('transactionTypeFilter').value
+        const status = document.getElementById('transactionStatusFilter').value
+        const search = document.getElementById('transactionSearch').value
+        
+        const params = new URLSearchParams()
+        params.append('page', page)
+        params.append('limit', 20)
+        if (type) params.append('type', type)
+        if (status) params.append('status', status)
+        if (search) params.append('userDid', search)
+        
+        const res = await fetch(`${API_BASE}/api/admin/wallet/transactions?${params}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#6b7280;">No transactions found</td></tr>'
+                return
+            }
+            
+            tbody.innerHTML = data.data.map(tx => `
+                <tr>
+                    <td><code style="font-size:11px;">${tx.id.slice(0,8)}...</code></td>
+                    <td><code style="font-size:11px;">${tx.wallet?.userDid?.slice(0,20) || 'N/A'}...</code></td>
+                    <td><span class="badge ${getTransactionTypeBadgeClass(tx.type)}">${tx.type}</span></td>
+                    <td>${formatMAD(tx.amount)}</td>
+                    <td>${formatMAD(tx.fee || 0)}</td>
+                    <td>${formatMAD(tx.netAmount)}</td>
+                    <td><span class="badge ${getStatusBadgeClass(tx.status)}">${tx.status}</span></td>
+                    <td>${new Date(tx.createdAt).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="viewTransaction('${tx.id}')">View</button>
+                    </td>
+                </tr>
+            `).join('')
+            
+            renderTransactionPagination(data.pagination)
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function getTransactionTypeBadgeClass(type) {
+    if (type.includes('DEPOSIT')) return 'badge-success'
+    if (type.includes('WITHDRAWAL')) return 'badge-danger'
+    if (type.includes('ESCROW')) return 'badge-warning'
+    if (type.includes('PAYMENT')) return 'badge-info'
+    return 'badge-secondary'
+}
+
+function getStatusBadgeClass(status) {
+    switch (status) {
+        case 'COMPLETED': return 'badge-success'
+        case 'PENDING': case 'PROCESSING': return 'badge-warning'
+        case 'FAILED': case 'CANCELLED': return 'badge-danger'
+        default: return 'badge-info'
+    }
+}
+
+function renderTransactionPagination(pagination) {
+    if (!pagination) return
+    const container = document.getElementById('walletTransactionsPagination')
+    const { page, totalPages } = pagination
+    
+    let html = ''
+    if (page > 1) {
+        html += `<button onclick="loadWalletTransactions(${page - 1})">← Previous</button>`
+    }
+    html += `<span style="padding: 8px 16px;">Page ${page} of ${totalPages}</span>`
+    if (page < totalPages) {
+        html += `<button onclick="loadWalletTransactions(${page + 1})">Next →</button>`
+    }
+    container.innerHTML = html
+}
+
+function viewTransaction(id) {
+    alert('Transaction details: ' + id + '\n\nFull transaction viewer coming soon.')
+}
+
+// ============================================================================
+// Cash Points Management
+// ============================================================================
+
+async function loadWalletCashPoints() {
+    const tbody = document.getElementById('walletCashPointsBody')
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;">Loading...</td></tr>'
+    
+    // Load cities for filters if not cached
+    if (walletCitiesCache.length === 0) {
+        await loadWalletCities()
+    }
+    
+    try {
+        const type = document.getElementById('cashPointTypeFilter').value
+        const cityId = document.getElementById('cashPointCityFilter').value
+        const status = document.getElementById('cashPointStatusFilter').value
+        
+        const params = new URLSearchParams()
+        if (type) params.append('type', type)
+        if (cityId) params.append('cityId', cityId)
+        if (status === 'active') params.append('isActive', 'true')
+        if (status === 'inactive') params.append('isActive', 'false')
+        if (status === 'verified') params.append('isVerified', 'true')
+        if (status === 'unverified') params.append('isVerified', 'false')
+        
+        const res = await fetch(`${API_BASE}/api/admin/wallet/cash-points?${params}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#6b7280;">No cash points found</td></tr>'
+                return
+            }
+            
+            tbody.innerHTML = data.data.map(cp => `
+                <tr>
+                    <td><strong>${cp.name}</strong>${cp.nameAr ? `<br><small dir="rtl">${cp.nameAr}</small>` : ''}</td>
+                    <td>${getCashPointTypeIcon(cp.type)} ${cp.type}</td>
+                    <td>${cp.city?.name || 'N/A'}</td>
+                    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${cp.address || 'N/A'}</td>
+                    <td>${cp.agent?.name || '-'}</td>
+                    <td>${formatMAD(cp.totalDeposits || 0)}</td>
+                    <td>${formatMAD(cp.totalWithdrawals || 0)}</td>
+                    <td>${cp.rating ? `⭐ ${cp.rating.toFixed(1)}` : '-'}</td>
+                    <td>
+                        ${cp.isActive ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}
+                        ${cp.isVerified ? '<span class="badge badge-info">Verified</span>' : ''}
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="editCashPoint('${cp.id}')">Edit</button>
+                        <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;" onclick="deleteCashPoint('${cp.id}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('')
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function getCashPointTypeIcon(type) {
+    const icons = {
+        'CAFE': '☕',
+        'SHOP': '🏪',
+        'AGENCY_BARID': '📮',
+        'AGENCY_WAFACASH': '💵',
+        'AGENCY_OTHER': '🏢',
+        'ATM': '🏧'
+    }
+    return icons[type] || '📍'
+}
+
+async function loadWalletCities() {
+    try {
+        const res = await fetch(`${API_BASE}/api/cities`)
+        const data = await res.json()
+        
+        if (data.success) {
+            walletCitiesCache = data.data
+            
+            // Populate all city dropdowns
+            const cityDropdowns = ['cashPointCityFilter', 'cashPointCity', 'feeCityId', 'walletConfigCityId']
+            cityDropdowns.forEach(id => {
+                const el = document.getElementById(id)
+                if (el) {
+                    const isFilter = id.includes('Filter')
+                    el.innerHTML = (isFilter ? '<option value="">All Cities</option>' : '<option value="">Select City</option>') +
+                        walletCitiesCache.map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+                }
+            })
+        }
+    } catch (error) {
+        console.error('Failed to load cities:', error)
+    }
+}
+
+function showCashPointForm(cashPoint = null) {
+    document.getElementById('cashPointFormTitle').textContent = cashPoint ? 'Edit Cash Point' : 'Add Cash Point'
+    document.getElementById('cashPointId').value = cashPoint?.id || ''
+    document.getElementById('cashPointName').value = cashPoint?.name || ''
+    document.getElementById('cashPointNameAr').value = cashPoint?.nameAr || ''
+    document.getElementById('cashPointType').value = cashPoint?.type || 'CAFE'
+    document.getElementById('cashPointCity').value = cashPoint?.cityId || ''
+    document.getElementById('cashPointPhone').value = cashPoint?.phone || ''
+    document.getElementById('cashPointAddress').value = cashPoint?.address || ''
+    document.getElementById('cashPointAddressAr').value = cashPoint?.addressAr || ''
+    document.getElementById('cashPointLat').value = cashPoint?.latitude || ''
+    document.getElementById('cashPointLng').value = cashPoint?.longitude || ''
+    document.getElementById('cashPointHours').value = cashPoint?.operatingHours || ''
+    document.getElementById('cashPointDepositLimit').value = cashPoint?.dailyDepositLimit || 50000
+    document.getElementById('cashPointWithdrawalLimit').value = cashPoint?.dailyWithdrawalLimit || 20000
+    document.getElementById('cashPointAgent').value = cashPoint?.agentId || ''
+    document.getElementById('cashPointActive').checked = cashPoint?.isActive !== false
+    document.getElementById('cashPointVerified').checked = cashPoint?.isVerified || false
+    
+    // Load agents for dropdown
+    loadWalletAgentsForDropdown()
+    
+    document.getElementById('cashPointFormModal').style.display = 'flex'
+}
+
+function hideCashPointForm() {
+    document.getElementById('cashPointFormModal').style.display = 'none'
+}
+
+async function loadWalletAgentsForDropdown() {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/agents`)
+        const data = await res.json()
+        
+        if (data.success) {
+            walletAgentsCache = data.data
+            const select = document.getElementById('cashPointAgent')
+            select.innerHTML = '<option value="">No Agent</option>' +
+                data.data.map(a => `<option value="${a.id}">${a.name} (${a.phone || 'No phone'})</option>`).join('')
+        }
+    } catch (error) {
+        console.error('Failed to load agents:', error)
+    }
+}
+
+async function saveCashPoint() {
+    const id = document.getElementById('cashPointId').value
+    const payload = {
+        name: document.getElementById('cashPointName').value,
+        nameAr: document.getElementById('cashPointNameAr').value || null,
+        type: document.getElementById('cashPointType').value,
+        cityId: document.getElementById('cashPointCity').value || null,
+        phone: document.getElementById('cashPointPhone').value || null,
+        address: document.getElementById('cashPointAddress').value || null,
+        addressAr: document.getElementById('cashPointAddressAr').value || null,
+        latitude: parseFloat(document.getElementById('cashPointLat').value) || null,
+        longitude: parseFloat(document.getElementById('cashPointLng').value) || null,
+        operatingHours: document.getElementById('cashPointHours').value || null,
+        dailyDepositLimit: parseInt(document.getElementById('cashPointDepositLimit').value) || 50000,
+        dailyWithdrawalLimit: parseInt(document.getElementById('cashPointWithdrawalLimit').value) || 20000,
+        agentId: document.getElementById('cashPointAgent').value || null,
+        isActive: document.getElementById('cashPointActive').checked,
+        isVerified: document.getElementById('cashPointVerified').checked
+    }
+    
+    try {
+        const url = id 
+            ? `${API_BASE}/api/admin/wallet/cash-points/${id}`
+            : `${API_BASE}/api/admin/wallet/cash-points`
+        
+        const res = await fetch(url, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', `Cash point ${id ? 'updated' : 'created'} successfully`, 'success')
+            hideCashPointForm()
+            loadWalletCashPoints()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to save cash point', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to save cash point: ' + error.message, 'error')
+    }
+}
+
+async function editCashPoint(id) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/cash-points?id=${id}`)
+        const data = await res.json()
+        
+        if (data.success && data.data.length > 0) {
+            showCashPointForm(data.data[0])
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to load cash point: ' + error.message, 'error')
+    }
+}
+
+async function deleteCashPoint(id) {
+    if (!confirm('Are you sure you want to delete this cash point?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/cash-points/${id}`, {
+            method: 'DELETE'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Cash point deleted', 'success')
+            loadWalletCashPoints()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to delete cash point', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to delete cash point: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Agents Management
+// ============================================================================
+
+async function loadWalletAgents() {
+    const tbody = document.getElementById('walletAgentsBody')
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;">Loading...</td></tr>'
+    
+    try {
+        const status = document.getElementById('agentStatusFilter').value
+        
+        const params = new URLSearchParams()
+        if (status === 'active') params.append('isActive', 'true')
+        if (status === 'inactive') params.append('isActive', 'false')
+        if (status === 'verified') params.append('isVerified', 'true')
+        if (status === 'unverified') params.append('isVerified', 'false')
+        
+        const res = await fetch(`${API_BASE}/api/admin/wallet/agents?${params}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#6b7280;">No agents found</td></tr>'
+                return
+            }
+            
+            tbody.innerHTML = data.data.map(agent => `
+                <tr>
+                    <td><strong>${agent.name}</strong></td>
+                    <td>${agent.phone || '-'}</td>
+                    <td>${agent.email || '-'}</td>
+                    <td>${agent._count?.cashPoints || 0}</td>
+                    <td>${(agent.commissionRate * 100).toFixed(1)}%</td>
+                    <td>${formatMAD(agent.balance || 0)}</td>
+                    <td>${formatMAD(agent.lifetimeEarned || 0)}</td>
+                    <td>
+                        ${agent.isActive ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}
+                        ${agent.isVerified ? '<span class="badge badge-info">Verified</span>' : ''}
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="editAgent('${agent.id}')">Edit</button>
+                    </td>
+                </tr>
+            `).join('')
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:40px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function showAgentForm(agent = null) {
+    document.getElementById('agentFormTitle').textContent = agent ? 'Edit Agent' : 'Add Agent'
+    document.getElementById('agentId').value = agent?.id || ''
+    document.getElementById('agentName').value = agent?.name || ''
+    document.getElementById('agentUserDid').value = agent?.userDid || ''
+    document.getElementById('agentPhone').value = agent?.phone || ''
+    document.getElementById('agentEmail').value = agent?.email || ''
+    document.getElementById('agentNationalId').value = agent?.nationalId || ''
+    document.getElementById('agentCommissionRate').value = agent ? (agent.commissionRate * 100) : 1
+    document.getElementById('agentActive').checked = agent?.isActive !== false
+    document.getElementById('agentVerified').checked = agent?.isVerified || false
+    
+    document.getElementById('agentFormModal').style.display = 'flex'
+}
+
+function hideAgentForm() {
+    document.getElementById('agentFormModal').style.display = 'none'
+}
+
+async function saveAgent() {
+    const id = document.getElementById('agentId').value
+    const payload = {
+        name: document.getElementById('agentName').value,
+        userDid: document.getElementById('agentUserDid').value || null,
+        phone: document.getElementById('agentPhone').value || null,
+        email: document.getElementById('agentEmail').value || null,
+        nationalId: document.getElementById('agentNationalId').value || null,
+        commissionRate: parseFloat(document.getElementById('agentCommissionRate').value) / 100,
+        isActive: document.getElementById('agentActive').checked,
+        isVerified: document.getElementById('agentVerified').checked
+    }
+    
+    try {
+        const url = id 
+            ? `${API_BASE}/api/admin/wallet/agents/${id}`
+            : `${API_BASE}/api/admin/wallet/agents`
+        
+        const res = await fetch(url, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', `Agent ${id ? 'updated' : 'created'} successfully`, 'success')
+            hideAgentForm()
+            loadWalletAgents()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to save agent', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to save agent: ' + error.message, 'error')
+    }
+}
+
+async function editAgent(id) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/agents?id=${id}`)
+        const data = await res.json()
+        
+        if (data.success && data.data.length > 0) {
+            showAgentForm(data.data[0])
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to load agent: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Escrow Management
+// ============================================================================
+
+async function loadWalletEscrow() {
+    const tbody = document.getElementById('walletEscrowBody')
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;">Loading...</td></tr>'
+    
+    try {
+        const status = document.getElementById('escrowStatusFilter').value
+        
+        const params = new URLSearchParams()
+        if (status) params.append('status', status)
+        
+        const res = await fetch(`${API_BASE}/api/admin/wallet/escrow?${params}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#6b7280;">No escrow holds found</td></tr>'
+                return
+            }
+            
+            tbody.innerHTML = data.data.map(escrow => `
+                <tr>
+                    <td><code style="font-size:11px;">${escrow.id.slice(0,8)}...</code></td>
+                    <td><code style="font-size:11px;">${escrow.buyerWallet?.userDid?.slice(0,15) || 'N/A'}...</code></td>
+                    <td><code style="font-size:11px;">${escrow.sellerWallet?.userDid?.slice(0,15) || 'N/A'}...</code></td>
+                    <td>${escrow.orderId ? `<code style="font-size:11px;">${escrow.orderId.slice(0,8)}...</code>` : '-'}</td>
+                    <td>${formatMAD(escrow.amount)}</td>
+                    <td>${formatMAD(escrow.feeAmount || 0)}</td>
+                    <td>${formatMAD(escrow.sellerAmount || 0)}</td>
+                    <td><span class="badge ${getEscrowStatusBadge(escrow.status)}">${escrow.status}</span></td>
+                    <td>${escrow.releaseAt ? new Date(escrow.releaseAt).toLocaleDateString() : '-'}</td>
+                    <td>
+                        ${escrow.status === 'HELD' ? `
+                            <button class="btn btn-success" style="padding:4px 8px;font-size:12px;" onclick="releaseEscrow('${escrow.id}')">Release</button>
+                            <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;" onclick="refundEscrow('${escrow.id}')">Refund</button>
+                        ` : '-'}
+                    </td>
+                </tr>
+            `).join('')
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function getEscrowStatusBadge(status) {
+    switch (status) {
+        case 'HELD': return 'badge-warning'
+        case 'RELEASED': return 'badge-success'
+        case 'REFUNDED': return 'badge-info'
+        case 'DISPUTED': return 'badge-danger'
+        default: return 'badge-secondary'
+    }
+}
+
+async function releaseEscrow(id) {
+    if (!confirm('Are you sure you want to release this escrow to the seller?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/escrow/${id}/release`, {
+            method: 'POST'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Escrow released successfully', 'success')
+            loadWalletEscrow()
+            loadWalletStats()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to release escrow', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to release escrow: ' + error.message, 'error')
+    }
+}
+
+async function refundEscrow(id) {
+    if (!confirm('Are you sure you want to refund this escrow to the buyer?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/escrow/${id}/refund`, {
+            method: 'POST'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Escrow refunded successfully', 'success')
+            loadWalletEscrow()
+            loadWalletStats()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to refund escrow', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to refund escrow: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Fees Management
+// ============================================================================
+
+async function loadWalletFees() {
+    const tbody = document.getElementById('walletFeesBody')
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;">Loading...</td></tr>'
+    
+    // Load cities for dropdown
+    if (walletCitiesCache.length === 0) {
+        await loadWalletCities()
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/fees`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#6b7280;">No fee configurations found. Click "Seed Defaults" to add standard fees.</td></tr>'
+                return
+            }
+            
+            tbody.innerHTML = data.data.map(fee => `
+                <tr>
+                    <td><code>${fee.code}</code></td>
+                    <td>${fee.name}</td>
+                    <td><span class="badge ${fee.type === 'PERCENTAGE' ? 'badge-info' : fee.type === 'FIXED' ? 'badge-warning' : 'badge-success'}">${fee.type}</span></td>
+                    <td>${fee.type === 'PERCENTAGE' ? fee.value + '%' : formatMAD(fee.value)}</td>
+                    <td>${fee.minAmount ? formatMAD(fee.minAmount) : '-'}</td>
+                    <td>${fee.maxAmount ? formatMAD(fee.maxAmount) : '-'}</td>
+                    <td>${fee.appliesTo?.join(', ') || 'All'}</td>
+                    <td>${fee.city?.name || 'Global'}</td>
+                    <td>${fee.isActive ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-danger">Inactive</span>'}</td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" onclick="editFee('${fee.id}')">Edit</button>
+                        <button class="btn btn-danger" style="padding:4px 8px;font-size:12px;" onclick="deleteFee('${fee.id}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('')
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:40px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function showFeeForm(fee = null) {
+    document.getElementById('feeFormTitle').textContent = fee ? 'Edit Fee Configuration' : 'Add Fee Configuration'
+    document.getElementById('feeId').value = fee?.id || ''
+    document.getElementById('feeCode').value = fee?.code || ''
+    document.getElementById('feeName').value = fee?.name || ''
+    document.getElementById('feeDescription').value = fee?.description || ''
+    document.getElementById('feeType').value = fee?.type || 'PERCENTAGE'
+    document.getElementById('feeValue').value = fee?.value || ''
+    document.getElementById('feeCityId').value = fee?.cityId || ''
+    document.getElementById('feeMinAmount').value = fee?.minAmount || ''
+    document.getElementById('feeMaxAmount').value = fee?.maxAmount || ''
+    document.getElementById('feeAppliesTo').value = fee?.appliesTo?.join(',') || ''
+    document.getElementById('feeActive').checked = fee?.isActive !== false
+    
+    document.getElementById('feeFormModal').style.display = 'flex'
+}
+
+function hideFeeForm() {
+    document.getElementById('feeFormModal').style.display = 'none'
+}
+
+async function saveFee() {
+    const id = document.getElementById('feeId').value
+    const appliesTo = document.getElementById('feeAppliesTo').value
+    
+    const payload = {
+        code: document.getElementById('feeCode').value,
+        name: document.getElementById('feeName').value,
+        description: document.getElementById('feeDescription').value || null,
+        type: document.getElementById('feeType').value,
+        value: parseFloat(document.getElementById('feeValue').value),
+        cityId: document.getElementById('feeCityId').value || null,
+        minAmount: parseFloat(document.getElementById('feeMinAmount').value) || null,
+        maxAmount: parseFloat(document.getElementById('feeMaxAmount').value) || null,
+        appliesTo: appliesTo ? appliesTo.split(',').map(s => s.trim()) : null,
+        isActive: document.getElementById('feeActive').checked
+    }
+    
+    try {
+        const url = id 
+            ? `${API_BASE}/api/admin/wallet/fees/${id}`
+            : `${API_BASE}/api/admin/wallet/fees`
+        
+        const res = await fetch(url, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', `Fee configuration ${id ? 'updated' : 'created'} successfully`, 'success')
+            hideFeeForm()
+            loadWalletFees()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to save fee configuration', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to save fee configuration: ' + error.message, 'error')
+    }
+}
+
+async function editFee(id) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/fees`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const fee = data.data.find(f => f.id === id)
+            if (fee) showFeeForm(fee)
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to load fee: ' + error.message, 'error')
+    }
+}
+
+async function deleteFee(id) {
+    if (!confirm('Are you sure you want to delete this fee configuration?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/fees/${id}`, {
+            method: 'DELETE'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Fee configuration deleted', 'success')
+            loadWalletFees()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to delete fee', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to delete fee: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Wallet Config Management
+// ============================================================================
+
+async function loadWalletConfigs() {
+    const tbody = document.getElementById('walletConfigsBody')
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;">Loading...</td></tr>'
+    
+    // Load cities for dropdown
+    if (walletCitiesCache.length === 0) {
+        await loadWalletCities()
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/config`)
+        const data = await res.json()
+        
+        if (data.success) {
+            if (data.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#6b7280;">No configurations found</td></tr>'
+            } else {
+                tbody.innerHTML = data.data.map(config => `
+                    <tr>
+                        <td><code>${config.key}</code></td>
+                        <td><strong>${config.value}</strong></td>
+                        <td>${config.description || '-'}</td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding:2px 6px;font-size:11px;" onclick="editWalletConfig('${config.id}')">Edit</button>
+                        </td>
+                    </tr>
+                `).join('')
+            }
+            
+            // Populate quick settings
+            populateQuickSettings(data.data)
+        }
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:20px;color:#ef4444;">Error: ${error.message}</td></tr>`
+    }
+}
+
+function populateQuickSettings(configs) {
+    const getValue = (key) => {
+        const config = configs.find(c => c.key === key)
+        return config?.value || ''
+    }
+    
+    document.getElementById('configMinWithdrawal').value = getValue('min_withdrawal')
+    document.getElementById('configMaxWithdrawalDaily').value = getValue('max_withdrawal_daily')
+    document.getElementById('configMaxDepositDaily').value = getValue('max_deposit_daily')
+    document.getElementById('configEscrowReleaseDays').value = getValue('escrow_release_days')
+    document.getElementById('configAgentCommission').value = parseFloat(getValue('agent_commission') || 0) * 100
+}
+
+async function saveQuickSettings() {
+    const settings = [
+        { key: 'min_withdrawal', value: document.getElementById('configMinWithdrawal').value, description: 'Minimum withdrawal amount (MAD)' },
+        { key: 'max_withdrawal_daily', value: document.getElementById('configMaxWithdrawalDaily').value, description: 'Maximum daily withdrawal (MAD)' },
+        { key: 'max_deposit_daily', value: document.getElementById('configMaxDepositDaily').value, description: 'Maximum daily deposit (MAD)' },
+        { key: 'escrow_release_days', value: document.getElementById('configEscrowReleaseDays').value, description: 'Days before auto-release escrow' },
+        { key: 'agent_commission', value: (parseFloat(document.getElementById('configAgentCommission').value) / 100).toString(), description: 'Agent commission rate' }
+    ]
+    
+    try {
+        for (const setting of settings) {
+            if (setting.value) {
+                await fetch(`${API_BASE}/api/admin/wallet/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(setting)
+                })
+            }
+        }
+        
+        showMessage('walletMessage', 'Settings saved successfully', 'success')
+        loadWalletConfigs()
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to save settings: ' + error.message, 'error')
+    }
+}
+
+function showWalletConfigForm(config = null) {
+    document.getElementById('walletConfigFormTitle').textContent = config ? 'Edit Configuration' : 'Add Configuration'
+    document.getElementById('walletConfigId').value = config?.id || ''
+    document.getElementById('walletConfigKey').value = config?.key || ''
+    document.getElementById('walletConfigValue').value = config?.value || ''
+    document.getElementById('walletConfigDescription').value = config?.description || ''
+    document.getElementById('walletConfigCityId').value = config?.cityId || ''
+    document.getElementById('walletConfigActive').checked = config?.isActive !== false
+    
+    document.getElementById('walletConfigFormModal').style.display = 'flex'
+}
+
+function hideWalletConfigForm() {
+    document.getElementById('walletConfigFormModal').style.display = 'none'
+}
+
+async function saveWalletConfig() {
+    const id = document.getElementById('walletConfigId').value
+    const payload = {
+        key: document.getElementById('walletConfigKey').value,
+        value: document.getElementById('walletConfigValue').value,
+        description: document.getElementById('walletConfigDescription').value || null,
+        cityId: document.getElementById('walletConfigCityId').value || null,
+        isActive: document.getElementById('walletConfigActive').checked
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Configuration saved successfully', 'success')
+            hideWalletConfigForm()
+            loadWalletConfigs()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to save configuration', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to save configuration: ' + error.message, 'error')
+    }
+}
+
+async function editWalletConfig(id) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/config`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const config = data.data.find(c => c.id === id)
+            if (config) showWalletConfigForm(config)
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to load configuration: ' + error.message, 'error')
+    }
+}
+
+// Seed wallet defaults
+async function seedWalletDefaults() {
+    if (!confirm('This will add default fee configurations and wallet settings. Continue?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/seed`, {
+            method: 'POST'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletMessage', 'Default configurations seeded successfully', 'success')
+            loadWalletStats()
+            loadWalletDashboard()
+        } else {
+            showMessage('walletMessage', data.error || 'Failed to seed defaults', 'error')
+        }
+    } catch (error) {
+        showMessage('walletMessage', 'Failed to seed defaults: ' + error.message, 'error')
+    }
+}
+

@@ -4976,6 +4976,722 @@ app.put('/api/orders/:id/status', async (req, res) => {
 })
 
 // ============================================================================
+// Wallet Admin API Routes
+// ============================================================================
+
+/**
+ * GET /api/admin/wallet/stats
+ * Get wallet system stats
+ */
+app.get('/api/admin/wallet/stats', async (req, res) => {
+  try {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const [
+      totalWallets,
+      totalBalanceResult,
+      todayDeposits,
+      todayWithdrawals,
+      todayFees,
+      pendingEscrow,
+      totalCashPoints,
+      activeCashPoints,
+      verifiedCashPoints,
+      totalAgents,
+      todayTransactions,
+      todayNewWallets,
+      activeEscrows,
+      disputedEscrows
+    ] = await Promise.all([
+      prisma.wallet.count(),
+      prisma.wallet.aggregate({ _sum: { balance: true } }),
+      prisma.walletTransaction.aggregate({
+        where: {
+          type: { in: ['DEPOSIT_CASH', 'DEPOSIT_CARD', 'DEPOSIT_BANK'] },
+          status: 'COMPLETED',
+          createdAt: { gte: today }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.walletTransaction.aggregate({
+        where: {
+          type: { in: ['WITHDRAWAL_CASH', 'WITHDRAWAL_BANK'] },
+          status: 'COMPLETED',
+          createdAt: { gte: today }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.walletTransaction.aggregate({
+        where: {
+          type: { in: ['FEE_PLATFORM', 'FEE_AGENT'] },
+          createdAt: { gte: today }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.escrowHold.aggregate({
+        where: { status: 'HELD' },
+        _sum: { amount: true }
+      }),
+      prisma.cashPoint.count(),
+      prisma.cashPoint.count({ where: { isActive: true } }),
+      prisma.cashPoint.count({ where: { isVerified: true } }),
+      prisma.cashPointAgent.count(),
+      prisma.walletTransaction.count({ where: { createdAt: { gte: today } } }),
+      prisma.wallet.count({ where: { createdAt: { gte: today } } }),
+      prisma.escrowHold.count({ where: { status: 'HELD' } }),
+      prisma.escrowHold.count({ where: { status: 'DISPUTED' } })
+    ])
+    
+    res.json({
+      success: true,
+      data: {
+        totalWallets,
+        totalBalance: totalBalanceResult._sum.balance || 0,
+        todayDeposits: todayDeposits._sum.amount || 0,
+        todayWithdrawals: Math.abs(todayWithdrawals._sum.amount || 0),
+        todayFees: todayFees._sum.amount || 0,
+        pendingEscrow: pendingEscrow._sum.amount || 0,
+        totalCashPoints,
+        activeCashPoints,
+        verifiedCashPoints,
+        totalAgents,
+        todayTransactions,
+        todayNewWallets,
+        activeEscrows,
+        disputedEscrows
+      }
+    })
+  } catch (error) {
+    console.error('[Admin Wallet] Stats error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/transactions
+ * List all transactions with filters
+ */
+app.get('/api/admin/wallet/transactions', async (req, res) => {
+  try {
+    const { type, status, userDid, page = '1', limit = '20' } = req.query
+    
+    const where = {}
+    if (type) where.type = type
+    if (status) where.status = status
+    if (userDid) where.wallet = { userDid: userDid }
+    
+    const pageNum = parseInt(page)
+    const limitNum = parseInt(limit)
+    const skip = (pageNum - 1) * limitNum
+    
+    const [transactions, total] = await Promise.all([
+      prisma.walletTransaction.findMany({
+        where,
+        include: {
+          wallet: { select: { userDid: true } },
+          cashPoint: { select: { name: true, type: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limitNum,
+        skip
+      }),
+      prisma.walletTransaction.count({ where })
+    ])
+    
+    res.json({
+      success: true,
+      data: transactions,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    })
+  } catch (error) {
+    console.error('[Admin Wallet] List transactions error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/fees
+ * List all fee configurations
+ */
+app.get('/api/admin/wallet/fees', async (req, res) => {
+  try {
+    const { cityId, isActive } = req.query
+    
+    const fees = await prisma.walletFeeConfig.findMany({
+      where: {
+        ...(cityId ? { cityId } : {}),
+        ...(isActive !== undefined ? { isActive: isActive === 'true' } : {})
+      },
+      include: {
+        city: { select: { id: true, name: true, code: true } }
+      },
+      orderBy: { code: 'asc' }
+    })
+    
+    res.json({ success: true, data: fees })
+  } catch (error) {
+    console.error('[Admin Wallet] List fees error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/fees
+ * Create a fee configuration
+ */
+app.post('/api/admin/wallet/fees', async (req, res) => {
+  try {
+    const { name, code, description, type, value, minAmount, maxAmount, tiers, appliesTo, cityId, isActive } = req.body
+    
+    if (!name || !code || !type || value === undefined) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' })
+    }
+    
+    const fee = await prisma.walletFeeConfig.create({
+      data: {
+        name,
+        code,
+        description,
+        type,
+        value,
+        minAmount,
+        maxAmount,
+        tiers,
+        appliesTo: appliesTo || [],
+        cityId: cityId || null,
+        isActive: isActive !== false
+      }
+    })
+    
+    res.json({ success: true, data: fee })
+  } catch (error) {
+    console.error('[Admin Wallet] Create fee error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/admin/wallet/fees/:id
+ * Update a fee configuration
+ */
+app.put('/api/admin/wallet/fees/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { name, description, type, value, minAmount, maxAmount, tiers, appliesTo, isActive } = req.body
+    
+    const fee = await prisma.walletFeeConfig.update({
+      where: { id },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+        ...(type && { type }),
+        ...(value !== undefined && { value }),
+        ...(minAmount !== undefined && { minAmount }),
+        ...(maxAmount !== undefined && { maxAmount }),
+        ...(tiers !== undefined && { tiers }),
+        ...(appliesTo && { appliesTo }),
+        ...(isActive !== undefined && { isActive })
+      }
+    })
+    
+    res.json({ success: true, data: fee })
+  } catch (error) {
+    console.error('[Admin Wallet] Update fee error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/admin/wallet/fees/:id
+ * Delete a fee configuration
+ */
+app.delete('/api/admin/wallet/fees/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    await prisma.walletFeeConfig.delete({ where: { id } })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Admin Wallet] Delete fee error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/config
+ * List all wallet configs
+ */
+app.get('/api/admin/wallet/config', async (req, res) => {
+  try {
+    const { cityId } = req.query
+    
+    const configs = await prisma.walletConfig.findMany({
+      where: cityId ? { cityId } : {},
+      include: {
+        city: { select: { id: true, name: true, code: true } }
+      },
+      orderBy: { key: 'asc' }
+    })
+    
+    res.json({ success: true, data: configs })
+  } catch (error) {
+    console.error('[Admin Wallet] List configs error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/admin/wallet/config
+ * Set a wallet config value (upsert)
+ */
+app.put('/api/admin/wallet/config', async (req, res) => {
+  try {
+    const { key, value, description, cityId, isActive } = req.body
+    
+    if (!key || value === undefined) {
+      return res.status(400).json({ success: false, error: 'Key and value required' })
+    }
+    
+    // Check if config exists
+    const existing = await prisma.walletConfig.findFirst({ where: { key } })
+    
+    let config
+    if (existing) {
+      config = await prisma.walletConfig.update({
+        where: { id: existing.id },
+        data: {
+          value: String(value),
+          ...(description && { description }),
+          ...(isActive !== undefined && { isActive })
+        }
+      })
+    } else {
+      config = await prisma.walletConfig.create({
+        data: {
+          key,
+          value: String(value),
+          description,
+          cityId: cityId || null,
+          isActive: isActive !== false
+        }
+      })
+    }
+    
+    res.json({ success: true, data: config })
+  } catch (error) {
+    console.error('[Admin Wallet] Set config error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/cash-points
+ * List all cash points
+ */
+app.get('/api/admin/wallet/cash-points', async (req, res) => {
+  try {
+    const { cityId, type, isActive, isVerified } = req.query
+    
+    const cashPoints = await prisma.cashPoint.findMany({
+      where: {
+        ...(cityId ? { cityId } : {}),
+        ...(type ? { type } : {}),
+        ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
+        ...(isVerified !== undefined ? { isVerified: isVerified === 'true' } : {})
+      },
+      include: {
+        city: { select: { id: true, name: true, code: true } },
+        agent: { select: { id: true, name: true, phone: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    res.json({ success: true, data: cashPoints })
+  } catch (error) {
+    console.error('[Admin Wallet] List cash points error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/cash-points
+ * Create a cash point
+ */
+app.post('/api/admin/wallet/cash-points', async (req, res) => {
+  try {
+    const { 
+      name, nameAr, type, cityId, address, addressAr, 
+      latitude, longitude, operatingHours, phone,
+      dailyDepositLimit, dailyWithdrawalLimit, agentId,
+      isActive, isVerified
+    } = req.body
+    
+    if (!name || !type) {
+      return res.status(400).json({ success: false, error: 'Name and type required' })
+    }
+    
+    const cashPoint = await prisma.cashPoint.create({
+      data: {
+        name,
+        nameAr,
+        type,
+        cityId: cityId || null,
+        address,
+        addressAr,
+        latitude,
+        longitude,
+        operatingHours,
+        phone,
+        dailyDepositLimit: dailyDepositLimit || 50000,
+        dailyWithdrawalLimit: dailyWithdrawalLimit || 20000,
+        agentId: agentId || null,
+        isActive: isActive !== false,
+        isVerified: isVerified === true
+      }
+    })
+    
+    res.json({ success: true, data: cashPoint })
+  } catch (error) {
+    console.error('[Admin Wallet] Create cash point error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/admin/wallet/cash-points/:id
+ * Update a cash point
+ */
+app.put('/api/admin/wallet/cash-points/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const updates = req.body
+    
+    const cashPoint = await prisma.cashPoint.update({
+      where: { id },
+      data: updates
+    })
+    
+    res.json({ success: true, data: cashPoint })
+  } catch (error) {
+    console.error('[Admin Wallet] Update cash point error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/admin/wallet/cash-points/:id
+ * Delete a cash point
+ */
+app.delete('/api/admin/wallet/cash-points/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    await prisma.cashPoint.delete({ where: { id } })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Admin Wallet] Delete cash point error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/agents
+ * List all agents
+ */
+app.get('/api/admin/wallet/agents', async (req, res) => {
+  try {
+    const { isActive, isVerified } = req.query
+    
+    const agents = await prisma.cashPointAgent.findMany({
+      where: {
+        ...(isActive !== undefined ? { isActive: isActive === 'true' } : {}),
+        ...(isVerified !== undefined ? { isVerified: isVerified === 'true' } : {})
+      },
+      include: {
+        _count: { select: { cashPoints: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    res.json({ success: true, data: agents })
+  } catch (error) {
+    console.error('[Admin Wallet] List agents error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/agents
+ * Create an agent
+ */
+app.post('/api/admin/wallet/agents', async (req, res) => {
+  try {
+    const { userDid, name, phone, email, nationalId, commissionRate, isVerified, isActive } = req.body
+    
+    if (!name) {
+      return res.status(400).json({ success: false, error: 'Name required' })
+    }
+    
+    const agent = await prisma.cashPointAgent.create({
+      data: {
+        userDid,
+        name,
+        phone,
+        email,
+        nationalId,
+        commissionRate: commissionRate || 0.01,
+        isVerified: isVerified === true,
+        isActive: isActive !== false
+      }
+    })
+    
+    res.json({ success: true, data: agent })
+  } catch (error) {
+    console.error('[Admin Wallet] Create agent error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/admin/wallet/agents/:id
+ * Update an agent
+ */
+app.put('/api/admin/wallet/agents/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const updates = req.body
+    
+    const agent = await prisma.cashPointAgent.update({
+      where: { id },
+      data: updates
+    })
+    
+    res.json({ success: true, data: agent })
+  } catch (error) {
+    console.error('[Admin Wallet] Update agent error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/admin/wallet/escrow
+ * List all escrow holds
+ */
+app.get('/api/admin/wallet/escrow', async (req, res) => {
+  try {
+    const { status, page = '1', limit = '20' } = req.query
+    
+    const pageNum = parseInt(page)
+    const limitNum = parseInt(limit)
+    const skip = (pageNum - 1) * limitNum
+    
+    const where = status ? { status } : {}
+    
+    const [escrows, total] = await Promise.all([
+      prisma.escrowHold.findMany({
+        where,
+        include: {
+          buyerWallet: { select: { userDid: true } },
+          sellerWallet: { select: { userDid: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limitNum,
+        skip
+      }),
+      prisma.escrowHold.count({ where })
+    ])
+    
+    res.json({
+      success: true,
+      data: escrows,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    })
+  } catch (error) {
+    console.error('[Admin Wallet] List escrow error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/escrow/:id/release
+ * Admin force release escrow to seller
+ */
+app.post('/api/admin/wallet/escrow/:id/release', async (req, res) => {
+  try {
+    const { id } = req.params
+    
+    const escrow = await prisma.escrowHold.findUnique({
+      where: { id },
+      include: { sellerWallet: true }
+    })
+    
+    if (!escrow) {
+      return res.status(404).json({ success: false, error: 'Escrow not found' })
+    }
+    
+    if (escrow.status !== 'HELD') {
+      return res.status(400).json({ success: false, error: 'Escrow not in HELD status' })
+    }
+    
+    // Release to seller
+    await prisma.$transaction([
+      // Update escrow
+      prisma.escrowHold.update({
+        where: { id },
+        data: {
+          status: 'RELEASED',
+          releasedAt: new Date()
+        }
+      }),
+      // Credit seller wallet
+      prisma.wallet.update({
+        where: { id: escrow.sellerWalletId },
+        data: {
+          balance: { increment: escrow.sellerAmount },
+          lifetimeEarned: { increment: escrow.sellerAmount }
+        }
+      }),
+      // Create transaction record
+      prisma.walletTransaction.create({
+        data: {
+          walletId: escrow.sellerWalletId,
+          type: 'ESCROW_RELEASE',
+          amount: escrow.sellerAmount,
+          netAmount: escrow.sellerAmount,
+          status: 'COMPLETED',
+          referenceId: escrow.id,
+          referenceType: 'ESCROW',
+          description: 'Admin released escrow'
+        }
+      })
+    ])
+    
+    res.json({ success: true, message: 'Escrow released to seller' })
+  } catch (error) {
+    console.error('[Admin Wallet] Release escrow error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/escrow/:id/refund
+ * Admin force refund escrow to buyer
+ */
+app.post('/api/admin/wallet/escrow/:id/refund', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { reason } = req.body
+    
+    const escrow = await prisma.escrowHold.findUnique({
+      where: { id },
+      include: { buyerWallet: true }
+    })
+    
+    if (!escrow) {
+      return res.status(404).json({ success: false, error: 'Escrow not found' })
+    }
+    
+    if (escrow.status !== 'HELD' && escrow.status !== 'DISPUTED') {
+      return res.status(400).json({ success: false, error: 'Escrow cannot be refunded' })
+    }
+    
+    // Refund to buyer
+    await prisma.$transaction([
+      // Update escrow
+      prisma.escrowHold.update({
+        where: { id },
+        data: {
+          status: 'REFUNDED',
+          resolution: reason || 'Admin refund'
+        }
+      }),
+      // Credit buyer wallet
+      prisma.wallet.update({
+        where: { id: escrow.buyerWalletId },
+        data: {
+          balance: { increment: escrow.amount }
+        }
+      }),
+      // Create transaction record
+      prisma.walletTransaction.create({
+        data: {
+          walletId: escrow.buyerWalletId,
+          type: 'REFUND',
+          amount: escrow.amount,
+          netAmount: escrow.amount,
+          status: 'COMPLETED',
+          referenceId: escrow.id,
+          referenceType: 'ESCROW',
+          description: reason || 'Admin refund'
+        }
+      })
+    ])
+    
+    res.json({ success: true, message: 'Escrow refunded to buyer' })
+  } catch (error) {
+    console.error('[Admin Wallet] Refund escrow error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/seed
+ * Seed default fee configurations and wallet settings
+ */
+app.post('/api/admin/wallet/seed', async (req, res) => {
+  try {
+    const defaultFees = [
+      { code: 'platform_fee_market', name: 'Market Platform Fee', type: 'PERCENTAGE', value: 8, appliesTo: ['MARKET'] },
+      { code: 'platform_fee_ride', name: 'Ride Platform Fee', type: 'PERCENTAGE', value: 5, appliesTo: ['RIDE'] },
+      { code: 'deposit_fee_cash', name: 'Cash Deposit Fee', type: 'FIXED', value: 0, appliesTo: ['DEPOSIT'] },
+      { code: 'deposit_fee_card', name: 'Card Deposit Fee', type: 'PERCENTAGE', value: 2.9, minAmount: 3, appliesTo: ['DEPOSIT'] },
+      { code: 'deposit_fee_bank', name: 'Bank Deposit Fee', type: 'FIXED', value: 0, appliesTo: ['DEPOSIT'] },
+      { code: 'withdrawal_fee_cash', name: 'Cash Withdrawal Fee', type: 'FIXED', value: 5, appliesTo: ['WITHDRAWAL'] },
+      { code: 'withdrawal_fee_bank', name: 'Bank Withdrawal Fee', type: 'FIXED', value: 10, appliesTo: ['WITHDRAWAL'] },
+      { code: 'cod_fee', name: 'Cash on Delivery Fee', type: 'FIXED', value: 5, appliesTo: ['MARKET'] }
+    ]
+    
+    const defaultConfigs = [
+      { key: 'min_withdrawal', value: '20', description: 'Minimum withdrawal amount (MAD)' },
+      { key: 'max_withdrawal_daily', value: '5000', description: 'Maximum daily withdrawal (MAD)' },
+      { key: 'max_deposit_daily', value: '10000', description: 'Maximum daily deposit (MAD)' },
+      { key: 'escrow_release_days', value: '7', description: 'Auto-release escrow after days' },
+      { key: 'agent_commission', value: '0.01', description: 'Agent commission rate (1%)' }
+    ]
+    
+    // Seed fees (skip if exists)
+    for (const fee of defaultFees) {
+      const existing = await prisma.walletFeeConfig.findFirst({ where: { code: fee.code } })
+      if (!existing) {
+        await prisma.walletFeeConfig.create({ data: fee })
+      }
+    }
+    
+    // Seed configs (skip if exists)
+    for (const config of defaultConfigs) {
+      const existing = await prisma.walletConfig.findFirst({ where: { key: config.key } })
+      if (!existing) {
+        await prisma.walletConfig.create({ data: config })
+      }
+    }
+    
+    res.json({ success: true, message: 'Default configurations seeded' })
+  } catch (error) {
+    console.error('[Admin Wallet] Seed error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 
