@@ -47,7 +47,14 @@ export class MarketService {
 
     if (params.categoryId) where.categoryId = params.categoryId
     if (params.subcategoryId) where.subcategoryId = params.subcategoryId
-    if (params.cityId) where.cityId = params.cityId
+    
+    // City filtering: if cityId provided, show posts for that city OR posts without a city (legacy posts)
+    if (params.cityId) {
+      where.OR = [
+        { cityId: params.cityId },
+        { cityId: null }
+      ]
+    }
 
     logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
 
@@ -177,6 +184,7 @@ export class MarketService {
     postCid: string
     categoryId: string
     subcategoryId?: string
+    cityId?: string
     title: string
     description?: string
     price?: number
@@ -197,6 +205,7 @@ export class MarketService {
         postCid: data.postCid,
         categoryId: data.categoryId,
         subcategoryId: data.subcategoryId,
+        cityId: data.cityId,  // Link product to city
         title: data.title,
         description: data.description,
         price: data.price,
