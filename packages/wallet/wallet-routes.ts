@@ -41,6 +41,21 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 })
 
 /**
+ * GET /api/wallet/balance
+ * Get wallet balance breakdown (alias for main endpoint)
+ */
+router.get('/balance', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userDid = (req as any).userDid
+    const balance = await walletService.getWalletBalance(userDid)
+    res.json({ success: true, data: balance })
+  } catch (error: any) {
+    console.error('[Wallet] Get balance error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+/**
  * GET /api/wallet/transactions
  * Get transaction history
  */
