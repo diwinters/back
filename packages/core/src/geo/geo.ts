@@ -484,6 +484,7 @@ export class GeoService {
 
   /**
    * Get cross-city pricing if available
+   * NOTE: Requires CrossCityPricing model migration to be applied
    */
   static async getCrossCityPricing(
     fromCityId: string,
@@ -497,25 +498,32 @@ export class GeoService {
     estimatedDistanceKm?: number
     estimatedDurationMin?: number
   } | null> {
-    const pricing = await prisma.crossCityPricing.findUnique({
-      where: {
-        fromCityId_toCityId_vehicleTypeCode: {
-          fromCityId,
-          toCityId,
-          vehicleTypeCode
-        }
+    try {
+      // Use raw query to avoid TypeScript errors before migration
+      const pricing = await prisma.$queryRaw<any[]>`
+        SELECT * FROM "CrossCityPricing" 
+        WHERE "fromCityId" = ${fromCityId} 
+        AND "toCityId" = ${toCityId} 
+        AND "vehicleTypeCode" = ${vehicleTypeCode}
+        AND "isActive" = true
+        LIMIT 1
+      `
+
+      if (!pricing || pricing.length === 0) return null
+
+      const p = pricing[0]
+      return {
+        flatRate: p.flatRate || undefined,
+        baseFare: p.baseFare || undefined,
+        perKmRate: p.perKmRate || undefined,
+        minimumFare: p.minimumFare || undefined,
+        estimatedDistanceKm: p.estimatedDistanceKm || undefined,
+        estimatedDurationMin: p.estimatedDurationMin || undefined
       }
-    })
-
-    if (!pricing || !pricing.isActive) return null
-
-    return {
-      flatRate: pricing.flatRate || undefined,
-      baseFare: pricing.baseFare || undefined,
-      perKmRate: pricing.perKmRate || undefined,
-      minimumFare: pricing.minimumFare || undefined,
-      estimatedDistanceKm: pricing.estimatedDistanceKm || undefined,
-      estimatedDurationMin: pricing.estimatedDurationMin || undefined
+    } catch (error) {
+      // Table doesn't exist yet - migration not applied
+      logger.warn('[GeoService] CrossCityPricing table not available yet')
+      return null
     }
   }
 
