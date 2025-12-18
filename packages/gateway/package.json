@@ -12,6 +12,7 @@
   "dependencies": {
     "@gominiapp/core": "*",
     "@gominiapp/go-service": "*",
+    "@gominiapp/wallet": "*",
     "express": "^4.19.2",
     "cors": "^2.8.5",
     "helmet": "^7.1.0",
