@@ -5884,6 +5884,173 @@ app.post('/api/admin/wallet/seed', async (req, res) => {
 })
 
 // ============================================================================
+// Market Checkout & Promo Code Routes
+// ============================================================================
+
+/**
+ * GET /api/market/checkout-config
+ * Get checkout configuration for a city
+ */
+app.get('/api/market/checkout-config', async (req, res) => {
+  try {
+    const { cityId } = req.query
+    
+    const config = await prisma.checkoutConfig.findFirst({
+      where: { cityId: cityId || null },
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    res.json({ success: true, data: config })
+  } catch (error) {
+    console.error('[Market] Error fetching checkout config:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/checkout-config/all
+ * Get all checkout configurations
+ */
+app.get('/api/market/checkout-config/all', async (req, res) => {
+  try {
+    const configs = await prisma.checkoutConfig.findMany({
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    res.json({ success: true, data: configs })
+  } catch (error) {
+    console.error('[Market] Error fetching all checkout configs:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/checkout-config
+ * Update or create checkout configuration
+ */
+app.put('/api/market/checkout-config', async (req, res) => {
+  try {
+    const { cityId, ...data } = req.body
+    
+    // Check if config exists for this city
+    const existing = await prisma.checkoutConfig.findFirst({
+      where: { cityId: cityId || null }
+    })
+    
+    let config
+    if (existing) {
+      // Update existing
+      config = await prisma.checkoutConfig.update({
+        where: { id: existing.id },
+        data
+      })
+    } else {
+      // Create new
+      config = await prisma.checkoutConfig.create({
+        data: {
+          cityId: cityId || null,
+          ...data
+        }
+      })
+    }
+    
+    res.json({ success: true, data: config })
+  } catch (error) {
+    console.error('[Market] Error saving checkout config:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/checkout-config/:id
+ * Delete checkout configuration
+ */
+app.delete('/api/market/checkout-config/:id', async (req, res) => {
+  try {
+    await prisma.checkoutConfig.delete({
+      where: { id: req.params.id }
+    })
+    
+    res.json({ success: true, message: 'Checkout config deleted' })
+  } catch (error) {
+    console.error('[Market] Error deleting checkout config:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/promo-codes
+ * Get all promo codes
+ */
+app.get('/api/market/promo-codes', async (req, res) => {
+  try {
+    const { cityId } = req.query
+    
+    const promoCodes = await prisma.promoCode.findMany({
+      where: cityId ? { cityId } : {},
+      orderBy: { createdAt: 'desc' }
+    })
+    
+    res.json({ success: true, data: promoCodes })
+  } catch (error) {
+    console.error('[Market] Error fetching promo codes:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/promo-codes
+ * Create new promo code
+ */
+app.post('/api/market/promo-codes', async (req, res) => {
+  try {
+    const promoCode = await prisma.promoCode.create({
+      data: req.body
+    })
+    
+    res.json({ success: true, data: promoCode })
+  } catch (error) {
+    console.error('[Market] Error creating promo code:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/promo-codes/:id
+ * Update promo code
+ */
+app.put('/api/market/promo-codes/:id', async (req, res) => {
+  try {
+    const promoCode = await prisma.promoCode.update({
+      where: { id: req.params.id },
+      data: req.body
+    })
+    
+    res.json({ success: true, data: promoCode })
+  } catch (error) {
+    console.error('[Market] Error updating promo code:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/promo-codes/:id
+ * Delete promo code
+ */
+app.delete('/api/market/promo-codes/:id', async (req, res) => {
+  try {
+    await prisma.promoCode.delete({
+      where: { id: req.params.id }
+    })
+    
+    res.json({ success: true, message: 'Promo code deleted' })
+  } catch (error) {
+    console.error('[Market] Error deleting promo code:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 
