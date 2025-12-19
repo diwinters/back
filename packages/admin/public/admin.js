@@ -2063,7 +2063,7 @@ function showMarketSubtab(subtab) {
     } else if (subtab === 'posts') {
         document.getElementById('marketPosts').style.display = 'block'
         loadMarketPosts()
-    } else if (subtab === 'marketOrders') {
+    } else if (subtab === 'orders') {
         document.getElementById('marketOrders').style.display = 'block'
         loadMarketOrders()
     } else if (subtab === 'disputes') {
