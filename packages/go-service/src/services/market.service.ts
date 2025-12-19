@@ -471,7 +471,7 @@ export class MarketService {
     })
 
     if (existing) {
-      throw new AppError('Promo code already exists', ErrorCode.CONFLICT, 409)
+      throw new AppError('Promo code already exists', ErrorCode.BAD_REQUEST, 409)
     }
 
     return prisma.promoCode.create({
@@ -520,7 +520,7 @@ export class MarketService {
         where: { code: data.code.toUpperCase() }
       })
       if (duplicate) {
-        throw new AppError('Promo code already exists', ErrorCode.CONFLICT, 409)
+        throw new AppError('Promo code already exists', ErrorCode.BAD_REQUEST, 409)
       }
     }
 
