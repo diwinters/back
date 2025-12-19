@@ -6123,6 +6123,8 @@ app.get('/api/orders/buyer/:did', async (req, res) => {
     const { did } = req.params
     const { status, page = 1, limit = 20 } = req.query
 
+    console.log(`[Orders] GET buyer orders for DID: ${did.substring(0, 25)}...`)
+
     const where = { buyerDid: did }
     if (status) where.status = status
 
@@ -6134,7 +6136,7 @@ app.get('/api/orders/buyer/:did', async (req, res) => {
             include: {
               marketPost: true,
               seller: {
-                include: { user: { select: { did: true, handle: true, displayName: true, avatar: true } } }
+                include: { user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } } }
               }
             }
           },
@@ -6146,6 +6148,8 @@ app.get('/api/orders/buyer/:did', async (req, res) => {
       }),
       prisma.marketOrder.count({ where })
     ])
+
+    console.log(`[Orders] Found ${orders.length} orders for buyer (total: ${total})`)
 
     res.json({ 
       success: true, 
