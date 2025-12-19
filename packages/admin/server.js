@@ -5069,6 +5069,184 @@ app.get('/api/admin/wallet/stats', async (req, res) => {
 })
 
 /**
+ * GET /api/admin/wallet/users
+ * Search users for top-up
+ */
+app.get('/api/admin/wallet/users', async (req, res) => {
+  try {
+    const { search } = req.query
+    
+    if (!search || search.length < 2) {
+      return res.json({ success: true, data: [] })
+    }
+    
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { handle: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+          { did: { contains: search } }
+        ]
+      },
+      take: 20
+    })
+    
+    // Get wallets for these users separately
+    const userDids = users.map(u => u.did)
+    const wallets = await prisma.wallet.findMany({
+      where: { userDid: { in: userDids } },
+      select: { userDid: true, balance: true, pendingBalance: true }
+    })
+    
+    // Merge wallet info with users
+    const walletsMap = new Map(wallets.map(w => [w.userDid, w]))
+    const usersWithWallets = users.map(user => {
+      const wallet = walletsMap.get(user.did)
+      return {
+        ...user,
+        wallet: wallet ? { available: wallet.balance, pending: wallet.pendingBalance } : null
+      }
+    })
+    
+    res.json({ success: true, data: usersWithWallets })
+  } catch (error) {
+    console.error('[Admin Wallet] Search users error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/top-up
+ * Admin top-up a user's wallet
+ */
+app.post('/api/admin/wallet/top-up', async (req, res) => {
+  try {
+    const { userDid, amount, reason, adminNote } = req.body
+    
+    if (!userDid || !amount) {
+      return res.status(400).json({ success: false, error: 'User DID and amount are required' })
+    }
+    
+    if (amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Amount must be positive' })
+    }
+    
+    // Find or create wallet
+    let wallet = await prisma.wallet.findUnique({ where: { userDid } })
+    
+    if (!wallet) {
+      wallet = await prisma.wallet.create({
+        data: {
+          userDid,
+          balance: 0,
+          pendingBalance: 0,
+          currency: 'MAD'
+        }
+      })
+    }
+    
+    // Create transaction and update wallet balance
+    const result = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'DEPOSIT_CASH',
+          status: 'COMPLETED',
+          amount,
+          fee: 0,
+          netAmount: amount,
+          description: reason || 'Admin top-up',
+          metadata: {
+            adminTopUp: true,
+            adminNote: adminNote || '',
+            topUpDate: new Date().toISOString()
+          }
+        }
+      })
+      
+      const updatedWallet = await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balance: { increment: amount },
+          lifetimeEarned: { increment: amount }
+        }
+      })
+      
+      return { transaction, wallet: updatedWallet }
+    })
+    
+    console.log(`[Admin Wallet] Top-up successful: ${amount} MAD to user ${userDid}`)
+    res.json({ success: true, data: result, message: `Successfully added ${amount} MAD to wallet` })
+  } catch (error) {
+    console.error('[Admin Wallet] Top-up error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/wallet/deduct
+ * Admin deduct from a user's wallet
+ */
+app.post('/api/admin/wallet/deduct', async (req, res) => {
+  try {
+    const { userDid, amount, reason, adminNote } = req.body
+    
+    if (!userDid || !amount) {
+      return res.status(400).json({ success: false, error: 'User DID and amount are required' })
+    }
+    
+    if (amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Amount must be positive' })
+    }
+    
+    const wallet = await prisma.wallet.findUnique({ where: { userDid } })
+    
+    if (!wallet) {
+      return res.status(404).json({ success: false, error: 'User wallet not found' })
+    }
+    
+    if (wallet.balance < amount) {
+      return res.status(400).json({ success: false, error: 'Insufficient balance for deduction' })
+    }
+    
+    const result = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'WITHDRAWAL_CASH',
+          status: 'COMPLETED',
+          amount: -amount,
+          fee: 0,
+          netAmount: -amount,
+          description: reason || 'Admin deduction',
+          metadata: {
+            adminDeduction: true,
+            adminNote: adminNote || '',
+            deductionDate: new Date().toISOString()
+          }
+        }
+      })
+      
+      const updatedWallet = await tx.wallet.update({
+        where: { id: wallet.id },
+        data: {
+          balance: { decrement: amount },
+          lifetimeSpent: { increment: amount }
+        }
+      })
+      
+      return { transaction, wallet: updatedWallet }
+    })
+    
+    console.log(`[Admin Wallet] Deduction successful: ${amount} MAD from user ${userDid}`)
+    res.json({ success: true, data: result, message: `Successfully deducted ${amount} MAD from wallet` })
+  } catch (error) {
+    console.error('[Admin Wallet] Deduction error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/admin/wallet/transactions
  * List all transactions with filters
  */
