@@ -5580,11 +5580,7 @@ app.post('/api/checkout/confirm', async (req, res) => {
       }
     })
 
-    // Send DMs to sellers (async, don't block response)
-    sendOrderDMsToSellers(updatedOrder).catch(err => {
-      console.error('[Checkout] Failed to send order DMs:', err)
-    })
-
+    // Note: DMs are now sent from the client app using user's session
     console.log(`[Checkout] Confirmed order ${order.id} via ${paymentMethod}`)
 
     res.json({ success: true, data: updatedOrder })
