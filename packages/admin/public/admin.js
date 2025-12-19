@@ -1079,6 +1079,10 @@ function showMessage(elementId, message, type) {
     }, 5000)
 }
 
+function showMarketMessage(message, type) {
+    showMessage('marketMessage', message, type)
+}
+
 function showLoading(elementId) {
     document.getElementById(elementId).innerHTML = `
         <div class="loading">
