@@ -2231,6 +2231,11 @@ function loadCheckoutConfigForCity() {
 }
 
 function populateCheckoutConfigForm(config) {
+    // Handle null config (no config exists yet - use defaults)
+    if (!config) {
+        config = {}
+    }
+    
     // Shipping & Fees
     document.getElementById('checkoutDefaultShippingFee').value = config.defaultShippingFee || 15
     document.getElementById('checkoutFreeShippingThreshold').value = config.freeShippingThreshold || ''
