@@ -5024,7 +5024,7 @@ app.get('/api/admin/wallet/stats', async (req, res) => {
       }),
       prisma.walletTransaction.aggregate({
         where: {
-          type: { in: ['FEE_PLATFORM', 'FEE_AGENT'] },
+          type: { in: ['FEE_PLATFORM'] },
           createdAt: { gte: today }
         },
         _sum: { amount: true }
