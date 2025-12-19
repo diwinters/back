@@ -175,10 +175,12 @@ router.post('/pin/verify', requireAuth, async (req: Request, res: Response) => {
 router.post('/deposit', requireAuth, async (req: Request, res: Response) => {
   try {
     const userDid = (req as any).userDid
-    const { amount, type, cashPointId, stripePaymentIntentId, metadata } = req.body
+    // Support both 'method' (frontend) and 'type' (original)
+    const { amount, method, type, cashPointId, stripePaymentIntentId, metadata } = req.body
+    const depositType = method || type
     
-    if (!amount || !type) {
-      return res.status(400).json({ error: 'Amount and type are required' })
+    if (!amount || !depositType) {
+      return res.status(400).json({ error: 'Amount and method/type are required' })
     }
     
     if (amount <= 0) {
@@ -188,7 +190,7 @@ router.post('/deposit', requireAuth, async (req: Request, res: Response) => {
     const result = await walletService.initiateDeposit({
       userDid,
       amount,
-      type,
+      type: depositType,
       cashPointId,
       stripePaymentIntentId,
       metadata
@@ -374,15 +376,18 @@ router.post('/escrow/:id/dispute', requireAuth, async (req: Request, res: Respon
  */
 router.get('/cash-points', async (req: Request, res: Response) => {
   try {
-    const { latitude, longitude, radius, type } = req.query
+    // Support both lat/lng and latitude/longitude
+    const lat = req.query.lat || req.query.latitude
+    const lng = req.query.lng || req.query.longitude
+    const { radius, type } = req.query
     
-    if (!latitude || !longitude) {
-      return res.status(400).json({ error: 'Location required' })
+    if (!lat || !lng) {
+      return res.status(400).json({ error: 'Location required (lat/lng or latitude/longitude)' })
     }
     
     const cashPoints = await walletService.getNearbyCashPoints(
-      parseFloat(latitude as string),
-      parseFloat(longitude as string),
+      parseFloat(lat as string),
+      parseFloat(lng as string),
       radius ? parseFloat(radius as string) : undefined,
       type as string
     )
@@ -413,6 +418,33 @@ router.get('/cash-points/:id', async (req: Request, res: Response) => {
 // =============================================================================
 // Fee Calculation Route
 // =============================================================================
+
+/**
+ * GET /api/wallet/calculate-fee
+ * Calculate fee for an amount (frontend calls this)
+ */
+router.get('/calculate-fee', async (req: Request, res: Response) => {
+  try {
+    const { amount, type, feeCode, cityId } = req.query
+    
+    // Support both 'type' (frontend) and 'feeCode' (original)
+    const code = (type || feeCode) as string
+    
+    if (!amount || !code) {
+      return res.status(400).json({ error: 'Amount and type/feeCode required' })
+    }
+    
+    const fee = await walletService.calculateFee(
+      parseFloat(amount as string), 
+      code, 
+      cityId as string
+    )
+    res.json({ success: true, data: fee })
+  } catch (error: any) {
+    console.error('[Wallet] Calculate fee error:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
 
 /**
  * POST /api/wallet/calculate-fee
