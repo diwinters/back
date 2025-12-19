@@ -1196,6 +1196,10 @@ model MarketOrderItem {
   
   // Escrow tracking
   escrowHoldId  String?
+  escrowHold    EscrowHold?       @relation(fields: [escrowHoldId], references: [id])
+  
+  // Dispute
+  dispute       MarketOrderDispute?
   
   // Status timestamps
   confirmedAt   DateTime?
@@ -1228,7 +1232,8 @@ enum MarketOrderItemStatus {
 model MarketOrderDispute {
   id              String   @id @default(cuid())
   
-  orderItemId     String
+  orderItemId     String   @unique
+  orderItem       MarketOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   
   // Who initiated
   initiatorDid    String              // Buyer or Seller DID
@@ -1450,6 +1455,9 @@ model EscrowHold {
   // Reference
   orderId         String?
   rideId          String?
+  
+  // Back relation to order items
+  orderItems      MarketOrderItem[]
   
   status          EscrowStatus @default(HELD)
   
