@@ -1029,6 +1029,8 @@
             <button class="tab" id="marketSubtabPromoCards" onclick="showMarketSubtab('promoCards')">🎴 Promo Cards</button>
             <button class="tab" id="marketSubtabSellers" onclick="showMarketSubtab('sellers')">👤 Sellers</button>
             <button class="tab" id="marketSubtabPosts" onclick="showMarketSubtab('posts')">📋 Posts</button>
+            <button class="tab" id="marketSubtabOrders" onclick="showMarketSubtab('marketOrders')">📦 Orders</button>
+            <button class="tab" id="marketSubtabDisputes" onclick="showMarketSubtab('disputes')">⚠️ Disputes</button>
             <button class="tab" id="marketSubtabCheckout" onclick="showMarketSubtab('checkout')">🛒 Checkout</button>
             <button class="tab" id="marketSubtabSettings" onclick="showMarketSubtab('settings')">⚙️ Settings</button>
         </div>
@@ -1159,6 +1161,72 @@
                 <tbody id="marketPostsBody"></tbody>
             </table>
             <div id="marketPostsPagination" class="pagination"></div>
+        </div>
+
+        <!-- Market Orders Subtab -->
+        <div id="marketOrders" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <input type="search" id="marketOrderSearch" placeholder="Search orders (ID, buyer)..." onkeyup="if(event.key==='Enter')loadMarketOrders()">
+                <select id="marketOrderStatusFilter" onchange="loadMarketOrders()">
+                    <option value="">All Status</option>
+                    <option value="PENDING">Pending</option>
+                    <option value="PAID">Paid</option>
+                    <option value="PROCESSING">Processing</option>
+                    <option value="SHIPPED">Shipped</option>
+                    <option value="DELIVERED">Delivered</option>
+                    <option value="CANCELLED">Cancelled</option>
+                    <option value="REFUNDED">Refunded</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadMarketOrders()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Order ID</th>
+                        <th>Buyer</th>
+                        <th>Items</th>
+                        <th>Total</th>
+                        <th>Payment</th>
+                        <th>Status</th>
+                        <th>Escrow</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="marketOrdersBody"></tbody>
+            </table>
+            <div id="marketOrdersPagination" class="pagination"></div>
+        </div>
+
+        <!-- Disputes Subtab -->
+        <div id="disputes" class="market-subtab" style="display: none;">
+            <div class="toolbar" style="margin-top: 20px;">
+                <select id="disputeStatusFilter" onchange="loadDisputes()">
+                    <option value="">All Status</option>
+                    <option value="OPEN">Open</option>
+                    <option value="UNDER_REVIEW">Under Review</option>
+                    <option value="RESOLVED">Resolved</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadDisputes()">🔄 Refresh</button>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Dispute ID</th>
+                        <th>Order</th>
+                        <th>Initiated By</th>
+                        <th>Reason</th>
+                        <th>Status</th>
+                        <th>Escrow Amount</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="disputesBody"></tbody>
+            </table>
+            <div id="disputesPagination" class="pagination"></div>
         </div>
 
         <!-- Checkout Subtab -->

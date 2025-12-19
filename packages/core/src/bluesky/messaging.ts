@@ -176,6 +176,171 @@ export class BlueskyMessaging {
     return this.sendMessage(conversationId, { text })
   }
 
+  // ==========================================================================
+  // MARKET ORDER MESSAGING
+  // ==========================================================================
+
+  /**
+   * Create or get conversation between buyer and seller
+   */
+  async getOrCreateMarketConversation(
+    buyerDid: string,
+    sellerDid: string
+  ): Promise<string> {
+    await this.ensureInitialized()
+
+    try {
+      const response = await this.agent.api.chat.bsky.convo.getConvoForMembers({
+        members: [buyerDid, sellerDid],
+      })
+
+      const conversationId = response.data.convo.id
+      
+      logger.info('Market conversation created/retrieved', {
+        conversationId,
+        buyer: buyerDid,
+        seller: sellerDid,
+      })
+
+      return conversationId
+    } catch (error) {
+      logger.error('Failed to create market conversation', { error, buyerDid, sellerDid })
+      throw error
+    }
+  }
+
+  /**
+   * Get post record for embedding
+   */
+  async getPostRecord(postUri: string): Promise<{ uri: string; cid: string } | null> {
+    await this.ensureInitialized()
+
+    try {
+      // Parse the AT URI to get repo and rkey
+      // Format: at://did:plc:xxx/app.bsky.feed.post/xxx
+      const parts = postUri.replace('at://', '').split('/')
+      const repo = parts[0]
+      const rkey = parts[2]
+
+      const response = await this.agent.api.app.bsky.feed.getPostThread({
+        uri: postUri,
+        depth: 0,
+      })
+
+      if (response.data.thread?.post) {
+        return {
+          uri: response.data.thread.post.uri,
+          cid: response.data.thread.post.cid,
+        }
+      }
+
+      return null
+    } catch (error) {
+      logger.error('Failed to get post record', { error, postUri })
+      return null
+    }
+  }
+
+  /**
+   * Send market order notification to seller with embedded post
+   * Returns both conversationId and messageId
+   */
+  async sendMarketOrderDM(
+    buyerDid: string,
+    sellerDid: string,
+    orderData: {
+      orderId: string
+      total: number
+      currency: string
+      itemCount: number
+      items: Array<{
+        title: string
+        quantity: number
+        price: number
+        postUri?: string
+        postCid?: string
+      }>
+    }
+  ): Promise<{ conversationId: string; messageId: string }> {
+    await this.ensureInitialized()
+
+    try {
+      // Get or create conversation
+      const conversationId = await this.getOrCreateMarketConversation(buyerDid, sellerDid)
+
+      // Build the order summary text
+      const itemsText = orderData.items.map(item => 
+        `• ${item.title} x${item.quantity} - ${item.price} ${orderData.currency}`
+      ).join('\n')
+
+      const orderText = `🛒 New Order #${orderData.orderId.slice(-6).toUpperCase()}
+
+💰 ${orderData.total} ${orderData.currency} • ${orderData.itemCount} item${orderData.itemCount > 1 ? 's' : ''}
+
+${itemsText}`
+
+      // Build embed with first product post if available
+      let embed: any = undefined
+      const firstItemWithPost = orderData.items.find(item => item.postUri && item.postCid)
+      
+      if (firstItemWithPost && firstItemWithPost.postUri && firstItemWithPost.postCid) {
+        embed = {
+          $type: 'app.bsky.embed.record',
+          record: {
+            uri: firstItemWithPost.postUri,
+            cid: firstItemWithPost.postCid,
+          },
+        }
+      }
+
+      // Send the message
+      const messageId = await this.sendMessage(conversationId, {
+        text: orderText,
+        embed,
+      })
+
+      logger.info('Market order DM sent', {
+        conversationId,
+        messageId,
+        orderId: orderData.orderId,
+        itemCount: orderData.itemCount,
+      })
+
+      return { conversationId, messageId }
+    } catch (error) {
+      logger.error('Failed to send market order DM', { error, buyerDid, sellerDid })
+      throw error
+    }
+  }
+
+  /**
+   * Send order status update message
+   */
+  async sendOrderStatusUpdate(
+    conversationId: string,
+    type: 'CONFIRMED' | 'PACKAGED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'DISPUTED',
+    data: {
+      orderId: string
+      itemTitle?: string
+      trackingNumber?: string
+      estimatedDelivery?: string
+      reason?: string
+    }
+  ): Promise<string> {
+    const messages: Record<string, string> = {
+      CONFIRMED: `✅ Order confirmed!\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n\nSeller is preparing your order.`,
+      PACKAGED: `📦 Order packaged!\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n\nYour order is ready to ship.`,
+      SHIPPED: `🚚 Order shipped!\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n${data.trackingNumber ? `Tracking: ${data.trackingNumber}` : ''}\n${data.estimatedDelivery ? `ETA: ${data.estimatedDelivery}` : ''}`,
+      DELIVERED: `✅ Order delivered!\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n\nPlease confirm receipt to release payment.`,
+      CANCELLED: `❌ Order cancelled\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n${data.reason ? `Reason: ${data.reason}` : ''}`,
+      DISPUTED: `⚠️ Dispute opened\n\nOrder #${data.orderId.slice(-6).toUpperCase()}\n${data.itemTitle || ''}\n${data.reason ? `Reason: ${data.reason}` : ''}\n\nOur team will review and respond within 24-48 hours.`,
+    }
+
+    const text = messages[type] || 'Order update'
+    
+    return this.sendMessage(conversationId, { text })
+  }
+
   /**
    * Get conversation messages
    */

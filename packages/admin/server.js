@@ -3713,6 +3713,337 @@ app.get('/api/market/posts/:id/history', async (req, res) => {
 })
 
 // ============================================================================
+// Market: Orders Admin Endpoints
+// ============================================================================
+
+/**
+ * GET /api/market/orders
+ * List all market orders (admin view)
+ */
+app.get('/api/market/orders', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const status = req.query.status
+    const search = req.query.search || ''
+
+    const where = {}
+    if (status) where.status = status
+    if (search) {
+      where.OR = [
+        { buyerDid: { contains: search, mode: 'insensitive' } },
+        { id: { contains: search, mode: 'insensitive' } },
+        { items: { some: { marketPost: { title: { contains: search, mode: 'insensitive' } } } } }
+      ]
+    }
+
+    const [orders, total] = await Promise.all([
+      prisma.marketOrder.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              marketPost: {
+                select: { id: true, title: true, images: true }
+              },
+              seller: {
+                select: { id: true, businessName: true, did: true }
+              },
+              escrowHold: true
+            }
+          },
+          conversations: {
+            include: {
+              seller: {
+                select: { id: true, businessName: true }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketOrder.count({ where })
+    ])
+
+    res.json({
+      success: true,
+      data: orders,
+      meta: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize)
+      }
+    })
+  } catch (error) {
+    console.error('[Market Orders] List error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/orders/:id
+ * Get market order details
+ */
+app.get('/api/market/orders/:id', async (req, res) => {
+  try {
+    const order = await prisma.marketOrder.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          include: {
+            marketPost: true,
+            seller: true,
+            escrowHold: true,
+            dispute: true
+          }
+        },
+        conversations: {
+          include: {
+            seller: true
+          }
+        }
+      }
+    })
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+
+    res.json({ success: true, data: order })
+  } catch (error) {
+    console.error('[Market Orders] Get order error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/disputes
+ * List all market order disputes (admin view)
+ */
+app.get('/api/market/disputes', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const status = req.query.status
+
+    const where = {}
+    if (status) where.status = status
+
+    const [disputes, total] = await Promise.all([
+      prisma.marketOrderDispute.findMany({
+        where,
+        include: {
+          orderItem: {
+            include: {
+              order: true,
+              marketPost: {
+                select: { id: true, title: true, images: true }
+              },
+              seller: {
+                select: { id: true, businessName: true, did: true }
+              },
+              escrowHold: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.marketOrderDispute.count({ where })
+    ])
+
+    res.json({
+      success: true,
+      data: disputes,
+      meta: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize)
+      }
+    })
+  } catch (error) {
+    console.error('[Market Disputes] List error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/disputes/:id/resolve
+ * Resolve a market order dispute (admin action)
+ */
+app.put('/api/market/disputes/:id/resolve', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { resolution, adminNotes, refundPercentage } = req.body
+
+    if (!resolution || !['SELLER_WIN', 'BUYER_WIN', 'PARTIAL_REFUND'].includes(resolution)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Valid resolution required: SELLER_WIN, BUYER_WIN, or PARTIAL_REFUND' 
+      })
+    }
+
+    const dispute = await prisma.marketOrderDispute.findUnique({
+      where: { id },
+      include: {
+        orderItem: {
+          include: {
+            order: true,
+            escrowHold: true,
+            seller: true
+          }
+        }
+      }
+    })
+
+    if (!dispute) {
+      return res.status(404).json({ success: false, error: 'Dispute not found' })
+    }
+
+    if (dispute.status !== 'PENDING') {
+      return res.status(400).json({ success: false, error: 'Dispute already resolved' })
+    }
+
+    // Handle escrow based on resolution
+    const escrow = dispute.orderItem.escrowHold
+    const buyerDid = dispute.orderItem.order.buyerDid
+    const sellerDid = dispute.orderItem.seller.did
+
+    if (escrow && escrow.status === 'PENDING') {
+      if (resolution === 'BUYER_WIN') {
+        // Full refund to buyer
+        await prisma.$transaction([
+          prisma.escrowHold.update({
+            where: { id: escrow.id },
+            data: { status: 'REFUNDED', releasedAt: new Date() }
+          }),
+          prisma.wallet.update({
+            where: { did: buyerDid },
+            data: { balance: { increment: escrow.amount } }
+          }),
+          prisma.walletTransaction.create({
+            data: {
+              walletId: (await prisma.wallet.findUnique({ where: { did: buyerDid } })).id,
+              type: 'REFUND',
+              amount: escrow.amount,
+              description: `Dispute refund for order item ${dispute.orderItemId}`,
+              referenceType: 'ESCROW_REFUND',
+              referenceId: escrow.id
+            }
+          })
+        ])
+      } else if (resolution === 'SELLER_WIN') {
+        // Release to seller
+        await prisma.$transaction([
+          prisma.escrowHold.update({
+            where: { id: escrow.id },
+            data: { status: 'RELEASED', releasedAt: new Date() }
+          }),
+          prisma.wallet.update({
+            where: { did: sellerDid },
+            data: { balance: { increment: escrow.amount } }
+          }),
+          prisma.walletTransaction.create({
+            data: {
+              walletId: (await prisma.wallet.findUnique({ where: { did: sellerDid } })).id,
+              type: 'CREDIT',
+              amount: escrow.amount,
+              description: `Dispute resolved - payment for order item ${dispute.orderItemId}`,
+              referenceType: 'ESCROW_RELEASE',
+              referenceId: escrow.id
+            }
+          })
+        ])
+      } else if (resolution === 'PARTIAL_REFUND') {
+        // Split the funds
+        const percentage = refundPercentage || 50
+        const refundAmount = Math.floor(escrow.amount * (percentage / 100))
+        const sellerAmount = escrow.amount - refundAmount
+
+        const [buyerWallet, sellerWallet] = await Promise.all([
+          prisma.wallet.findUnique({ where: { did: buyerDid } }),
+          prisma.wallet.findUnique({ where: { did: sellerDid } })
+        ])
+
+        await prisma.$transaction([
+          prisma.escrowHold.update({
+            where: { id: escrow.id },
+            data: { status: 'RELEASED', releasedAt: new Date() }
+          }),
+          prisma.wallet.update({
+            where: { did: buyerDid },
+            data: { balance: { increment: refundAmount } }
+          }),
+          prisma.wallet.update({
+            where: { did: sellerDid },
+            data: { balance: { increment: sellerAmount } }
+          }),
+          prisma.walletTransaction.create({
+            data: {
+              walletId: buyerWallet.id,
+              type: 'REFUND',
+              amount: refundAmount,
+              description: `Partial refund (${percentage}%) for order item ${dispute.orderItemId}`,
+              referenceType: 'ESCROW_REFUND',
+              referenceId: escrow.id
+            }
+          }),
+          prisma.walletTransaction.create({
+            data: {
+              walletId: sellerWallet.id,
+              type: 'CREDIT',
+              amount: sellerAmount,
+              description: `Partial payment (${100 - percentage}%) for order item ${dispute.orderItemId}`,
+              referenceType: 'ESCROW_RELEASE',
+              referenceId: escrow.id
+            }
+          })
+        ])
+      }
+    }
+
+    // Update dispute status
+    const updatedDispute = await prisma.marketOrderDispute.update({
+      where: { id },
+      data: {
+        status: 'RESOLVED',
+        resolution,
+        adminNotes: adminNotes || null,
+        resolvedAt: new Date()
+      },
+      include: {
+        orderItem: {
+          include: {
+            order: true,
+            marketPost: true,
+            seller: true
+          }
+        }
+      }
+    })
+
+    // Update order item status
+    await prisma.marketOrderItem.update({
+      where: { id: dispute.orderItemId },
+      data: { 
+        status: resolution === 'BUYER_WIN' ? 'REFUNDED' : 'DELIVERED',
+        deliveredAt: resolution !== 'BUYER_WIN' ? new Date() : null
+      }
+    })
+
+    res.json({ success: true, data: updatedDispute })
+  } catch (error) {
+    console.error('[Market Disputes] Resolve error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Market: Public API Endpoints (for mobile app)
 // ============================================================================
 
@@ -4813,11 +5144,11 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 
 /**
  * POST /api/checkout/confirm
- * Manually confirm payment (for testing without webhooks)
+ * Confirm payment, create escrow holds, and send DMs to sellers
  */
 app.post('/api/checkout/confirm', async (req, res) => {
   try {
-    const { orderId, paymentIntentId } = req.body
+    const { orderId, paymentIntentId, paymentMethod = 'WALLET' } = req.body
 
     if (!orderId && !paymentIntentId) {
       return res.status(400).json({ 
@@ -4830,23 +5161,247 @@ app.post('/api/checkout/confirm', async (req, res) => {
       ? { id: orderId }
       : { stripePaymentIntentId: paymentIntentId }
 
-    const order = await prisma.marketOrder.update({
+    // Get the order with all relations needed
+    const order = await prisma.marketOrder.findFirst({
       where,
+      include: { 
+        items: {
+          include: {
+            marketPost: true,
+            seller: {
+              include: { user: true }
+            }
+          }
+        }
+      }
+    })
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+
+    // Check if already paid
+    if (order.status === 'PAID' || order.status === 'PROCESSING') {
+      return res.json({ success: true, data: order, message: 'Order already confirmed' })
+    }
+
+    // For WALLET payments, create escrow holds
+    if (paymentMethod === 'WALLET') {
+      // Get buyer's wallet
+      const buyerWallet = await prisma.wallet.findUnique({
+        where: { did: order.buyerDid }
+      })
+
+      if (!buyerWallet) {
+        return res.status(400).json({ success: false, error: 'Buyer wallet not found' })
+      }
+
+      if (buyerWallet.balance < order.total) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Insufficient wallet balance',
+          required: order.total,
+          available: buyerWallet.balance
+        })
+      }
+
+      // Deduct from buyer wallet
+      await prisma.wallet.update({
+        where: { id: buyerWallet.id },
+        data: { balance: { decrement: order.total } }
+      })
+
+      // Create wallet transaction for buyer
+      await prisma.walletTransaction.create({
+        data: {
+          walletId: buyerWallet.id,
+          type: 'ESCROW',
+          amount: -order.total,
+          currency: order.currency,
+          description: `Order #${order.id.slice(-6).toUpperCase()} - Payment held in escrow`,
+          status: 'COMPLETED',
+          referenceId: order.id,
+        }
+      })
+
+      // Group items by seller for escrow creation
+      const itemsBySeller = order.items.reduce((acc, item) => {
+        if (!acc[item.sellerId]) {
+          acc[item.sellerId] = {
+            seller: item.seller,
+            items: [],
+            total: 0,
+          }
+        }
+        acc[item.sellerId].items.push(item)
+        acc[item.sellerId].total += item.total
+        return acc
+      }, {})
+
+      // Get market settings for fee calculation
+      const settings = await prisma.marketSettings.findUnique({ where: { id: 1 } })
+      const serviceFeeRate = settings?.serviceFeeRate || 0.05
+
+      // Create escrow holds for each seller
+      for (const sellerId of Object.keys(itemsBySeller)) {
+        const sellerData = itemsBySeller[sellerId]
+        const sellerTotal = sellerData.total
+        const platformFee = Math.round(sellerTotal * serviceFeeRate * 100) / 100
+        const sellerAmount = sellerTotal - platformFee
+
+        // Get or create seller's wallet
+        let sellerWallet = await prisma.wallet.findUnique({
+          where: { did: sellerData.seller.user.did }
+        })
+
+        if (!sellerWallet) {
+          sellerWallet = await prisma.wallet.create({
+            data: {
+              did: sellerData.seller.user.did,
+              balance: 0,
+              currency: order.currency,
+            }
+          })
+        }
+
+        // Create escrow hold
+        const escrowHold = await prisma.escrowHold.create({
+          data: {
+            buyerWalletId: buyerWallet.id,
+            sellerWalletId: sellerWallet.id,
+            amount: sellerTotal,
+            feeAmount: platformFee,
+            sellerAmount: sellerAmount,
+            orderId: order.id,
+            status: 'HELD',
+            releaseAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Auto-release after 7 days
+          }
+        })
+
+        // Update order items with escrow reference
+        await prisma.marketOrderItem.updateMany({
+          where: {
+            orderId: order.id,
+            sellerId: sellerId,
+          },
+          data: {
+            escrowHoldId: escrowHold.id,
+            postUri: sellerData.items[0].marketPost.postUri,
+            postCid: sellerData.items[0].marketPost.postCid,
+          }
+        })
+      }
+    }
+
+    // Update order status to PAID
+    const updatedOrder = await prisma.marketOrder.update({
+      where: { id: order.id },
       data: { 
         status: 'PAID',
         paidAt: new Date(),
       },
-      include: { items: true }
+      include: { 
+        items: {
+          include: {
+            marketPost: true,
+            seller: {
+              include: { user: true }
+            }
+          }
+        },
+        conversations: true
+      }
     })
 
-    console.log(`[Checkout] Manually confirmed order ${order.id}`)
+    // Send DMs to sellers (async, don't block response)
+    sendOrderDMsToSellers(updatedOrder).catch(err => {
+      console.error('[Checkout] Failed to send order DMs:', err)
+    })
 
-    res.json({ success: true, data: order })
+    console.log(`[Checkout] Confirmed order ${order.id} via ${paymentMethod}`)
+
+    res.json({ success: true, data: updatedOrder })
   } catch (error) {
     console.error('[Checkout] Confirm error:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
+/**
+ * Helper function to send order DMs to all sellers
+ */
+async function sendOrderDMsToSellers(order) {
+  try {
+    // Only proceed if BSKY credentials are available
+    if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
+      console.log('[Order DM] Skipping DMs - BSKY credentials not configured')
+      return
+    }
+
+    const { BlueskyMessaging } = await import('@social-app/core/bluesky/messaging.js')
+    const messaging = new BlueskyMessaging(
+      process.env.BSKY_SERVICE_IDENTIFIER,
+      process.env.BSKY_SERVICE_PASSWORD
+    )
+    await messaging.initialize()
+
+    // Group items by seller
+    const itemsBySeller = order.items.reduce((acc, item) => {
+      if (!acc[item.sellerId]) {
+        acc[item.sellerId] = {
+          seller: item.seller,
+          items: [],
+          total: 0,
+        }
+      }
+      acc[item.sellerId].items.push(item)
+      acc[item.sellerId].total += item.total
+      return acc
+    }, {})
+
+    // Send DM to each seller
+    for (const sellerId of Object.keys(itemsBySeller)) {
+      const sellerData = itemsBySeller[sellerId]
+      const sellerDid = sellerData.seller.user.did
+
+      try {
+        const { conversationId, messageId } = await messaging.sendMarketOrderDM(
+          order.buyerDid,
+          sellerDid,
+          {
+            orderId: order.id,
+            total: sellerData.total,
+            currency: order.currency,
+            itemCount: sellerData.items.length,
+            items: sellerData.items.map(item => ({
+              title: item.title,
+              quantity: item.quantity,
+              price: item.price,
+              postUri: item.postUri || item.marketPost?.postUri,
+              postCid: item.postCid || item.marketPost?.postCid,
+            })),
+          }
+        )
+
+        // Store conversation reference
+        await prisma.marketOrderConversation.create({
+          data: {
+            orderId: order.id,
+            sellerId: sellerId,
+            conversationId: conversationId,
+            orderMessageId: messageId,
+          }
+        })
+
+        console.log(`[Order DM] Sent to seller ${sellerId}, convo: ${conversationId}`)
+      } catch (err) {
+        console.error(`[Order DM] Failed for seller ${sellerId}:`, err)
+      }
+    }
+  } catch (error) {
+    console.error('[Order DM] Failed to send DMs:', error)
+  }
+}
 
 /**
  * GET /api/orders/:id
@@ -4971,6 +5526,663 @@ app.put('/api/orders/:id/status', async (req, res) => {
     res.json({ success: true, data: order })
   } catch (error) {
     console.error('[Orders] Update status error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/orders/items/:itemId/status
+ * Update individual order item status (seller actions)
+ */
+app.put('/api/orders/items/:itemId/status', async (req, res) => {
+  try {
+    const { status, did, trackingNumber, estimatedDelivery } = req.body
+    const itemId = req.params.itemId
+
+    const validStatuses = ['CONFIRMED', 'PACKAGED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+      })
+    }
+
+    // Get the item with order and seller info
+    const item = await prisma.marketOrderItem.findUnique({
+      where: { id: itemId },
+      include: { 
+        order: {
+          include: { conversations: true }
+        },
+        seller: {
+          include: { user: true }
+        },
+        marketPost: true
+      }
+    })
+
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Order item not found' })
+    }
+
+    // Verify the requester is the seller
+    if (did && did !== item.seller.user.did) {
+      return res.status(403).json({ success: false, error: 'Not authorized to update this item' })
+    }
+
+    // Build update data
+    const updateData = { status }
+    if (status === 'CONFIRMED') updateData.confirmedAt = new Date()
+    if (status === 'SHIPPED') updateData.shippedAt = new Date()
+    if (status === 'DELIVERED') updateData.deliveredAt = new Date()
+
+    // Update the item
+    const updatedItem = await prisma.marketOrderItem.update({
+      where: { id: itemId },
+      data: updateData,
+      include: {
+        order: true,
+        seller: { include: { user: true } }
+      }
+    })
+
+    // Send status update DM
+    const conversation = item.order.conversations.find(c => c.sellerId === item.sellerId)
+    if (conversation) {
+      sendOrderStatusDM(conversation.conversationId, status, {
+        orderId: item.orderId,
+        itemTitle: item.title,
+        trackingNumber,
+        estimatedDelivery,
+      }).catch(err => console.error('[Order Status DM] Failed:', err))
+    }
+
+    // Check if all items are delivered - if so, update order status
+    const allItems = await prisma.marketOrderItem.findMany({
+      where: { orderId: item.orderId }
+    })
+    const allDelivered = allItems.every(i => i.status === 'DELIVERED')
+    
+    if (allDelivered) {
+      await prisma.marketOrder.update({
+        where: { id: item.orderId },
+        data: { status: 'DELIVERED', deliveredAt: new Date() }
+      })
+    }
+
+    console.log(`[Orders] Updated item ${itemId} status to ${status}`)
+
+    res.json({ success: true, data: updatedItem })
+  } catch (error) {
+    console.error('[Orders] Update item status error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/orders/items/:itemId/confirm-delivery
+ * Buyer confirms delivery - releases escrow to seller
+ */
+app.post('/api/orders/items/:itemId/confirm-delivery', async (req, res) => {
+  try {
+    const { did } = req.body
+    const itemId = req.params.itemId
+
+    // Get the item with escrow info
+    const item = await prisma.marketOrderItem.findUnique({
+      where: { id: itemId },
+      include: { 
+        order: true,
+        seller: { include: { user: true } }
+      }
+    })
+
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Order item not found' })
+    }
+
+    // Verify the requester is the buyer
+    if (did !== item.order.buyerDid) {
+      return res.status(403).json({ success: false, error: 'Not authorized' })
+    }
+
+    // Get the escrow hold
+    const escrowHold = await prisma.escrowHold.findFirst({
+      where: { 
+        orderId: item.orderId,
+        status: 'HELD'
+      },
+      include: {
+        sellerWallet: true
+      }
+    })
+
+    if (escrowHold) {
+      // Release escrow to seller
+      await prisma.$transaction([
+        // Update seller wallet balance
+        prisma.wallet.update({
+          where: { id: escrowHold.sellerWalletId },
+          data: { balance: { increment: escrowHold.sellerAmount } }
+        }),
+        // Mark escrow as released
+        prisma.escrowHold.update({
+          where: { id: escrowHold.id },
+          data: { 
+            status: 'RELEASED',
+            releasedAt: new Date()
+          }
+        }),
+        // Create transaction record for seller
+        prisma.walletTransaction.create({
+          data: {
+            walletId: escrowHold.sellerWalletId,
+            type: 'SALE',
+            amount: escrowHold.sellerAmount,
+            currency: item.order.currency,
+            description: `Sale - Order #${item.orderId.slice(-6).toUpperCase()}`,
+            status: 'COMPLETED',
+            referenceId: item.orderId,
+          }
+        })
+      ])
+    }
+
+    // Update item status to delivered
+    await prisma.marketOrderItem.update({
+      where: { id: itemId },
+      data: { 
+        status: 'DELIVERED',
+        deliveredAt: new Date()
+      }
+    })
+
+    console.log(`[Orders] Delivery confirmed for item ${itemId}, escrow released`)
+
+    res.json({ success: true, message: 'Delivery confirmed, payment released to seller' })
+  } catch (error) {
+    console.error('[Orders] Confirm delivery error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/orders/items/:itemId/dispute
+ * Open a dispute for an order item
+ */
+app.post('/api/orders/items/:itemId/dispute', async (req, res) => {
+  try {
+    const { did, reason, description, evidence } = req.body
+    const itemId = req.params.itemId
+
+    // Get the item with order info
+    const item = await prisma.marketOrderItem.findUnique({
+      where: { id: itemId },
+      include: { 
+        order: true,
+        seller: { include: { user: true } }
+      }
+    })
+
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Order item not found' })
+    }
+
+    // Determine initiator type
+    const isBuyer = did === item.order.buyerDid
+    const isSeller = did === item.seller.user.did
+    
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ success: false, error: 'Not authorized to dispute this order' })
+    }
+
+    // Create dispute
+    const dispute = await prisma.marketOrderDispute.create({
+      data: {
+        orderItemId: itemId,
+        initiatorDid: did,
+        initiatorType: isBuyer ? 'BUYER' : 'SELLER',
+        reason: reason,
+        description: description,
+        evidence: evidence || null,
+        status: 'OPEN'
+      }
+    })
+
+    // Update item status to disputed
+    await prisma.marketOrderItem.update({
+      where: { id: itemId },
+      data: { status: 'DISPUTED' }
+    })
+
+    // Update escrow status if exists
+    if (item.escrowHoldId) {
+      await prisma.escrowHold.update({
+        where: { id: item.escrowHoldId },
+        data: { 
+          status: 'DISPUTED',
+          disputeReason: reason,
+          disputedAt: new Date()
+        }
+      })
+    }
+
+    // Send dispute notification DM
+    const conversation = await prisma.marketOrderConversation.findFirst({
+      where: { orderId: item.orderId, sellerId: item.sellerId }
+    })
+    if (conversation) {
+      sendOrderStatusDM(conversation.conversationId, 'DISPUTED', {
+        orderId: item.orderId,
+        itemTitle: item.title,
+        reason: description || reason,
+      }).catch(err => console.error('[Dispute DM] Failed:', err))
+    }
+
+    console.log(`[Orders] Dispute opened for item ${itemId} by ${isBuyer ? 'buyer' : 'seller'}`)
+
+    res.json({ success: true, data: dispute })
+  } catch (error) {
+    console.error('[Orders] Open dispute error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders/active/:conversationId
+ * Get active orders for a specific buyer-seller conversation
+ */
+app.get('/api/orders/active/:conversationId', async (req, res) => {
+  try {
+    const { conversationId } = req.params
+
+    const conversations = await prisma.marketOrderConversation.findMany({
+      where: { conversationId },
+      include: {
+        order: {
+          include: {
+            items: {
+              include: {
+                marketPost: true,
+                seller: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    // Filter to active orders only (not delivered, cancelled, or refunded)
+    const activeOrders = conversations
+      .map(c => c.order)
+      .filter(order => !['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(order.status))
+
+    res.json({ success: true, data: activeOrders })
+  } catch (error) {
+    console.error('[Orders] Get active orders error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * Helper function to send order status update DMs
+ */
+async function sendOrderStatusDM(conversationId, status, data) {
+  try {
+    if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
+      return
+    }
+
+    const { BlueskyMessaging } = await import('@social-app/core/bluesky/messaging.js')
+    const messaging = new BlueskyMessaging(
+      process.env.BSKY_SERVICE_IDENTIFIER,
+      process.env.BSKY_SERVICE_PASSWORD
+    )
+    await messaging.initialize()
+    
+    await messaging.sendOrderStatusUpdate(conversationId, status, data)
+  } catch (error) {
+    console.error('[Order Status DM] Error:', error)
+  }
+}
+
+/**
+ * GET /api/orders/buyer/:did
+ * Get all orders for a buyer
+ */
+app.get('/api/orders/buyer/:did', async (req, res) => {
+  try {
+    const { did } = req.params
+    const { status, page = 1, limit = 20 } = req.query
+
+    const where = { buyerDid: did }
+    if (status) where.status = status
+
+    const [orders, total] = await Promise.all([
+      prisma.marketOrder.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              marketPost: true,
+              seller: {
+                include: { user: { select: { did: true, handle: true, displayName: true, avatar: true } } }
+              }
+            }
+          },
+          conversations: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (parseInt(page) - 1) * parseInt(limit),
+        take: parseInt(limit)
+      }),
+      prisma.marketOrder.count({ where })
+    ])
+
+    res.json({ 
+      success: true, 
+      data: orders,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    })
+  } catch (error) {
+    console.error('[Orders] Get buyer orders error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders/seller/:did
+ * Get all orders for a seller (items sold by this seller)
+ */
+app.get('/api/orders/seller/:did', async (req, res) => {
+  try {
+    const { did } = req.params
+    const { status, page = 1, limit = 20 } = req.query
+
+    // Get seller by DID
+    const seller = await prisma.marketSeller.findFirst({
+      where: { user: { did } }
+    })
+
+    if (!seller) {
+      return res.json({ success: true, data: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } })
+    }
+
+    // Get order items for this seller
+    const itemWhere = { sellerId: seller.id }
+    if (status) itemWhere.status = status
+
+    const [items, total] = await Promise.all([
+      prisma.marketOrderItem.findMany({
+        where: itemWhere,
+        include: {
+          order: {
+            select: {
+              id: true,
+              buyerDid: true,
+              status: true,
+              paymentMethod: true,
+              currency: true,
+              createdAt: true,
+              shippingAddress: true,
+              shippingCity: true,
+              shippingCountry: true
+            }
+          },
+          marketPost: true,
+          escrowHold: {
+            select: { id: true, status: true, sellerAmount: true, releasedAt: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (parseInt(page) - 1) * parseInt(limit),
+        take: parseInt(limit)
+      }),
+      prisma.marketOrderItem.count({ where: itemWhere })
+    ])
+
+    // Group items by order for easier display
+    const orderMap = new Map()
+    for (const item of items) {
+      const orderId = item.orderId
+      if (!orderMap.has(orderId)) {
+        orderMap.set(orderId, {
+          orderId,
+          order: item.order,
+          items: []
+        })
+      }
+      orderMap.get(orderId).items.push({
+        id: item.id,
+        title: item.title,
+        price: item.price,
+        quantity: item.quantity,
+        status: item.status,
+        postUri: item.postUri,
+        escrow: item.escrowHold,
+        confirmedAt: item.confirmedAt,
+        shippedAt: item.shippedAt,
+        deliveredAt: item.deliveredAt,
+        createdAt: item.createdAt
+      })
+    }
+
+    res.json({ 
+      success: true, 
+      data: Array.from(orderMap.values()),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    })
+  } catch (error) {
+    console.error('[Orders] Get seller orders error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders/disputes
+ * Get all disputes (admin)
+ */
+app.get('/api/orders/disputes', async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query
+
+    const where = {}
+    if (status) where.status = status
+
+    const [disputes, total] = await Promise.all([
+      prisma.marketOrderDispute.findMany({
+        where,
+        include: {
+          orderItem: {
+            include: {
+              order: true,
+              seller: {
+                include: { user: { select: { did: true, handle: true, displayName: true } } }
+              },
+              escrowHold: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (parseInt(page) - 1) * parseInt(limit),
+        take: parseInt(limit)
+      }),
+      prisma.marketOrderDispute.count({ where })
+    ])
+
+    res.json({ 
+      success: true, 
+      data: disputes,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    })
+  } catch (error) {
+    console.error('[Orders] Get disputes error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/orders/disputes/:id/resolve
+ * Resolve a dispute (admin)
+ */
+app.put('/api/orders/disputes/:id/resolve', async (req, res) => {
+  try {
+    const { resolution, notes, winnerType } = req.body
+    const disputeId = req.params.id
+
+    const dispute = await prisma.marketOrderDispute.findUnique({
+      where: { id: disputeId },
+      include: {
+        orderItem: {
+          include: {
+            order: true,
+            seller: { include: { user: true } },
+            escrowHold: true
+          }
+        }
+      }
+    })
+
+    if (!dispute) {
+      return res.status(404).json({ success: false, error: 'Dispute not found' })
+    }
+
+    // Update dispute
+    const updatedDispute = await prisma.marketOrderDispute.update({
+      where: { id: disputeId },
+      data: {
+        status: 'RESOLVED',
+        resolution,
+        resolverNotes: notes,
+        resolvedAt: new Date()
+      }
+    })
+
+    // Handle escrow based on resolution
+    const escrow = dispute.orderItem.escrowHold
+    if (escrow && escrow.status === 'DISPUTED') {
+      if (resolution === 'BUYER_WIN' || resolution === 'FULL_REFUND') {
+        // Refund buyer
+        const buyerWallet = await prisma.wallet.findFirst({
+          where: { userDid: dispute.orderItem.order.buyerDid }
+        })
+        if (buyerWallet) {
+          await prisma.$transaction([
+            prisma.wallet.update({
+              where: { id: buyerWallet.id },
+              data: { balance: { increment: escrow.buyerAmount } }
+            }),
+            prisma.escrowHold.update({
+              where: { id: escrow.id },
+              data: { status: 'REFUNDED', releasedAt: new Date() }
+            }),
+            prisma.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                type: 'REFUND',
+                amount: escrow.buyerAmount,
+                currency: dispute.orderItem.order.currency,
+                description: `Dispute refund - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
+                status: 'COMPLETED',
+                referenceId: disputeId
+              }
+            })
+          ])
+        }
+      } else if (resolution === 'SELLER_WIN') {
+        // Release to seller
+        await prisma.$transaction([
+          prisma.wallet.update({
+            where: { id: escrow.sellerWalletId },
+            data: { balance: { increment: escrow.sellerAmount } }
+          }),
+          prisma.escrowHold.update({
+            where: { id: escrow.id },
+            data: { status: 'RELEASED', releasedAt: new Date() }
+          }),
+          prisma.walletTransaction.create({
+            data: {
+              walletId: escrow.sellerWalletId,
+              type: 'SALE',
+              amount: escrow.sellerAmount,
+              currency: dispute.orderItem.order.currency,
+              description: `Dispute resolved - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
+              status: 'COMPLETED',
+              referenceId: disputeId
+            }
+          })
+        ])
+      } else if (resolution === 'PARTIAL_REFUND') {
+        // Split - refund partial to buyer, rest to seller
+        const buyerRefund = Math.floor(escrow.buyerAmount * 0.5)
+        const sellerPayout = escrow.sellerAmount - Math.floor(escrow.sellerAmount * 0.5)
+        
+        const buyerWallet = await prisma.wallet.findFirst({
+          where: { userDid: dispute.orderItem.order.buyerDid }
+        })
+        
+        if (buyerWallet) {
+          await prisma.$transaction([
+            prisma.wallet.update({
+              where: { id: buyerWallet.id },
+              data: { balance: { increment: buyerRefund } }
+            }),
+            prisma.wallet.update({
+              where: { id: escrow.sellerWalletId },
+              data: { balance: { increment: sellerPayout } }
+            }),
+            prisma.escrowHold.update({
+              where: { id: escrow.id },
+              data: { status: 'RELEASED', releasedAt: new Date() }
+            }),
+            prisma.walletTransaction.create({
+              data: {
+                walletId: buyerWallet.id,
+                type: 'REFUND',
+                amount: buyerRefund,
+                currency: dispute.orderItem.order.currency,
+                description: `Partial dispute refund - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
+                status: 'COMPLETED',
+                referenceId: disputeId
+              }
+            }),
+            prisma.walletTransaction.create({
+              data: {
+                walletId: escrow.sellerWalletId,
+                type: 'SALE',
+                amount: sellerPayout,
+                currency: dispute.orderItem.order.currency,
+                description: `Partial dispute release - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
+                status: 'COMPLETED',
+                referenceId: disputeId
+              }
+            })
+          ])
+        }
+      }
+    }
+
+    console.log(`[Disputes] Resolved dispute ${disputeId} with resolution: ${resolution}`)
+
+    res.json({ success: true, data: updatedDispute })
+  } catch (error) {
+    console.error('[Orders] Resolve dispute error:', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })

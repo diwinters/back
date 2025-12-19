@@ -710,6 +710,7 @@ model MarketSeller {
   // Relations
   posts           MarketPost[]
   orderItems      MarketOrderItem[]
+  orderConversations MarketOrderConversation[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1125,6 +1126,7 @@ model MarketOrder {
   
   // Relations
   items                 MarketOrderItem[]
+  conversations         MarketOrderConversation[]
   
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
@@ -1132,6 +1134,30 @@ model MarketOrder {
   @@index([buyerDid])
   @@index([status])
   @@index([createdAt])
+}
+
+// Track conversations per seller for multi-seller orders
+model MarketOrderConversation {
+  id              String       @id @default(cuid())
+  
+  orderId         String
+  order           MarketOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  sellerId        String
+  seller          MarketSeller @relation(fields: [sellerId], references: [id])
+  
+  // Bluesky conversation ID for DM thread
+  conversationId  String
+  
+  // Message tracking
+  orderMessageId  String?      // The message ID containing the order embed
+  
+  createdAt       DateTime     @default(now())
+  
+  @@unique([orderId, sellerId])
+  @@index([orderId])
+  @@index([sellerId])
+  @@index([conversationId])
 }
 
 enum MarketOrderStatus {
@@ -1155,6 +1181,10 @@ model MarketOrderItem {
   sellerId      String
   seller        MarketSeller      @relation(fields: [sellerId], references: [id])
   
+  // Bluesky post reference for embedding
+  postUri       String?           // at://did:plc:xxx/app.bsky.feed.post/xxx
+  postCid       String?           // Content ID for embedding
+  
   // Product details at time of purchase
   title         String
   price         Float
@@ -1164,20 +1194,95 @@ model MarketOrderItem {
   // Item-level status (for multi-seller orders)
   status        MarketOrderItemStatus @default(PENDING)
   
+  // Escrow tracking
+  escrowHoldId  String?
+  
+  // Status timestamps
+  confirmedAt   DateTime?
+  shippedAt     DateTime?
+  deliveredAt   DateTime?
+  
   createdAt     DateTime          @default(now())
 
   @@index([orderId])
   @@index([sellerId])
   @@index([marketPostId])
+  @@index([escrowHoldId])
 }
 
 enum MarketOrderItemStatus {
   PENDING       // Awaiting seller confirmation
   CONFIRMED     // Seller confirmed
+  PACKAGED      // Item packaged and ready
   SHIPPED       // Item shipped
   DELIVERED     // Item delivered
   CANCELLED     // Item cancelled
   REFUNDED      // Item refunded
+  DISPUTED      // Under dispute
+}
+
+// =============================================================================
+// MARKET: Order Disputes
+// =============================================================================
+
+model MarketOrderDispute {
+  id              String   @id @default(cuid())
+  
+  orderItemId     String
+  
+  // Who initiated
+  initiatorDid    String              // Buyer or Seller DID
+  initiatorType   DisputeInitiator    // BUYER or SELLER
+  
+  reason          DisputeReason
+  description     String?
+  evidence        Json?               // Array of image URLs or text
+  
+  status          DisputeStatus       @default(OPEN)
+  
+  // Resolution
+  resolvedAt      DateTime?
+  resolvedBy      String?             // Admin DID who resolved
+  resolution      DisputeResolution?
+  resolutionNote  String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([orderItemId])
+  @@index([status])
+  @@index([initiatorDid])
+}
+
+enum DisputeInitiator {
+  BUYER
+  SELLER
+}
+
+enum DisputeReason {
+  NOT_RECEIVED              // Buyer: didn't receive item
+  ITEM_NOT_AS_DESCRIBED     // Buyer: item different from listing
+  DAMAGED_ITEM              // Buyer: item arrived damaged
+  WRONG_ITEM                // Buyer: received wrong item
+  BUYER_NOT_RESPONDING      // Seller: buyer not responding for delivery
+  BUYER_REFUSED_DELIVERY    // Seller: buyer refused to accept
+  FRAUDULENT_ORDER          // Seller: suspected fraud
+  OTHER
+}
+
+enum DisputeStatus {
+  OPEN                      // Newly created
+  UNDER_REVIEW              // Admin reviewing
+  RESOLVED                  // Resolution applied
+  CLOSED                    // Closed without action
+}
+
+enum DisputeResolution {
+  REFUND_BUYER              // Full refund to buyer
+  PARTIAL_REFUND            // Partial refund
+  RELEASE_TO_SELLER         // Release escrow to seller
+  SPLIT                     // Split between both
+  NO_ACTION                 // No action taken
 }
 
 // =============================================================================

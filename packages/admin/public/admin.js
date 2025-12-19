@@ -2063,6 +2063,12 @@ function showMarketSubtab(subtab) {
     } else if (subtab === 'posts') {
         document.getElementById('marketPosts').style.display = 'block'
         loadMarketPosts()
+    } else if (subtab === 'marketOrders') {
+        document.getElementById('marketOrders').style.display = 'block'
+        loadMarketOrders()
+    } else if (subtab === 'disputes') {
+        document.getElementById('disputes').style.display = 'block'
+        loadDisputes()
     } else if (subtab === 'checkout') {
         document.getElementById('marketCheckout').style.display = 'block'
         loadCheckoutConfig()
@@ -3480,6 +3486,261 @@ async function deletePost(postId) {
         }
     } catch (error) {
         showMessage('marketMessage', 'Failed to delete post', 'error')
+    }
+}
+
+// ============================================================================
+// Market Orders Management
+// ============================================================================
+
+let currentMarketOrderPage = 1
+
+async function loadMarketOrders(page = 1) {
+    currentMarketOrderPage = page
+    const status = document.getElementById('marketOrderStatusFilter')?.value || ''
+    const search = document.getElementById('marketOrderSearch')?.value || ''
+    
+    try {
+        let url = `${API_BASE}/api/market/orders?page=${page}&pageSize=20`
+        if (status) url += `&status=${status}`
+        if (search) url += `&search=${encodeURIComponent(search)}`
+        
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            renderMarketOrders(data.data)
+            renderMarketOrderPagination(data.meta || { page, total: data.data?.length || 0, pageSize: 20 })
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to load orders', 'error')
+        }
+    } catch (error) {
+        console.error('Failed to load market orders:', error)
+        showMessage('marketMessage', 'Failed to load orders', 'error')
+    }
+}
+
+function renderMarketOrders(orders) {
+    const tbody = document.getElementById('marketOrdersBody')
+    
+    if (!orders || orders.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#666;">No orders found</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = orders.map(order => {
+        const escrowStatus = order.items?.some(i => i.escrowHoldId) 
+            ? order.items?.some(i => i.escrowHold?.status === 'DISPUTED') ? 'Disputed' 
+            : order.items?.some(i => i.escrowHold?.status === 'RELEASED') ? 'Released' : 'Held'
+            : 'N/A'
+        const escrowBadge = escrowStatus === 'Disputed' ? 'badge-danger' 
+            : escrowStatus === 'Released' ? 'badge-success' 
+            : escrowStatus === 'Held' ? 'badge-warning' : ''
+        
+        return `
+            <tr>
+                <td>
+                    <code style="font-size:11px;">${order.id.slice(-8).toUpperCase()}</code>
+                </td>
+                <td>
+                    <div style="font-size:12px;">
+                        ${order.buyerDid.slice(0, 20)}...
+                    </div>
+                </td>
+                <td>
+                    ${order.items?.length || 0} item(s)
+                    <div style="font-size:10px;color:#666;">
+                        ${order.items?.slice(0, 2).map(i => i.title).join(', ') || ''}
+                        ${order.items?.length > 2 ? '...' : ''}
+                    </div>
+                </td>
+                <td><strong>${order.total?.toFixed(2) || 0} ${order.currency || 'MAD'}</strong></td>
+                <td>${order.paymentMethod || 'Unknown'}</td>
+                <td><span class="badge ${getOrderStatusBadge(order.status)}">${order.status}</span></td>
+                <td><span class="badge ${escrowBadge}">${escrowStatus}</span></td>
+                <td>${new Date(order.createdAt).toLocaleDateString()}</td>
+                <td>
+                    <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="viewMarketOrderDetails('${order.id}')">View</button>
+                </td>
+            </tr>
+        `
+    }).join('')
+}
+
+function getOrderStatusBadge(status) {
+    switch(status) {
+        case 'PENDING': return 'badge-warning'
+        case 'PAID': return 'badge-info'
+        case 'PROCESSING': return 'badge-info'
+        case 'SHIPPED': return 'badge-primary'
+        case 'DELIVERED': return 'badge-success'
+        case 'CANCELLED': return 'badge-danger'
+        case 'REFUNDED': return 'badge-secondary'
+        default: return ''
+    }
+}
+
+function renderMarketOrderPagination(meta) {
+    const container = document.getElementById('marketOrdersPagination')
+    const totalPages = Math.ceil((meta.total || 0) / (meta.pageSize || 20))
+    
+    if (totalPages <= 1) {
+        container.innerHTML = ''
+        return
+    }
+    
+    let html = ''
+    html += `<button ${meta.page === 1 ? 'disabled' : ''} onclick="loadMarketOrders(${meta.page - 1})">← Prev</button>`
+    html += `<span style="padding:8px;">Page ${meta.page} of ${totalPages}</span>`
+    html += `<button ${meta.page === totalPages ? 'disabled' : ''} onclick="loadMarketOrders(${meta.page + 1})">Next →</button>`
+    container.innerHTML = html
+}
+
+async function viewMarketOrderDetails(orderId) {
+    try {
+        const res = await fetch(`${API_BASE}/api/orders/${orderId}`)
+        const data = await res.json()
+        
+        if (data.success) {
+            const order = data.data
+            alert(`Order Details:\n\nOrder ID: ${order.id}\nBuyer: ${order.buyerDid}\nStatus: ${order.status}\nTotal: ${order.total} ${order.currency}\n\nItems: ${order.items?.map(i => `${i.title} x${i.quantity}`).join(', ')}`)
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to load order details', 'error')
+    }
+}
+
+// ============================================================================
+// Disputes Management
+// ============================================================================
+
+let currentDisputePage = 1
+
+async function loadDisputes(page = 1) {
+    currentDisputePage = page
+    const status = document.getElementById('disputeStatusFilter')?.value || ''
+    
+    try {
+        let url = `${API_BASE}/api/market/disputes?page=${page}&pageSize=20`
+        if (status) url += `&status=${status}`
+        
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            renderDisputes(data.data)
+            renderDisputePagination(data.meta || { page, total: data.data?.length || 0, pageSize: 20 })
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to load disputes', 'error')
+        }
+    } catch (error) {
+        console.error('Failed to load disputes:', error)
+        showMessage('marketMessage', 'Failed to load disputes', 'error')
+    }
+}
+
+function renderDisputes(disputes) {
+    const tbody = document.getElementById('disputesBody')
+    
+    if (!disputes || disputes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No disputes found</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = disputes.map(dispute => {
+        const escrowAmount = dispute.orderItem?.escrowHold?.sellerAmount || 0
+        const currency = dispute.orderItem?.order?.currency || 'MAD'
+        
+        return `
+            <tr>
+                <td><code style="font-size:11px;">${dispute.id.slice(-8).toUpperCase()}</code></td>
+                <td>
+                    <code style="font-size:10px;">${(dispute.orderItem?.orderId || '').slice(-8).toUpperCase()}</code>
+                    <div style="font-size:10px;color:#666;">${dispute.orderItem?.title || 'Unknown'}</div>
+                </td>
+                <td>
+                    <div>${dispute.initiatorType}</div>
+                    <div style="font-size:10px;color:#666;">${dispute.initiatorDid?.slice(0, 15)}...</div>
+                </td>
+                <td>
+                    <strong>${dispute.reason || 'OTHER'}</strong>
+                    ${dispute.description ? `<div style="font-size:10px;color:#666;">${dispute.description.substring(0, 50)}...</div>` : ''}
+                </td>
+                <td><span class="badge ${getDisputeStatusBadge(dispute.status)}">${dispute.status}</span></td>
+                <td><strong>${escrowAmount.toFixed(2)} ${currency}</strong></td>
+                <td>${new Date(dispute.createdAt).toLocaleDateString()}</td>
+                <td>
+                    ${dispute.status === 'OPEN' || dispute.status === 'UNDER_REVIEW' ? `
+                        <button class="btn btn-success" style="padding:4px 8px;font-size:11px;" onclick="resolveDispute('${dispute.id}', 'SELLER_WIN')">Seller Win</button>
+                        <button class="btn btn-warning" style="padding:4px 8px;font-size:11px;" onclick="resolveDispute('${dispute.id}', 'BUYER_WIN')">Buyer Win</button>
+                        <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="resolveDispute('${dispute.id}', 'PARTIAL_REFUND')">Split</button>
+                    ` : `
+                        <span style="color:#666;font-size:11px;">${dispute.resolution || 'Resolved'}</span>
+                    `}
+                </td>
+            </tr>
+        `
+    }).join('')
+}
+
+function getDisputeStatusBadge(status) {
+    switch(status) {
+        case 'OPEN': return 'badge-danger'
+        case 'UNDER_REVIEW': return 'badge-warning'
+        case 'RESOLVED': return 'badge-success'
+        default: return ''
+    }
+}
+
+function renderDisputePagination(meta) {
+    const container = document.getElementById('disputesPagination')
+    const totalPages = Math.ceil((meta.total || 0) / (meta.limit || 20))
+    
+    if (totalPages <= 1) {
+        container.innerHTML = ''
+        return
+    }
+    
+    let html = ''
+    html += `<button ${meta.page === 1 ? 'disabled' : ''} onclick="loadDisputes(${meta.page - 1})">← Prev</button>`
+    html += `<span style="padding:8px;">Page ${meta.page} of ${totalPages}</span>`
+    html += `<button ${meta.page === totalPages ? 'disabled' : ''} onclick="loadDisputes(${meta.page + 1})">Next →</button>`
+    container.innerHTML = html
+}
+
+async function resolveDispute(disputeId, resolution) {
+    const confirmMsg = resolution === 'SELLER_WIN' 
+        ? 'Release funds to seller? This will close the dispute.'
+        : resolution === 'BUYER_WIN'
+        ? 'Refund buyer? This will close the dispute.'
+        : 'Split funds 50/50 between buyer and seller?'
+    
+    if (!confirm(confirmMsg)) return
+    
+    const adminNotes = prompt('Add resolution notes (optional):')
+    let refundPercentage = 50
+    if (resolution === 'PARTIAL_REFUND') {
+        const pctInput = prompt('Enter refund percentage for buyer (0-100):', '50')
+        refundPercentage = parseInt(pctInput) || 50
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/disputes/${disputeId}/resolve`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resolution, adminNotes, refundPercentage })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Dispute resolved successfully', 'success')
+            loadDisputes(currentDisputePage)
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to resolve dispute', 'error')
+        }
+    } catch (error) {
+        console.error('Failed to resolve dispute:', error)
+        showMessage('marketMessage', 'Failed to resolve dispute', 'error')
     }
 }
 
