@@ -1114,6 +1114,7 @@ model MarketOrder {
   shippingAddress       Json?             // {fullName, phone, street, city, state, postalCode, country}
   
   // Payment
+  paymentMethod         String            @default("WALLET") // WALLET, CASH_ON_DELIVERY, CARD
   stripePaymentIntentId String?           @unique
   paidAt                DateTime?
   

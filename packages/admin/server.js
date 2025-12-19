@@ -5076,6 +5076,117 @@ app.post('/api/checkout/create-intent', async (req, res) => {
 })
 
 /**
+ * POST /api/checkout/create-order
+ * Create an order directly for wallet/COD payments (no Stripe required)
+ */
+app.post('/api/checkout/create-order', async (req, res) => {
+  try {
+    const { did, cartItems, shippingAddress, buyerMessage, currency = 'MAD', paymentMethod = 'WALLET' } = req.body
+
+    if (!did || !cartItems || cartItems.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid checkout data - DID and cart items required' 
+      })
+    }
+
+    // Fetch market settings for fees
+    const settings = await prisma.marketSettings.findUnique({ where: { id: 1 } })
+    const serviceFeeRate = settings?.serviceFeeRate || 0.05
+
+    // Calculate totals and validate items
+    let subtotal = 0
+    const orderItems = []
+
+    for (const item of cartItems) {
+      const marketPost = await prisma.marketPost.findUnique({
+        where: { id: item.postId },
+        include: { seller: true }
+      })
+
+      if (!marketPost) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Product not found: ${item.postId}` 
+        })
+      }
+
+      if (marketPost.status !== 'ACTIVE') {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Product not available: ${marketPost.title}` 
+        })
+      }
+
+      const price = marketPost.price || 0
+      const itemTotal = price * item.quantity
+      subtotal += itemTotal
+
+      orderItems.push({
+        postId: item.postId,
+        sellerId: marketPost.sellerId,
+        sellerDid: marketPost.seller.did,
+        title: marketPost.title,
+        price: price,
+        quantity: item.quantity,
+        total: itemTotal,
+        postUri: marketPost.postUri,
+        postCid: marketPost.postCid,
+      })
+    }
+
+    // Calculate fees
+    const shippingFee = 0 // Free shipping for now
+    const serviceFee = Math.round(subtotal * serviceFeeRate * 100) / 100
+    const total = subtotal + shippingFee + serviceFee
+
+    // Create order in database (no Stripe)
+    const order = await prisma.marketOrder.create({
+      data: {
+        buyerDid: did,
+        status: 'PENDING_PAYMENT',
+        subtotal,
+        shippingFee,
+        serviceFee,
+        total,
+        currency,
+        shippingAddress: shippingAddress || null,
+        buyerMessage: buyerMessage || null,
+        paymentMethod: paymentMethod,
+        items: {
+          create: orderItems.map(item => ({
+            marketPostId: item.postId,
+            sellerId: item.sellerId,
+            title: item.title,
+            price: item.price,
+            quantity: item.quantity,
+            total: item.total,
+            postUri: item.postUri || null,
+            postCid: item.postCid || null,
+          }))
+        }
+      },
+      include: { items: true }
+    })
+
+    console.log(`[Checkout] Created order ${order.id} for ${paymentMethod} payment`)
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      subtotal,
+      shippingFee,
+      serviceFee,
+      total,
+      currency,
+    })
+  } catch (error) {
+    console.error('[Checkout] Create order error:', error)
+    res.status(500).json({ success: false, error: error.message || 'Failed to create order' })
+  }
+})
+
+/**
  * POST /api/webhooks/stripe
  * Handle Stripe webhook events (payment success/failure)
  * IMPORTANT: This endpoint needs raw body, must be registered before express.json()
