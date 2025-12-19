@@ -3173,6 +3173,7 @@ let currentWalletSubtab = 'dashboard'
 let walletCitiesCache = []
 let walletAgentsCache = []
 let currentTransactionPage = 1
+let selectedTopupUser = null
 
 // Wallet Subtab Navigation
 function showWalletSubtab(subtab) {
@@ -3193,6 +3194,8 @@ function showWalletSubtab(subtab) {
     if (subtab === 'dashboard') {
         document.getElementById('walletDashboard').style.display = 'block'
         loadWalletDashboard()
+    } else if (subtab === 'topup') {
+        document.getElementById('walletTopup').style.display = 'block'
     } else if (subtab === 'transactions') {
         document.getElementById('walletTransactions').style.display = 'block'
         loadWalletTransactions()
@@ -3213,6 +3216,184 @@ function showWalletSubtab(subtab) {
         loadWalletConfigs()
     }
 }
+
+// ============================================================================
+// Wallet Top-Up Functions
+// ============================================================================
+
+// Search users for top-up
+async function searchUsersForTopup() {
+    const search = document.getElementById('topupUserSearch').value.trim()
+    const resultsDiv = document.getElementById('topupUserResults')
+    
+    if (search.length < 2) {
+        resultsDiv.innerHTML = '<p style="color: #6b7280; text-align: center;">Enter at least 2 characters</p>'
+        return
+    }
+    
+    resultsDiv.innerHTML = '<p style="color: #6b7280; text-align: center;">Searching...</p>'
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/users?search=${encodeURIComponent(search)}`, {
+            headers: { 'x-admin-token': 'admin' }
+        })
+        const data = await res.json()
+        
+        if (data.success && data.data.length > 0) {
+            resultsDiv.innerHTML = data.data.map(user => `
+                <div onclick="selectUserForTopup('${user.did}', '${user.displayName || user.handle || 'Unknown'}', '${user.handle || ''}', ${user.wallet?.available || 0})" 
+                     style="padding: 12px; border-bottom: 1px solid #e2e8f0; cursor: pointer; transition: background 0.2s;"
+                     onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='transparent'">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 40px; height: 40px; border-radius: 50%; background: #667eea; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">
+                            ${(user.displayName || user.handle || '?')[0].toUpperCase()}
+                        </div>
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600;">${user.displayName || user.handle || 'Unknown'}</div>
+                            <div style="font-size: 12px; color: #6b7280;">${user.handle ? '@' + user.handle : user.did.substring(0, 30) + '...'}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-weight: 600; color: #10b981;">${(user.wallet?.available || 0).toFixed(2)} MAD</div>
+                            <div style="font-size: 11px; color: #6b7280;">${user.wallet ? 'Has wallet' : 'No wallet'}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('')
+        } else {
+            resultsDiv.innerHTML = '<p style="color: #6b7280; text-align: center;">No users found</p>'
+        }
+    } catch (error) {
+        console.error('Failed to search users:', error)
+        resultsDiv.innerHTML = '<p style="color: #ef4444; text-align: center;">Error: ' + error.message + '</p>'
+    }
+}
+
+// Select user for top-up
+function selectUserForTopup(did, name, handle, balance) {
+    selectedTopupUser = { did, name, handle, balance }
+    
+    document.getElementById('topupUserDid').value = did
+    document.getElementById('topupUserAvatar').textContent = (name || '?')[0].toUpperCase()
+    document.getElementById('topupUserName').textContent = name || 'Unknown'
+    document.getElementById('topupUserHandle').textContent = handle ? '@' + handle : did.substring(0, 30) + '...'
+    document.getElementById('topupUserBalance').textContent = balance.toFixed(2)
+    
+    document.getElementById('topupSelectedUser').style.display = 'block'
+    document.getElementById('topupFormContainer').style.display = 'block'
+    document.getElementById('topupPlaceholder').style.display = 'none'
+    
+    // Clear form
+    document.getElementById('topupAmount').value = ''
+    document.getElementById('topupReason').value = 'Admin top-up'
+    document.getElementById('topupNote').value = ''
+}
+
+// Execute top-up
+async function executeTopup() {
+    const userDid = document.getElementById('topupUserDid').value
+    const amount = parseFloat(document.getElementById('topupAmount').value)
+    const reason = document.getElementById('topupReason').value
+    const adminNote = document.getElementById('topupNote').value
+    
+    if (!userDid) {
+        showMessage('walletTopupMessage', 'Please select a user first', 'error')
+        return
+    }
+    
+    if (!amount || amount <= 0) {
+        showMessage('walletTopupMessage', 'Please enter a valid amount', 'error')
+        return
+    }
+    
+    if (!confirm(`Add ${amount.toFixed(2)} MAD to ${selectedTopupUser?.name || 'this user'}?`)) {
+        return
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/top-up`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-token': 'admin' },
+            body: JSON.stringify({ userDid, amount, reason, adminNote })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletTopupMessage', `Successfully added ${amount.toFixed(2)} MAD! New balance: ${data.data.wallet.available.toFixed(2)} MAD`, 'success')
+            // Update displayed balance
+            document.getElementById('topupUserBalance').textContent = data.data.wallet.available.toFixed(2)
+            selectedTopupUser.balance = data.data.wallet.available
+            // Clear amount
+            document.getElementById('topupAmount').value = ''
+        } else {
+            showMessage('walletTopupMessage', 'Error: ' + (data.error || 'Unknown error'), 'error')
+        }
+    } catch (error) {
+        console.error('Top-up failed:', error)
+        showMessage('walletTopupMessage', 'Failed: ' + error.message, 'error')
+    }
+}
+
+// Execute deduction
+async function executeDeduct() {
+    const userDid = document.getElementById('topupUserDid').value
+    const amount = parseFloat(document.getElementById('topupAmount').value)
+    const reason = document.getElementById('topupReason').value
+    const adminNote = document.getElementById('topupNote').value
+    
+    if (!userDid) {
+        showMessage('walletTopupMessage', 'Please select a user first', 'error')
+        return
+    }
+    
+    if (!amount || amount <= 0) {
+        showMessage('walletTopupMessage', 'Please enter a valid amount', 'error')
+        return
+    }
+    
+    if (amount > selectedTopupUser?.balance) {
+        showMessage('walletTopupMessage', `Cannot deduct more than available balance (${selectedTopupUser?.balance?.toFixed(2)} MAD)`, 'error')
+        return
+    }
+    
+    if (!confirm(`Deduct ${amount.toFixed(2)} MAD from ${selectedTopupUser?.name || 'this user'}?`)) {
+        return
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/wallet/deduct`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-admin-token': 'admin' },
+            body: JSON.stringify({ userDid, amount, reason, adminNote })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('walletTopupMessage', `Successfully deducted ${amount.toFixed(2)} MAD! New balance: ${data.data.wallet.available.toFixed(2)} MAD`, 'success')
+            // Update displayed balance
+            document.getElementById('topupUserBalance').textContent = data.data.wallet.available.toFixed(2)
+            selectedTopupUser.balance = data.data.wallet.available
+            // Clear amount
+            document.getElementById('topupAmount').value = ''
+        } else {
+            showMessage('walletTopupMessage', 'Error: ' + (data.error || 'Unknown error'), 'error')
+        }
+    } catch (error) {
+        console.error('Deduction failed:', error)
+        showMessage('walletTopupMessage', 'Failed: ' + error.message, 'error')
+    }
+}
+
+// Add enter key support for user search
+document.addEventListener('DOMContentLoaded', function() {
+    const topupSearchInput = document.getElementById('topupUserSearch')
+    if (topupSearchInput) {
+        topupSearchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchUsersForTopup()
+            }
+        })
+    }
+})
 
 // Load Wallet Stats (header cards)
 async function loadWalletStats() {
@@ -3559,16 +3740,24 @@ async function loadWalletAgentsForDropdown() {
 
 async function saveCashPoint() {
     const id = document.getElementById('cashPointId').value
+    const cityId = document.getElementById('cashPointCity').value
+    
+    // Validate required city
+    if (!cityId) {
+        showMessage('walletMessage', 'Please select a city for the cash point', 'error')
+        return
+    }
+    
     const payload = {
         name: document.getElementById('cashPointName').value,
         nameAr: document.getElementById('cashPointNameAr').value || null,
         type: document.getElementById('cashPointType').value,
-        cityId: document.getElementById('cashPointCity').value || null,
+        cityId: cityId,
         phone: document.getElementById('cashPointPhone').value || null,
         address: document.getElementById('cashPointAddress').value || null,
         addressAr: document.getElementById('cashPointAddressAr').value || null,
-        latitude: parseFloat(document.getElementById('cashPointLat').value) || null,
-        longitude: parseFloat(document.getElementById('cashPointLng').value) || null,
+        latitude: parseFloat(document.getElementById('cashPointLat').value) || 0,
+        longitude: parseFloat(document.getElementById('cashPointLng').value) || 0,
         operatingHours: document.getElementById('cashPointHours').value || null,
         dailyDepositLimit: parseInt(document.getElementById('cashPointDepositLimit').value) || 50000,
         dailyWithdrawalLimit: parseInt(document.getElementById('cashPointWithdrawalLimit').value) || 20000,

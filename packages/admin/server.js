@@ -5335,16 +5335,26 @@ app.post('/api/admin/wallet/cash-points', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Name and type required' })
     }
     
+    if (!cityId) {
+      return res.status(400).json({ success: false, error: 'City is required for cash points' })
+    }
+    
+    // Verify city exists
+    const city = await prisma.city.findUnique({ where: { id: cityId } })
+    if (!city) {
+      return res.status(400).json({ success: false, error: 'City not found' })
+    }
+    
     const cashPoint = await prisma.cashPoint.create({
       data: {
         name,
         nameAr,
         type,
-        cityId: cityId || null,
+        city: { connect: { id: cityId } },
         address,
         addressAr,
-        latitude,
-        longitude,
+        latitude: latitude || 0,
+        longitude: longitude || 0,
         operatingHours,
         phone,
         dailyDepositLimit: dailyDepositLimit || 50000,
@@ -5352,6 +5362,10 @@ app.post('/api/admin/wallet/cash-points', async (req, res) => {
         agentId: agentId || null,
         isActive: isActive !== false,
         isVerified: isVerified === true
+      },
+      include: {
+        city: { select: { id: true, name: true, code: true } },
+        agent: { select: { id: true, name: true, phone: true } }
       }
     })
     

@@ -1530,12 +1530,82 @@
         <!-- Wallet Subtabs -->
         <div class="tabs" style="margin-top: 20px;">
             <button class="tab active" id="walletSubtabDashboard" onclick="showWalletSubtab('dashboard')">📊 Dashboard</button>
+            <button class="tab" id="walletSubtabTopup" onclick="showWalletSubtab('topup')">💳 Top-Up</button>
             <button class="tab" id="walletSubtabTransactions" onclick="showWalletSubtab('transactions')">💰 Transactions</button>
             <button class="tab" id="walletSubtabCashPoints" onclick="showWalletSubtab('cashPoints')">🏧 Cash Points</button>
             <button class="tab" id="walletSubtabAgents" onclick="showWalletSubtab('agents')">👤 Agents</button>
             <button class="tab" id="walletSubtabEscrow" onclick="showWalletSubtab('escrow')">🔐 Escrow</button>
             <button class="tab" id="walletSubtabFees" onclick="showWalletSubtab('fees')">💵 Fees</button>
             <button class="tab" id="walletSubtabSettings" onclick="showWalletSubtab('settings')">⚙️ Settings</button>
+        </div>
+        
+        <!-- Top-Up Subtab -->
+        <div id="walletTopup" class="wallet-subtab" style="display: none;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+                <!-- Search User Panel -->
+                <div style="background: #f8fafc; padding: 25px; border-radius: 12px;">
+                    <h4 style="margin-bottom: 20px;">🔍 Find User</h4>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <input type="text" id="topupUserSearch" placeholder="Search by handle, name or DID..." style="flex: 1; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        <button class="btn btn-primary" onclick="searchUsersForTopup()">Search</button>
+                    </div>
+                    <div id="topupUserResults" style="max-height: 400px; overflow-y: auto;">
+                        <p style="color: #6b7280; text-align: center;">Enter a search term to find users</p>
+                    </div>
+                </div>
+                
+                <!-- Top-Up Form Panel -->
+                <div style="background: #f8fafc; padding: 25px; border-radius: 12px;">
+                    <h4 style="margin-bottom: 20px;">💳 Top-Up / Deduct</h4>
+                    <div id="topupSelectedUser" style="margin-bottom: 20px; padding: 15px; background: #fff; border-radius: 8px; display: none;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <div style="width: 50px; height: 50px; border-radius: 50%; background: #667eea; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;" id="topupUserAvatar">?</div>
+                            <div>
+                                <div style="font-weight: 600;" id="topupUserName">-</div>
+                                <div style="font-size: 12px; color: #6b7280;" id="topupUserHandle">-</div>
+                                <div style="font-size: 14px; color: #10b981; font-weight: 600; margin-top: 5px;">Balance: <span id="topupUserBalance">0</span> MAD</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="topupFormContainer" style="display: none;">
+                        <input type="hidden" id="topupUserDid">
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Amount (MAD)</label>
+                            <input type="number" id="topupAmount" min="0" step="0.01" placeholder="Enter amount" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Reason</label>
+                            <select id="topupReason" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                                <option value="Admin top-up">Admin top-up</option>
+                                <option value="Refund">Refund</option>
+                                <option value="Bonus">Bonus / Promotion</option>
+                                <option value="Compensation">Compensation</option>
+                                <option value="Correction">Balance Correction</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Admin Note (optional)</label>
+                            <textarea id="topupNote" rows="2" placeholder="Internal note..." style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical;"></textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-success" onclick="executeTopup()" style="flex: 1; padding: 12px;">➕ Add Funds</button>
+                            <button class="btn btn-danger" onclick="executeDeduct()" style="flex: 1; padding: 12px;">➖ Deduct Funds</button>
+                        </div>
+                    </div>
+                    
+                    <div id="topupPlaceholder" style="text-align: center; color: #6b7280; padding: 40px 0;">
+                        <p>👈 Select a user from the search results</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="walletTopupMessage" class="message" style="display: none; margin-top: 20px;"></div>
         </div>
         
         <!-- Dashboard Subtab -->
