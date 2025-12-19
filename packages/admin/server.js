@@ -3744,7 +3744,7 @@ app.get('/api/market/orders', async (req, res) => {
           items: {
             include: {
               marketPost: {
-                select: { id: true, title: true, images: true }
+                select: { id: true, title: true, postUri: true, price: true }
               },
               seller: {
                 select: { id: true, businessName: true, did: true }
@@ -3840,7 +3840,7 @@ app.get('/api/market/disputes', async (req, res) => {
             include: {
               order: true,
               marketPost: {
-                select: { id: true, title: true, images: true }
+                select: { id: true, title: true, postUri: true, price: true }
               },
               seller: {
                 select: { id: true, businessName: true, did: true }
