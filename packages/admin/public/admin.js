@@ -156,11 +156,19 @@ function resetUploadPreview(previewId, defaultIcon, defaultText) {
 // Tab Management
 // ============================================================================
 
-function showTab(tabName) {
+function showTab(tabName, evt) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'))
     
-    event.target.classList.add('active')
+    if (evt && evt.target) {
+        evt.target.classList.add('active')
+    } else {
+        // Find and activate the button that matches this tab
+        const btn = Array.from(document.querySelectorAll('.tab')).find(
+            b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(tabName)
+        )
+        if (btn) btn.classList.add('active')
+    }
     document.getElementById(tabName).classList.add('active')
 
     if (tabName === 'dashboard') loadDashboard()
@@ -169,6 +177,8 @@ function showTab(tabName) {
     if (tabName === 'orders') loadOrders()
     if (tabName === 'vehicleTypes') loadVehicleTypes()
     if (tabName === 'cities') loadCities()
+    if (tabName === 'market') showMarketSubtab('categories')
+    if (tabName === 'wallet') showWalletSubtab('dashboard')
     if (tabName === 'videoFeed') loadVideoFeedConfig()
 }
 
@@ -2162,7 +2172,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 
 let checkoutConfigCache = null
-let citiesCache = []
 
 async function populateCheckoutCityDropdowns() {
     try {
