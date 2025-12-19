@@ -3318,10 +3318,11 @@ async function executeTopup() {
         const data = await res.json()
         
         if (data.success) {
-            showMessage('walletTopupMessage', `Successfully added ${amount.toFixed(2)} MAD! New balance: ${data.data.wallet.available.toFixed(2)} MAD`, 'success')
+            const newBalance = data.data.wallet.balance || data.data.wallet.available || 0
+            showMessage('walletTopupMessage', `Successfully added ${amount.toFixed(2)} MAD! New balance: ${newBalance.toFixed(2)} MAD`, 'success')
             // Update displayed balance
-            document.getElementById('topupUserBalance').textContent = data.data.wallet.available.toFixed(2)
-            selectedTopupUser.balance = data.data.wallet.available
+            document.getElementById('topupUserBalance').textContent = newBalance.toFixed(2)
+            selectedTopupUser.balance = newBalance
             // Clear amount
             document.getElementById('topupAmount').value = ''
         } else {
@@ -3368,10 +3369,11 @@ async function executeDeduct() {
         const data = await res.json()
         
         if (data.success) {
-            showMessage('walletTopupMessage', `Successfully deducted ${amount.toFixed(2)} MAD! New balance: ${data.data.wallet.available.toFixed(2)} MAD`, 'success')
+            const newBalance = data.data.wallet.balance || data.data.wallet.available || 0
+            showMessage('walletTopupMessage', `Successfully deducted ${amount.toFixed(2)} MAD! New balance: ${newBalance.toFixed(2)} MAD`, 'success')
             // Update displayed balance
-            document.getElementById('topupUserBalance').textContent = data.data.wallet.available.toFixed(2)
-            selectedTopupUser.balance = data.data.wallet.available
+            document.getElementById('topupUserBalance').textContent = newBalance.toFixed(2)
+            selectedTopupUser.balance = newBalance
             // Clear amount
             document.getElementById('topupAmount').value = ''
         } else {
