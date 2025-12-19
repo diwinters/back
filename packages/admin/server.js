@@ -3820,6 +3820,162 @@ app.get('/api/market/orders/:id', async (req, res) => {
 })
 
 /**
+ * PUT /api/market/orders/:id/status
+ * Update market order status (admin)
+ */
+app.put('/api/market/orders/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body
+    const validStatuses = ['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status' })
+    }
+    
+    const order = await prisma.marketOrder.update({
+      where: { id: req.params.id },
+      data: { status }
+    })
+    
+    console.log(`[Market Orders] Admin updated order ${req.params.id} status to ${status}`)
+    res.json({ success: true, data: order })
+  } catch (error) {
+    console.error('[Market Orders] Update status error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/orders/items/:itemId/status
+ * Update market order item status (admin)
+ */
+app.put('/api/market/orders/items/:itemId/status', async (req, res) => {
+  try {
+    const { status } = req.body
+    const validStatuses = ['PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'DISPUTED', 'REFUNDED']
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status' })
+    }
+    
+    const item = await prisma.marketOrderItem.update({
+      where: { id: req.params.itemId },
+      data: { status }
+    })
+    
+    console.log(`[Market Orders] Admin updated item ${req.params.itemId} status to ${status}`)
+    res.json({ success: true, data: item })
+  } catch (error) {
+    console.error('[Market Orders] Update item status error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/orders/items/:itemId/release-escrow
+ * Release escrow for an order item (admin)
+ */
+app.post('/api/market/orders/items/:itemId/release-escrow', async (req, res) => {
+  try {
+    const item = await prisma.marketOrderItem.findUnique({
+      where: { id: req.params.itemId },
+      include: { escrowHold: true, seller: true }
+    })
+    
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'Item not found' })
+    }
+    
+    if (!item.escrowHold) {
+      return res.status(400).json({ success: false, error: 'No escrow hold for this item' })
+    }
+    
+    if (item.escrowHold.status !== 'HELD') {
+      return res.status(400).json({ success: false, error: 'Escrow is not in HELD status' })
+    }
+    
+    // Update escrow status
+    await prisma.escrowHold.update({
+      where: { id: item.escrowHold.id },
+      data: { 
+        status: 'RELEASED',
+        releasedAt: new Date()
+      }
+    })
+    
+    // Update item status to delivered if not already
+    await prisma.marketOrderItem.update({
+      where: { id: req.params.itemId },
+      data: { status: 'DELIVERED' }
+    })
+    
+    // TODO: Transfer funds to seller's wallet
+    // For now, just log it
+    console.log(`[Market Orders] Admin released escrow for item ${req.params.itemId}, amount: ${item.escrowHold.amount}`)
+    
+    res.json({ success: true, message: 'Escrow released successfully' })
+  } catch (error) {
+    console.error('[Market Orders] Release escrow error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/orders/:id/cancel
+ * Cancel a market order (admin)
+ */
+app.post('/api/market/orders/:id/cancel', async (req, res) => {
+  try {
+    const order = await prisma.marketOrder.findUnique({
+      where: { id: req.params.id },
+      include: { 
+        items: { include: { escrowHold: true } }
+      }
+    })
+    
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+    
+    if (['DELIVERED', 'REFUNDED', 'CANCELLED'].includes(order.status)) {
+      return res.status(400).json({ success: false, error: 'Cannot cancel order in current status' })
+    }
+    
+    // Cancel all items and refund escrow
+    for (const item of order.items) {
+      await prisma.marketOrderItem.update({
+        where: { id: item.id },
+        data: { status: 'CANCELLED' }
+      })
+      
+      if (item.escrowHold && item.escrowHold.status === 'HELD') {
+        await prisma.escrowHold.update({
+          where: { id: item.escrowHold.id },
+          data: { 
+            status: 'REFUNDED',
+            releasedAt: new Date()
+          }
+        })
+      }
+    }
+    
+    // Update order status
+    const updatedOrder = await prisma.marketOrder.update({
+      where: { id: req.params.id },
+      data: { status: 'CANCELLED' }
+    })
+    
+    // TODO: Refund to buyer's wallet if payment was made
+    console.log(`[Market Orders] Admin cancelled order ${req.params.id}`)
+    
+    res.json({ success: true, data: updatedOrder })
+  } catch (error) {
+    console.error('[Market Orders] Cancel order error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/disputes
  * List all market order disputes (admin view)
  */

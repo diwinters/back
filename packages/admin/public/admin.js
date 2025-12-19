@@ -3598,15 +3598,207 @@ function renderMarketOrderPagination(meta) {
 
 async function viewMarketOrderDetails(orderId) {
     try {
-        const res = await fetch(`${API_BASE}/api/orders/${orderId}`)
+        const res = await fetch(`${API_BASE}/api/market/orders/${orderId}`)
         const data = await res.json()
         
         if (data.success) {
             const order = data.data
-            alert(`Order Details:\n\nOrder ID: ${order.id}\nBuyer: ${order.buyerDid}\nStatus: ${order.status}\nTotal: ${order.total} ${order.currency}\n\nItems: ${order.items?.map(i => `${i.title} x${i.quantity}`).join(', ')}`)
+            showMarketOrderModal(order)
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to load order details', 'error')
         }
     } catch (error) {
+        console.error('Failed to load order details:', error)
         showMessage('marketMessage', 'Failed to load order details', 'error')
+    }
+}
+
+function showMarketOrderModal(order) {
+    // Create or get existing modal
+    let modal = document.getElementById('marketOrderModal')
+    if (!modal) {
+        modal = document.createElement('div')
+        modal.id = 'marketOrderModal'
+        modal.className = 'modal'
+        document.body.appendChild(modal)
+    }
+    
+    const statusOptions = ['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']
+    const itemStatusOptions = ['PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'DISPUTED', 'REFUNDED']
+    
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width:800px;max-height:90vh;overflow-y:auto;">
+            <div class="modal-header">
+                <h3>📦 Order Details</h3>
+                <button class="close-btn" onclick="closeMarketOrderModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+                    <div class="card">
+                        <h4>Order Info</h4>
+                        <p><strong>ID:</strong> <code>${order.id}</code></p>
+                        <p><strong>Status:</strong> <span class="badge ${getOrderStatusBadge(order.status)}">${order.status}</span></p>
+                        <p><strong>Payment:</strong> ${order.paymentMethod || 'N/A'}</p>
+                        <p><strong>Total:</strong> ${order.total?.toFixed(2) || 0} ${order.currency || 'MAD'}</p>
+                        <p><strong>Created:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
+                    </div>
+                    <div class="card">
+                        <h4>Buyer Info</h4>
+                        <p><strong>DID:</strong> <code style="font-size:10px;">${order.buyerDid}</code></p>
+                        <p><strong>Name:</strong> ${order.shippingName || 'N/A'}</p>
+                        <p><strong>Phone:</strong> ${order.shippingPhone || 'N/A'}</p>
+                        <p><strong>Address:</strong> ${order.shippingAddress || 'N/A'}</p>
+                        <p><strong>City:</strong> ${order.shippingCity || 'N/A'}</p>
+                    </div>
+                </div>
+                
+                <div class="card" style="margin-bottom:20px;">
+                    <h4>Update Order Status</h4>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <select id="orderStatusSelect" style="padding:8px;flex:1;">
+                            ${statusOptions.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                        <button class="btn btn-primary" onclick="updateMarketOrderStatus('${order.id}')">Update Status</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h4>Order Items (${order.items?.length || 0})</h4>
+                    <table style="width:100%;font-size:13px;">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Seller</th>
+                                <th>Price</th>
+                                <th>Qty</th>
+                                <th>Status</th>
+                                <th>Escrow</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${(order.items || []).map(item => `
+                                <tr>
+                                    <td>${item.title || item.marketPost?.title || 'Unknown'}</td>
+                                    <td>${item.seller?.storeName || 'Unknown'}</td>
+                                    <td>${item.price?.toFixed(2) || 0} ${item.currency || 'MAD'}</td>
+                                    <td>${item.quantity}</td>
+                                    <td>
+                                        <select id="itemStatus_${item.id}" style="padding:4px;font-size:11px;">
+                                            ${itemStatusOptions.map(s => `<option value="${s}" ${item.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                                        </select>
+                                    </td>
+                                    <td>
+                                        ${item.escrowHold ? 
+                                            `<span class="badge ${item.escrowHold.status === 'HELD' ? 'badge-warning' : item.escrowHold.status === 'RELEASED' ? 'badge-success' : 'badge-danger'}">${item.escrowHold.status}</span>` 
+                                            : '<span class="badge">None</span>'}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm" style="padding:2px 6px;font-size:10px;" onclick="updateMarketItemStatus('${item.id}')">Update</button>
+                                        ${item.escrowHold && item.escrowHold.status === 'HELD' ? 
+                                            `<button class="btn btn-success btn-sm" style="padding:2px 6px;font-size:10px;" onclick="releaseEscrow('${item.id}')">Release</button>` 
+                                            : ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;padding:15px;border-top:1px solid #ddd;">
+                <button class="btn btn-danger" onclick="cancelMarketOrder('${order.id}')">Cancel Order</button>
+                <button class="btn" onclick="closeMarketOrderModal()">Close</button>
+            </div>
+        </div>
+    `
+    
+    modal.style.display = 'flex'
+}
+
+function closeMarketOrderModal() {
+    const modal = document.getElementById('marketOrderModal')
+    if (modal) modal.style.display = 'none'
+}
+
+async function updateMarketOrderStatus(orderId) {
+    const status = document.getElementById('orderStatusSelect').value
+    try {
+        const res = await fetch(`${API_BASE}/api/market/orders/${orderId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        })
+        const data = await res.json()
+        if (data.success) {
+            showMessage('marketMessage', 'Order status updated', 'success')
+            loadMarketOrders(currentMarketOrderPage)
+            closeMarketOrderModal()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to update status', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to update order status', 'error')
+    }
+}
+
+async function updateMarketItemStatus(itemId) {
+    const status = document.getElementById(`itemStatus_${itemId}`).value
+    try {
+        const res = await fetch(`${API_BASE}/api/market/orders/items/${itemId}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        })
+        const data = await res.json()
+        if (data.success) {
+            showMessage('marketMessage', 'Item status updated', 'success')
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to update item status', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to update item status', 'error')
+    }
+}
+
+async function releaseEscrow(itemId) {
+    if (!confirm('Are you sure you want to release escrow for this item? Funds will be transferred to the seller.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/orders/items/${itemId}/release-escrow`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        const data = await res.json()
+        if (data.success) {
+            showMessage('marketMessage', 'Escrow released successfully', 'success')
+            loadMarketOrders(currentMarketOrderPage)
+            closeMarketOrderModal()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to release escrow', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to release escrow', 'error')
+    }
+}
+
+async function cancelMarketOrder(orderId) {
+    if (!confirm('Are you sure you want to cancel this order? This will refund the buyer if payment was made.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/orders/${orderId}/cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        const data = await res.json()
+        if (data.success) {
+            showMessage('marketMessage', 'Order cancelled successfully', 'success')
+            loadMarketOrders(currentMarketOrderPage)
+            closeMarketOrderModal()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to cancel order', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to cancel order', 'error')
     }
 }
 
