@@ -3747,7 +3747,7 @@ app.get('/api/market/orders', async (req, res) => {
                 select: { id: true, title: true, postUri: true, price: true }
               },
               seller: {
-                select: { id: true, businessName: true, did: true }
+                select: { id: true, storeName: true, user: { select: { did: true } } }
               },
               escrowHold: true
             }
@@ -3755,7 +3755,7 @@ app.get('/api/market/orders', async (req, res) => {
           conversations: {
             include: {
               seller: {
-                select: { id: true, businessName: true }
+                select: { id: true, storeName: true }
               }
             }
           }
@@ -3843,7 +3843,7 @@ app.get('/api/market/disputes', async (req, res) => {
                 select: { id: true, title: true, postUri: true, price: true }
               },
               seller: {
-                select: { id: true, businessName: true, did: true }
+                select: { id: true, storeName: true, user: { select: { did: true } } }
               },
               escrowHold: true
             }
