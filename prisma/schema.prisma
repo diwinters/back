@@ -135,6 +135,8 @@ model City {
   marketPosts       MarketPost[]
   marketPromoCards  MarketPromoCard[]
   usersPreferred    User[]  @relation("UserPreferredCity")
+  checkoutConfigs   CheckoutConfig[]  @relation("CheckoutConfigCity")
+  promoCodes        PromoCode[]       @relation("PromoCodeCity")
   
   // Cross-city pricing
   crossCityPricingFrom CrossCityPricing[] @relation("FromCity")
@@ -808,6 +810,130 @@ model MarketSettings {
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// =============================================================================
+// MARKET: Checkout Configuration (Admin configurable - per city or global)
+// =============================================================================
+
+model CheckoutConfig {
+  id                      String   @id @default(cuid())
+  
+  // City scope (null = global/default, cityId = city-specific override)
+  cityId                  String?  @unique
+  city                    City?    @relation("CheckoutConfigCity", fields: [cityId], references: [id])
+  
+  // Shipping/Delivery Settings
+  defaultShippingFee      Float    @default(15)        // Default shipping fee (MAD)
+  freeShippingThreshold   Float?                       // Free shipping above this amount
+  
+  // Cash on Delivery Settings
+  codEnabled              Boolean  @default(true)      // Enable Cash on Delivery
+  codFeeEnabled           Boolean  @default(true)      // Charge extra for COD
+  codFeeAmount            Float    @default(5)         // COD extra fee (MAD)
+  codFeeType              String   @default("FIXED")   // FIXED or PERCENTAGE
+  
+  // Payment Methods (which are enabled)
+  walletEnabled           Boolean  @default(true)
+  cardEnabled             Boolean  @default(true)
+  
+  // Required Address Fields
+  requireFullName         Boolean  @default(true)
+  requirePhone            Boolean  @default(true)
+  requireStreet           Boolean  @default(true)
+  requireCity             Boolean  @default(true)
+  requireState            Boolean  @default(false)
+  requirePostalCode       Boolean  @default(false)
+  requireCountry          Boolean  @default(false)
+  
+  // Default Country
+  defaultCountry          String   @default("Morocco")
+  
+  // Order Limits
+  minOrderAmount          Float?                       // Minimum order amount
+  maxOrderAmount          Float?                       // Maximum order amount
+  
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([cityId])
+}
+
+// =============================================================================
+// MARKET: Promo Codes (Admin configurable discount codes)
+// =============================================================================
+
+model PromoCode {
+  id                String      @id @default(cuid())
+  
+  // Code
+  code              String      @unique              // e.g., "WELCOME10", "FREESHIP"
+  
+  // City scope (null = all cities, cityId = city-specific)
+  cityId            String?
+  city              City?       @relation("PromoCodeCity", fields: [cityId], references: [id])
+  
+  // Type & Value
+  type              PromoType                        // PERCENTAGE, FIXED, FREE_SHIPPING
+  value             Float       @default(0)          // Discount value (% or fixed amount)
+  
+  // Limits
+  minOrderAmount    Float?                           // Minimum order to apply promo
+  maxDiscount       Float?                           // Cap on discount amount (for percentage)
+  
+  // Usage Limits
+  maxTotalUses      Int?                             // Total uses allowed (null = unlimited)
+  maxUsesPerUser    Int         @default(1)          // Uses per user (default: 1)
+  totalUsedCount    Int         @default(0)          // Current total usage
+  
+  // Validity Period
+  validFrom         DateTime?                        // Start date (null = immediate)
+  validUntil        DateTime?                        // End date (null = no expiry)
+  
+  // Status
+  isActive          Boolean     @default(true)
+  
+  // Metadata
+  description       String?                          // Admin notes
+  
+  // Relations
+  usages            PromoCodeUsage[]
+  
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([code])
+  @@index([cityId, isActive])
+  @@index([validFrom, validUntil, isActive])
+}
+
+enum PromoType {
+  PERCENTAGE        // e.g., 10% off
+  FIXED             // e.g., 20 MAD off
+  FREE_SHIPPING     // Free shipping
+}
+
+// =============================================================================
+// MARKET: Promo Code Usage (Track per-user usage)
+// =============================================================================
+
+model PromoCodeUsage {
+  id                String      @id @default(cuid())
+  
+  promoCodeId       String
+  promoCode         PromoCode   @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  
+  userDid           String                           // Bluesky DID of user who used it
+  
+  // Usage details
+  orderId           String?                          // Order where it was applied
+  discountAmount    Float                            // Actual discount given
+  
+  usedAt            DateTime    @default(now())
+
+  @@unique([promoCodeId, userDid, orderId])          // One usage per order
+  @@index([promoCodeId])
+  @@index([userDid])
 }
 
 // =============================================================================

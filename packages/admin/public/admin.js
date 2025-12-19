@@ -2049,6 +2049,11 @@ function showMarketSubtab(subtab) {
     } else if (subtab === 'posts') {
         document.getElementById('marketPosts').style.display = 'block'
         loadMarketPosts()
+    } else if (subtab === 'checkout') {
+        document.getElementById('marketCheckout').style.display = 'block'
+        loadCheckoutConfig()
+        loadPromoCodes()
+        populateCheckoutCityDropdowns()
     } else if (subtab === 'settings') {
         document.getElementById('marketSettings').style.display = 'block'
         loadMarketSettings()
@@ -2144,7 +2149,375 @@ document.addEventListener('DOMContentLoaded', function() {
     if (settingsForm) {
         settingsForm.addEventListener('submit', saveMarketSettings)
     }
+    
+    // Add event listener for promo code form
+    const promoCodeForm = document.getElementById('promoCodeForm')
+    if (promoCodeForm) {
+        promoCodeForm.addEventListener('submit', savePromoCode)
+    }
 })
+
+// ============================================================================
+// Checkout Configuration Management
+// ============================================================================
+
+let checkoutConfigCache = null
+let citiesCache = []
+
+async function populateCheckoutCityDropdowns() {
+    try {
+        const res = await fetch(`${API_BASE}/api/cities`)
+        const data = await res.json()
+        
+        if (data.success) {
+            citiesCache = data.data
+            
+            // Populate city dropdowns
+            const dropdowns = ['checkoutConfigCityFilter', 'promoCodeCityFilter', 'promoCodeCityId']
+            const optionsHtml = data.data.map(city => 
+                `<option value="${city.id}">${city.name}</option>`
+            ).join('')
+            
+            dropdowns.forEach(id => {
+                const el = document.getElementById(id)
+                if (el) {
+                    // Keep the first "Global" or "All Cities" option
+                    const firstOption = el.querySelector('option:first-child')
+                    el.innerHTML = firstOption ? firstOption.outerHTML : ''
+                    el.innerHTML += optionsHtml
+                }
+            })
+        }
+    } catch (error) {
+        console.error('Failed to load cities:', error)
+    }
+}
+
+async function loadCheckoutConfig() {
+    const cityId = document.getElementById('checkoutConfigCityFilter').value
+    
+    try {
+        const url = cityId 
+            ? `${API_BASE}/api/market/checkout-config?cityId=${cityId}`
+            : `${API_BASE}/api/market/checkout-config`
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            checkoutConfigCache = data.data
+            populateCheckoutConfigForm(data.data)
+        }
+    } catch (error) {
+        console.error('Failed to load checkout config:', error)
+        showMarketMessage('Failed to load checkout config: ' + error.message, 'error')
+    }
+}
+
+function loadCheckoutConfigForCity() {
+    loadCheckoutConfig()
+}
+
+function populateCheckoutConfigForm(config) {
+    // Shipping & Fees
+    document.getElementById('checkoutDefaultShippingFee').value = config.defaultShippingFee || 15
+    document.getElementById('checkoutFreeShippingThreshold').value = config.freeShippingThreshold || ''
+    document.getElementById('checkoutCodEnabled').checked = config.codEnabled !== false
+    document.getElementById('checkoutCodFeeEnabled').checked = config.codFeeEnabled !== false
+    document.getElementById('checkoutCodFeeAmount').value = config.codFeeAmount || 5
+    
+    // Payment Methods
+    document.getElementById('checkoutWalletEnabled').checked = config.walletEnabled !== false
+    document.getElementById('checkoutCardEnabled').checked = config.cardEnabled !== false
+    document.getElementById('checkoutCodPaymentEnabled').checked = config.codEnabled !== false
+    
+    // Required Address Fields
+    document.getElementById('checkoutRequireFullName').checked = config.requireFullName !== false
+    document.getElementById('checkoutRequirePhone').checked = config.requirePhone !== false
+    document.getElementById('checkoutRequireStreet').checked = config.requireStreet !== false
+    document.getElementById('checkoutRequireCity').checked = config.requireCity !== false
+    document.getElementById('checkoutRequireState').checked = config.requireState === true
+    document.getElementById('checkoutRequirePostalCode').checked = config.requirePostalCode === true
+    document.getElementById('checkoutDefaultCountry').value = config.defaultCountry || 'Morocco'
+    
+    // Order Limits
+    document.getElementById('checkoutMinOrderAmount').value = config.minOrderAmount || ''
+    document.getElementById('checkoutMaxOrderAmount').value = config.maxOrderAmount || ''
+}
+
+async function saveCheckoutConfig() {
+    const cityId = document.getElementById('checkoutConfigCityFilter').value || null
+    
+    const data = {
+        cityId,
+        defaultShippingFee: parseFloat(document.getElementById('checkoutDefaultShippingFee').value) || 15,
+        freeShippingThreshold: document.getElementById('checkoutFreeShippingThreshold').value 
+            ? parseFloat(document.getElementById('checkoutFreeShippingThreshold').value) : null,
+        codEnabled: document.getElementById('checkoutCodEnabled').checked,
+        codFeeEnabled: document.getElementById('checkoutCodFeeEnabled').checked,
+        codFeeAmount: parseFloat(document.getElementById('checkoutCodFeeAmount').value) || 5,
+        walletEnabled: document.getElementById('checkoutWalletEnabled').checked,
+        cardEnabled: document.getElementById('checkoutCardEnabled').checked,
+        requireFullName: document.getElementById('checkoutRequireFullName').checked,
+        requirePhone: document.getElementById('checkoutRequirePhone').checked,
+        requireStreet: document.getElementById('checkoutRequireStreet').checked,
+        requireCity: document.getElementById('checkoutRequireCity').checked,
+        requireState: document.getElementById('checkoutRequireState').checked,
+        requirePostalCode: document.getElementById('checkoutRequirePostalCode').checked,
+        defaultCountry: document.getElementById('checkoutDefaultCountry').value || 'Morocco',
+        minOrderAmount: document.getElementById('checkoutMinOrderAmount').value 
+            ? parseFloat(document.getElementById('checkoutMinOrderAmount').value) : null,
+        maxOrderAmount: document.getElementById('checkoutMaxOrderAmount').value 
+            ? parseFloat(document.getElementById('checkoutMaxOrderAmount').value) : null
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/checkout-config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage('Checkout configuration saved successfully!', 'success')
+            checkoutConfigCache = result.data
+        } else {
+            showMarketMessage('Failed to save config: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error saving config: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Promo Codes Management
+// ============================================================================
+
+let promoCodesCache = []
+
+async function loadPromoCodes() {
+    const cityFilter = document.getElementById('promoCodeCityFilter')?.value || ''
+    
+    try {
+        const url = cityFilter 
+            ? `${API_BASE}/api/market/promo-codes?cityId=${cityFilter}`
+            : `${API_BASE}/api/market/promo-codes`
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            promoCodesCache = data.data
+            renderPromoCodes(data.data)
+        }
+    } catch (error) {
+        console.error('Failed to load promo codes:', error)
+        showMarketMessage('Failed to load promo codes: ' + error.message, 'error')
+    }
+}
+
+function renderPromoCodes(promos) {
+    const tbody = document.getElementById('promoCodesBody')
+    
+    if (promos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#666;">No promo codes yet. Click "Add Promo Code" to create one.</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = promos.map(promo => {
+        const typeLabel = {
+            'PERCENTAGE': `${promo.value}%`,
+            'FIXED': `${promo.value} MAD`,
+            'FREE_SHIPPING': '🚚 Free'
+        }[promo.type] || promo.type
+        
+        const typeColor = {
+            'PERCENTAGE': '#3b82f6',
+            'FIXED': '#10b981',
+            'FREE_SHIPPING': '#8b5cf6'
+        }[promo.type] || '#6b7280'
+        
+        const usageText = promo.maxTotalUses 
+            ? `${promo.totalUsedCount || 0} / ${promo.maxTotalUses}`
+            : `${promo.totalUsedCount || 0} / ∞`
+        
+        const validityText = formatPromoValidity(promo)
+        
+        return `
+            <tr>
+                <td><code style="background:#f1f5f9;padding:4px 8px;border-radius:4px;font-weight:600;">${promo.code}</code></td>
+                <td><span style="background:${typeColor};color:white;padding:3px 8px;border-radius:4px;font-size:12px;">${promo.type}</span></td>
+                <td style="font-weight:600;">${typeLabel}</td>
+                <td>${promo.minOrderAmount ? promo.minOrderAmount + ' MAD' : '-'}</td>
+                <td>${usageText} <small>(max ${promo.maxUsesPerUser}/user)</small></td>
+                <td><small>${validityText}</small></td>
+                <td>${promo.city?.name || '<span style="color:#6b7280;">Global</span>'}</td>
+                <td>
+                    <span class="badge ${promo.isActive ? 'badge-success' : 'badge-danger'}">
+                        ${promo.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editPromoCode('${promo.id}')">✏️</button>
+                    <button class="btn btn-sm btn-danger" onclick="deletePromoCode('${promo.id}', '${promo.code}')">🗑️</button>
+                </td>
+            </tr>
+        `
+    }).join('')
+}
+
+function formatPromoValidity(promo) {
+    const now = new Date()
+    const from = promo.validFrom ? new Date(promo.validFrom) : null
+    const until = promo.validUntil ? new Date(promo.validUntil) : null
+    
+    if (!from && !until) return 'Always valid'
+    
+    if (until && until < now) {
+        return `<span style="color:#ef4444;">Expired ${until.toLocaleDateString()}</span>`
+    }
+    
+    if (from && from > now) {
+        return `<span style="color:#f59e0b;">Starts ${from.toLocaleDateString()}</span>`
+    }
+    
+    if (until) {
+        return `Until ${until.toLocaleDateString()}`
+    }
+    
+    return 'Active now'
+}
+
+function showPromoCodeForm(promoId = null) {
+    const modal = document.getElementById('promoCodeFormModal')
+    const title = document.getElementById('promoCodeFormTitle')
+    const form = document.getElementById('promoCodeForm')
+    
+    form.reset()
+    document.getElementById('promoCodeId').value = ''
+    
+    if (promoId) {
+        title.textContent = 'Edit Promo Code'
+        const promo = promoCodesCache.find(p => p.id === promoId)
+        if (promo) {
+            populatePromoCodeForm(promo)
+        }
+    } else {
+        title.textContent = 'Add Promo Code'
+    }
+    
+    updatePromoCodeValueLabel()
+    modal.style.display = 'flex'
+}
+
+function hidePromoCodeForm() {
+    document.getElementById('promoCodeFormModal').style.display = 'none'
+}
+
+function populatePromoCodeForm(promo) {
+    document.getElementById('promoCodeId').value = promo.id
+    document.getElementById('promoCodeCode').value = promo.code
+    document.getElementById('promoCodeType').value = promo.type
+    document.getElementById('promoCodeValue').value = promo.value || 0
+    document.getElementById('promoCodeMaxDiscount').value = promo.maxDiscount || ''
+    document.getElementById('promoCodeMinOrderAmount').value = promo.minOrderAmount || ''
+    document.getElementById('promoCodeMaxTotalUses').value = promo.maxTotalUses || ''
+    document.getElementById('promoCodeMaxUsesPerUser').value = promo.maxUsesPerUser || 1
+    document.getElementById('promoCodeValidFrom').value = promo.validFrom 
+        ? new Date(promo.validFrom).toISOString().slice(0, 16) : ''
+    document.getElementById('promoCodeValidUntil').value = promo.validUntil 
+        ? new Date(promo.validUntil).toISOString().slice(0, 16) : ''
+    document.getElementById('promoCodeCityId').value = promo.cityId || ''
+    document.getElementById('promoCodeIsActive').value = promo.isActive ? 'true' : 'false'
+    document.getElementById('promoCodeDescription').value = promo.description || ''
+}
+
+function updatePromoCodeValueLabel() {
+    const type = document.getElementById('promoCodeType').value
+    const label = document.getElementById('promoCodeValueLabel')
+    const valueGroup = document.getElementById('promoCodeValueGroup')
+    
+    if (type === 'PERCENTAGE') {
+        label.textContent = 'Discount Value (%)'
+        valueGroup.style.display = 'block'
+    } else if (type === 'FIXED') {
+        label.textContent = 'Discount Amount (MAD)'
+        valueGroup.style.display = 'block'
+    } else {
+        valueGroup.style.display = 'none'
+    }
+}
+
+function editPromoCode(promoId) {
+    showPromoCodeForm(promoId)
+}
+
+async function savePromoCode(e) {
+    e.preventDefault()
+    
+    const promoId = document.getElementById('promoCodeId').value
+    const isEdit = !!promoId
+    
+    const data = {
+        code: document.getElementById('promoCodeCode').value.toUpperCase(),
+        type: document.getElementById('promoCodeType').value,
+        value: parseFloat(document.getElementById('promoCodeValue').value) || 0,
+        maxDiscount: document.getElementById('promoCodeMaxDiscount').value 
+            ? parseFloat(document.getElementById('promoCodeMaxDiscount').value) : null,
+        minOrderAmount: document.getElementById('promoCodeMinOrderAmount').value 
+            ? parseFloat(document.getElementById('promoCodeMinOrderAmount').value) : null,
+        maxTotalUses: document.getElementById('promoCodeMaxTotalUses').value 
+            ? parseInt(document.getElementById('promoCodeMaxTotalUses').value) : null,
+        maxUsesPerUser: parseInt(document.getElementById('promoCodeMaxUsesPerUser').value) || 1,
+        validFrom: document.getElementById('promoCodeValidFrom').value || null,
+        validUntil: document.getElementById('promoCodeValidUntil').value || null,
+        cityId: document.getElementById('promoCodeCityId').value || null,
+        isActive: document.getElementById('promoCodeIsActive').value === 'true',
+        description: document.getElementById('promoCodeDescription').value || null
+    }
+    
+    try {
+        const url = isEdit 
+            ? `${API_BASE}/api/market/promo-codes/${promoId}`
+            : `${API_BASE}/api/market/promo-codes`
+        
+        const res = await fetch(url, {
+            method: isEdit ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage(`Promo code ${isEdit ? 'updated' : 'created'} successfully!`, 'success')
+            hidePromoCodeForm()
+            loadPromoCodes()
+        } else {
+            showMarketMessage('Failed to save promo code: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error saving promo code: ' + error.message, 'error')
+    }
+}
+
+async function deletePromoCode(promoId, code) {
+    if (!confirm(`Are you sure you want to delete promo code "${code}"?`)) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/promo-codes/${promoId}`, {
+            method: 'DELETE'
+        })
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage('Promo code deleted successfully!', 'success')
+            loadPromoCodes()
+        } else {
+            showMarketMessage('Failed to delete promo code: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error deleting promo code: ' + error.message, 'error')
+    }
+}
 
 // ============================================================================
 // Category Management

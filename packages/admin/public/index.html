@@ -1029,6 +1029,7 @@
             <button class="tab" id="marketSubtabPromoCards" onclick="showMarketSubtab('promoCards')">🎴 Promo Cards</button>
             <button class="tab" id="marketSubtabSellers" onclick="showMarketSubtab('sellers')">👤 Sellers</button>
             <button class="tab" id="marketSubtabPosts" onclick="showMarketSubtab('posts')">📋 Posts</button>
+            <button class="tab" id="marketSubtabCheckout" onclick="showMarketSubtab('checkout')">🛒 Checkout</button>
             <button class="tab" id="marketSubtabSettings" onclick="showMarketSubtab('settings')">⚙️ Settings</button>
         </div>
         
@@ -1158,6 +1159,187 @@
                 <tbody id="marketPostsBody"></tbody>
             </table>
             <div id="marketPostsPagination" class="pagination"></div>
+        </div>
+
+        <!-- Checkout Subtab -->
+        <div id="marketCheckout" class="market-subtab" style="display: none;">
+            <div style="margin-top: 20px;">
+                
+                <!-- Checkout Config Section -->
+                <div style="margin-bottom: 40px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #374151;">🚚 Checkout Configuration</h3>
+                        <div>
+                            <select id="checkoutConfigCityFilter" onchange="loadCheckoutConfigForCity()" style="padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-right: 10px;">
+                                <option value="">Global (Default)</option>
+                            </select>
+                            <button class="btn btn-success" onclick="saveCheckoutConfig()">💾 Save Config</button>
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        
+                        <!-- Shipping & Fees -->
+                        <div class="settings-panel" style="background: #f0fdf4; padding: 20px; border-radius: 12px; border: 1px solid #86efac;">
+                            <h4 style="margin-bottom: 15px; color: #166534;">📦 Shipping & Fees</h4>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label>Default Shipping Fee (MAD)</label>
+                                <input type="number" id="checkoutDefaultShippingFee" min="0" step="1" value="15" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label>Free Shipping Above (MAD)</label>
+                                <input type="number" id="checkoutFreeShippingThreshold" min="0" step="1" placeholder="No free shipping" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutCodEnabled" checked style="width: 16px; height: 16px;">
+                                    <span>Enable Cash on Delivery</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutCodFeeEnabled" checked style="width: 16px; height: 16px;">
+                                    <span>Charge COD Extra Fee</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>COD Fee Amount (MAD)</label>
+                                <input type="number" id="checkoutCodFeeAmount" min="0" step="1" value="5" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                            </div>
+                        </div>
+                        
+                        <!-- Payment Methods -->
+                        <div class="settings-panel" style="background: #eff6ff; padding: 20px; border-radius: 12px; border: 1px solid #93c5fd;">
+                            <h4 style="margin-bottom: 15px; color: #1e40af;">💳 Payment Methods</h4>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutWalletEnabled" checked style="width: 16px; height: 16px;">
+                                    <span>💰 Wallet Payment</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutCardEnabled" checked style="width: 16px; height: 16px;">
+                                    <span>💳 Card Payment</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutCodPaymentEnabled" checked style="width: 16px; height: 16px;">
+                                    <span>💵 Cash on Delivery</span>
+                                </label>
+                                <small style="color: #6b7280; margin-left: 24px;">Same as "Enable COD" above</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Required Address Fields -->
+                        <div class="settings-panel" style="background: #fef3c7; padding: 20px; border-radius: 12px; border: 1px solid #fcd34d;">
+                            <h4 style="margin-bottom: 15px; color: #92400e;">📍 Required Address Fields</h4>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequireFullName" checked style="width: 16px; height: 16px;">
+                                    <span>Full Name</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequirePhone" checked style="width: 16px; height: 16px;">
+                                    <span>Phone Number</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequireStreet" checked style="width: 16px; height: 16px;">
+                                    <span>Street Address</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequireCity" checked style="width: 16px; height: 16px;">
+                                    <span>City</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequireState" style="width: 16px; height: 16px;">
+                                    <span>State/Province</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group" style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="checkoutRequirePostalCode" style="width: 16px; height: 16px;">
+                                    <span>Postal Code</span>
+                                </label>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Default Country</label>
+                                <input type="text" id="checkoutDefaultCountry" value="Morocco" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; margin-top: 8px;">
+                            </div>
+                        </div>
+                        
+                        <!-- Order Limits -->
+                        <div class="settings-panel" style="background: #fdf2f8; padding: 20px; border-radius: 12px; border: 1px solid #f9a8d4;">
+                            <h4 style="margin-bottom: 15px; color: #9d174d;">🔒 Order Limits</h4>
+                            
+                            <div class="form-group" style="margin-bottom: 12px;">
+                                <label>Minimum Order (MAD)</label>
+                                <input type="number" id="checkoutMinOrderAmount" min="0" step="1" placeholder="No minimum" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Maximum Order (MAD)</label>
+                                <input type="number" id="checkoutMaxOrderAmount" min="0" step="1" placeholder="No maximum" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Promo Codes Section -->
+                <div style="border-top: 2px solid #e5e7eb; padding-top: 30px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #374151;">🎟️ Promo Codes</h3>
+                        <div>
+                            <select id="promoCodeCityFilter" onchange="loadPromoCodes()" style="padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-right: 10px;">
+                                <option value="">All Cities</option>
+                            </select>
+                            <button class="btn btn-success" onclick="showPromoCodeForm()">➕ Add Promo Code</button>
+                            <button class="btn btn-primary" onclick="loadPromoCodes()">🔄 Refresh</button>
+                        </div>
+                    </div>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Type</th>
+                                <th>Value</th>
+                                <th>Min Order</th>
+                                <th>Usage</th>
+                                <th>Validity</th>
+                                <th>City</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="promoCodesBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- Settings Subtab -->
@@ -1466,6 +1648,96 @@
     <!-- Seller Details Modal -->
     <div id="sellerDetailsModal" class="modal" style="display:none;">
         <div class="modal-content" style="max-width: 700px;">
+
+    <!-- Promo Code Form Modal -->
+    <div id="promoCodeFormModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 id="promoCodeFormTitle">Add Promo Code</h3>
+            <form id="promoCodeForm">
+                <input type="hidden" id="promoCodeId">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <div class="form-group">
+                            <label>Code * (will be uppercase)</label>
+                            <input type="text" id="promoCodeCode" required placeholder="e.g., WELCOME10" style="text-transform: uppercase;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Type *</label>
+                            <select id="promoCodeType" required onchange="updatePromoCodeValueLabel()" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="PERCENTAGE">Percentage (%)</option>
+                                <option value="FIXED">Fixed Amount (MAD)</option>
+                                <option value="FREE_SHIPPING">Free Shipping</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" id="promoCodeValueGroup">
+                            <label id="promoCodeValueLabel">Discount Value (%)</label>
+                            <input type="number" id="promoCodeValue" min="0" step="1" value="10" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Max Discount (for % off)</label>
+                            <input type="number" id="promoCodeMaxDiscount" min="0" step="1" placeholder="No cap" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Min Order Amount (MAD)</label>
+                            <input type="number" id="promoCodeMinOrderAmount" min="0" step="1" placeholder="No minimum" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div class="form-group">
+                            <label>Max Total Uses</label>
+                            <input type="number" id="promoCodeMaxTotalUses" min="1" step="1" placeholder="Unlimited" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Max Uses Per User</label>
+                            <input type="number" id="promoCodeMaxUsesPerUser" min="1" step="1" value="1" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Valid From</label>
+                            <input type="datetime-local" id="promoCodeValidFrom" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Valid Until</label>
+                            <input type="datetime-local" id="promoCodeValidUntil" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>City</label>
+                            <select id="promoCodeCityId" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="">All Cities (Global)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select id="promoCodeIsActive" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                                <option value="true">Active</option>
+                                <option value="false">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group" style="margin-top: 15px;">
+                    <label>Description (admin notes)</label>
+                    <textarea id="promoCodeDescription" placeholder="Internal notes about this promo code" rows="2" style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;"></textarea>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hidePromoCodeForm()">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Promo Code</button>
+                </div>
+            </form>
+        </div>
+    </div>
             <h3>Seller Details</h3>
             <div id="sellerDetailsContent"></div>
             <div class="form-actions">
