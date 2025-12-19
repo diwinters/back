@@ -643,15 +643,24 @@ router.get('/users', async (req: Request, res: Response) => {
           { did: { contains: search as string } }
         ]
       },
-      include: {
-        wallet: {
-          select: { id: true, available: true, pending: true, held: true, total: true }
-        }
-      },
       take: 20
     })
     
-    res.json({ success: true, data: users })
+    // Get wallets for these users separately (no direct relation)
+    const userDids = users.map(u => u.did)
+    const wallets = await prisma.wallet.findMany({
+      where: { userDid: { in: userDids } },
+      select: { userDid: true, balance: true, pendingBalance: true }
+    })
+    
+    // Merge wallet info with users
+    const walletsMap = new Map(wallets.map(w => [w.userDid, w]))
+    const usersWithWallets = users.map(user => ({
+      ...user,
+      wallet: walletsMap.get(user.did) || null
+    }))
+    
+    res.json({ success: true, data: usersWithWallets })
   } catch (error: any) {
     console.error('[Admin Wallet] Search users error:', error)
     res.status(500).json({ error: error.message })
@@ -667,24 +676,25 @@ router.get('/users/:did', async (req: Request, res: Response) => {
     const { did } = req.params
     
     const user = await prisma.user.findFirst({
-      where: { did },
-      include: {
-        wallet: {
-          include: {
-            transactions: {
-              orderBy: { createdAt: 'desc' },
-              take: 50
-            }
-          }
-        }
-      }
+      where: { did }
     })
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' })
     }
     
-    res.json({ success: true, data: user })
+    // Get wallet separately (no direct relation)
+    const wallet = await prisma.wallet.findUnique({
+      where: { userDid: did },
+      include: {
+        transactions: {
+          orderBy: { createdAt: 'desc' },
+          take: 50
+        }
+      }
+    })
+    
+    res.json({ success: true, data: { ...user, wallet } })
   } catch (error: any) {
     console.error('[Admin Wallet] Get user error:', error)
     res.status(500).json({ error: error.message })
@@ -709,24 +719,24 @@ router.post('/top-up', async (req: Request, res: Response) => {
     
     // Find user
     const user = await prisma.user.findFirst({
-      where: { did: userDid },
-      include: { wallet: true }
+      where: { did: userDid }
     })
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' })
     }
     
-    // Create wallet if doesn't exist
-    let wallet = user.wallet
+    // Find or create wallet (use userDid, not user relation)
+    let wallet = await prisma.wallet.findUnique({
+      where: { userDid }
+    })
+    
     if (!wallet) {
       wallet = await prisma.wallet.create({
         data: {
-          user: { connect: { id: user.id } },
-          available: 0,
-          pending: 0,
-          held: 0,
-          total: 0,
+          userDid,
+          balance: 0,
+          pendingBalance: 0,
           currency: 'MAD'
         }
       })
@@ -737,13 +747,12 @@ router.post('/top-up', async (req: Request, res: Response) => {
       // Create admin top-up transaction
       const transaction = await tx.walletTransaction.create({
         data: {
-          wallet: { connect: { id: wallet!.id } },
+          walletId: wallet!.id,
           type: 'DEPOSIT_CASH', // Use DEPOSIT_CASH for admin top-ups
           status: 'COMPLETED',
           amount,
           fee: 0,
           netAmount: amount,
-          currency: 'MAD',
           description: reason || 'Admin top-up',
           metadata: {
             adminTopUp: true,
@@ -757,8 +766,8 @@ router.post('/top-up', async (req: Request, res: Response) => {
       const updatedWallet = await tx.wallet.update({
         where: { id: wallet!.id },
         data: {
-          available: { increment: amount },
-          total: { increment: amount }
+          balance: { increment: amount },
+          lifetimeEarned: { increment: amount }
         }
       })
       
@@ -795,16 +804,15 @@ router.post('/deduct', async (req: Request, res: Response) => {
     }
     
     // Find user's wallet
-    const user = await prisma.user.findFirst({
-      where: { did: userDid },
-      include: { wallet: true }
+    const wallet = await prisma.wallet.findUnique({
+      where: { userDid }
     })
     
-    if (!user || !user.wallet) {
+    if (!wallet) {
       return res.status(404).json({ error: 'User wallet not found' })
     }
     
-    if (user.wallet.available < amount) {
+    if (wallet.balance < amount) {
       return res.status(400).json({ error: 'Insufficient balance for deduction' })
     }
     
@@ -813,13 +821,12 @@ router.post('/deduct', async (req: Request, res: Response) => {
       // Create deduction transaction
       const transaction = await tx.walletTransaction.create({
         data: {
-          wallet: { connect: { id: user.wallet!.id } },
+          walletId: wallet.id,
           type: 'WITHDRAWAL_CASH', // Use WITHDRAWAL for deductions
           status: 'COMPLETED',
           amount: -amount,
           fee: 0,
           netAmount: -amount,
-          currency: 'MAD',
           description: reason || 'Admin deduction',
           metadata: {
             adminDeduction: true,
@@ -831,10 +838,10 @@ router.post('/deduct', async (req: Request, res: Response) => {
       
       // Update wallet balance
       const updatedWallet = await tx.wallet.update({
-        where: { id: user.wallet!.id },
+        where: { id: wallet.id },
         data: {
-          available: { decrement: amount },
-          total: { decrement: amount }
+          balance: { decrement: amount },
+          lifetimeSpent: { increment: amount }
         }
       })
       
