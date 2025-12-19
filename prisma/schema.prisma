@@ -59,6 +59,7 @@ model User {
   ratings       Rating[]  @relation("RatingsGiven")
   ratingsReceived Rating[] @relation("RatingsReceived")
   savedPlaces   SavedPlace[]
+  savedAddresses UserAddress[]
 
   @@index([did])
   @@index([pushToken])
@@ -79,6 +80,29 @@ model SavedPlace {
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
+}
+
+model UserAddress {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label       String   // home, work, office, etc.
+  fullName    String
+  phone       String
+  street      String
+  city        String
+  state       String?
+  postalCode  String?
+  country     String   @default("Morocco")
+  
+  isDefault   Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isDefault])
 }
 
 // =============================================================================

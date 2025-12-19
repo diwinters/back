@@ -5884,6 +5884,212 @@ app.post('/api/admin/wallet/seed', async (req, res) => {
 })
 
 // ============================================================================
+// User Addresses Routes
+// ============================================================================
+
+/**
+ * GET /api/users/:did/addresses
+ * Get all saved addresses for a user
+ */
+app.get('/api/users/:did/addresses', async (req, res) => {
+  try {
+    const { did } = req.params
+    
+    // Find user by DID
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+    
+    const addresses = await prisma.userAddress.findMany({
+      where: { userId: user.id },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }]
+    })
+    
+    res.json({ success: true, data: addresses })
+  } catch (error) {
+    console.error('[User Addresses] Error fetching addresses:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/users/:did/addresses
+ * Create new address for a user
+ */
+app.post('/api/users/:did/addresses', async (req, res) => {
+  try {
+    const { did } = req.params
+    const { label, fullName, phone, street, city, state, postalCode, country, isDefault } = req.body
+    
+    // Find or create user
+    let user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          did,
+          handle: `user_${did.slice(-8)}`,
+          displayName: 'New User'
+        }
+      })
+    }
+    
+    // If this is set as default, unset other defaults
+    if (isDefault) {
+      await prisma.userAddress.updateMany({
+        where: { userId: user.id, isDefault: true },
+        data: { isDefault: false }
+      })
+    }
+    
+    const address = await prisma.userAddress.create({
+      data: {
+        userId: user.id,
+        label: label || 'Home',
+        fullName,
+        phone,
+        street,
+        city,
+        state: state || '',
+        postalCode: postalCode || '',
+        country: country || 'Morocco',
+        isDefault: isDefault || false
+      }
+    })
+    
+    res.json({ success: true, data: address })
+  } catch (error) {
+    console.error('[User Addresses] Error creating address:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/users/:did/addresses/:id
+ * Update an address
+ */
+app.put('/api/users/:did/addresses/:id', async (req, res) => {
+  try {
+    const { did, id } = req.params
+    const { label, fullName, phone, street, city, state, postalCode, country, isDefault } = req.body
+    
+    // Find user
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+    
+    // Verify address belongs to user
+    const existing = await prisma.userAddress.findFirst({
+      where: { id, userId: user.id }
+    })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Address not found' })
+    }
+    
+    // If this is set as default, unset other defaults
+    if (isDefault && !existing.isDefault) {
+      await prisma.userAddress.updateMany({
+        where: { userId: user.id, isDefault: true },
+        data: { isDefault: false }
+      })
+    }
+    
+    const address = await prisma.userAddress.update({
+      where: { id },
+      data: {
+        label,
+        fullName,
+        phone,
+        street,
+        city,
+        state,
+        postalCode,
+        country,
+        isDefault
+      }
+    })
+    
+    res.json({ success: true, data: address })
+  } catch (error) {
+    console.error('[User Addresses] Error updating address:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/users/:did/addresses/:id
+ * Delete an address
+ */
+app.delete('/api/users/:did/addresses/:id', async (req, res) => {
+  try {
+    const { did, id } = req.params
+    
+    // Find user
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+    
+    // Verify address belongs to user
+    const existing = await prisma.userAddress.findFirst({
+      where: { id, userId: user.id }
+    })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Address not found' })
+    }
+    
+    await prisma.userAddress.delete({ where: { id } })
+    
+    res.json({ success: true, message: 'Address deleted' })
+  } catch (error) {
+    console.error('[User Addresses] Error deleting address:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/users/:did/addresses/:id/set-default
+ * Set an address as default
+ */
+app.put('/api/users/:did/addresses/:id/set-default', async (req, res) => {
+  try {
+    const { did, id } = req.params
+    
+    // Find user
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+    
+    // Verify address belongs to user
+    const existing = await prisma.userAddress.findFirst({
+      where: { id, userId: user.id }
+    })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Address not found' })
+    }
+    
+    // Unset all defaults
+    await prisma.userAddress.updateMany({
+      where: { userId: user.id, isDefault: true },
+      data: { isDefault: false }
+    })
+    
+    // Set this as default
+    const address = await prisma.userAddress.update({
+      where: { id },
+      data: { isDefault: true }
+    })
+    
+    res.json({ success: true, data: address })
+  } catch (error) {
+    console.error('[User Addresses] Error setting default address:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Market Checkout & Promo Code Routes
 // ============================================================================
 
