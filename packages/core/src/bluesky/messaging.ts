@@ -43,8 +43,9 @@ export class BlueskyMessaging {
    */
   async initialize(): Promise<void> {
     try {
-      // Dynamic import to avoid bundling ATP client if not needed
-      const { BskyAgent } = await import('@atproto/api')
+      // Use require to avoid TS analyzing @atproto/api types
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { BskyAgent } = require('@atproto/api')
       
       this.agent = new BskyAgent({
         service: 'https://bsky.social',
