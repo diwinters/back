@@ -14,7 +14,9 @@ const router = express.Router()
 
 function requireAuth(req: Request, res: Response, next: Function) {
   const userDid = req.headers['x-user-did'] as string
+  console.log('[WalletRoutes] 🔐 Auth check - DID:', userDid ? userDid.substring(0, 25) + '...' : 'MISSING')
   if (!userDid) {
+    console.log('[WalletRoutes] ❌ Unauthorized - no DID header')
     return res.status(401).json({ error: 'Unauthorized' })
   }
   (req as any).userDid = userDid
@@ -32,10 +34,12 @@ function requireAuth(req: Request, res: Response, next: Function) {
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const userDid = (req as any).userDid
+    console.log('[WalletRoutes] 📱 GET /api/wallet - DID:', userDid.substring(0, 25) + '...')
     const walletInfo = await walletService.getWalletInfo(userDid)
+    console.log('[WalletRoutes] ✅ Wallet info retrieved:', { id: walletInfo.id, hasPinSet: walletInfo.hasPinSet })
     res.json({ success: true, data: walletInfo })
   } catch (error: any) {
-    console.error('[Wallet] Get wallet info error:', error)
+    console.error('[WalletRoutes] ❌ Get wallet info error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -47,10 +51,12 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 router.get('/balance', requireAuth, async (req: Request, res: Response) => {
   try {
     const userDid = (req as any).userDid
+    console.log('[WalletRoutes] 💰 GET /api/wallet/balance - DID:', userDid.substring(0, 25) + '...')
     const balance = await walletService.getWalletBalance(userDid)
+    console.log('[WalletRoutes] ✅ Balance retrieved:', balance)
     res.json({ success: true, data: balance })
   } catch (error: any) {
-    console.error('[Wallet] Get balance error:', error)
+    console.error('[WalletRoutes] ❌ Get balance error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -63,6 +69,7 @@ router.get('/transactions', requireAuth, async (req: Request, res: Response) => 
   try {
     const userDid = (req as any).userDid
     const { limit, offset, type, status } = req.query
+    console.log('[WalletRoutes] 📝 GET /api/wallet/transactions - DID:', userDid.substring(0, 25) + '...', { limit, offset, type, status })
     
     const result = await walletService.getWalletTransactions(userDid, {
       limit: limit ? parseInt(limit as string) : undefined,
@@ -71,9 +78,10 @@ router.get('/transactions', requireAuth, async (req: Request, res: Response) => 
       status: status as any
     })
     
+    console.log('[WalletRoutes] ✅ Transactions retrieved:', { count: result.transactions.length, total: result.total })
     res.json({ success: true, data: result })
   } catch (error: any) {
-    console.error('[Wallet] Get transactions error:', error)
+    console.error('[WalletRoutes] ❌ Get transactions error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -179,11 +187,15 @@ router.post('/deposit', requireAuth, async (req: Request, res: Response) => {
     const { amount, method, type, cashPointId, stripePaymentIntentId, metadata } = req.body
     const depositType = method || type
     
+    console.log('[WalletRoutes] 💰 POST /api/wallet/deposit:', { userDid: userDid.substring(0, 25) + '...', amount, depositType, cashPointId })
+    
     if (!amount || !depositType) {
+      console.log('[WalletRoutes] ❌ Deposit validation failed: missing amount or type')
       return res.status(400).json({ error: 'Amount and method/type are required' })
     }
     
     if (amount <= 0) {
+      console.log('[WalletRoutes] ❌ Deposit validation failed: negative amount')
       return res.status(400).json({ error: 'Amount must be positive' })
     }
     
@@ -196,9 +208,10 @@ router.post('/deposit', requireAuth, async (req: Request, res: Response) => {
       metadata
     })
     
+    console.log('[WalletRoutes] ✅ Deposit initiated:', { transactionId: result.transaction?.id, status: result.transaction?.status })
     res.json({ success: true, data: result })
   } catch (error: any) {
-    console.error('[Wallet] Deposit error:', error)
+    console.error('[WalletRoutes] ❌ Deposit error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -210,12 +223,14 @@ router.post('/deposit', requireAuth, async (req: Request, res: Response) => {
 router.post('/deposit/:id/complete', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
+    console.log('[WalletRoutes] 💰 POST /api/wallet/deposit/:id/complete - ID:', id)
     // TODO: Verify agent auth or Stripe signature
     
     const transaction = await walletService.completeDeposit(id)
+    console.log('[WalletRoutes] ✅ Deposit completed:', { id, status: transaction.status })
     res.json({ success: true, data: transaction })
   } catch (error: any) {
-    console.error('[Wallet] Complete deposit error:', error)
+    console.error('[WalletRoutes] ❌ Complete deposit error:', error.message)
     res.status(500).json({ error: error.message })
   }
 })
@@ -229,7 +244,10 @@ router.post('/withdraw', requireAuth, async (req: Request, res: Response) => {
     const userDid = (req as any).userDid
     const { amount, type, cashPointId, bankAccountId, pin } = req.body
     
+    console.log('[WalletRoutes] 💸 POST /api/wallet/withdraw:', { userDid: userDid.substring(0, 25) + '...', amount, type, cashPointId })
+    
     if (!amount || !type) {
+      console.log('[WalletRoutes] ❌ Withdrawal validation failed: missing amount or type')
       return res.status(400).json({ error: 'Amount and type are required' })
     }
     
