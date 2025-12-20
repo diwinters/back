@@ -6121,9 +6121,7 @@ app.get('/api/orders/seller/:did', async (req, res) => {
               paymentMethod: true,
               currency: true,
               createdAt: true,
-              shippingAddress: true,
-              shippingCity: true,
-              shippingCountry: true
+              shippingAddress: true
             }
           },
           marketPost: true,
