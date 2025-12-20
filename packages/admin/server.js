@@ -2963,6 +2963,449 @@ app.post('/api/market/promo-cards/seed-defaults', async (req, res) => {
 })
 
 // ============================================================================
+// Market: App Configuration (Branding, Icon, Delivery Banner)
+// ============================================================================
+
+/**
+ * GET /api/market/config
+ * Get the market app configuration
+ */
+app.get('/api/market/config', async (req, res) => {
+  try {
+    // Get or create default config
+    let config = await prisma.marketConfig.findFirst()
+    
+    if (!config) {
+      config = await prisma.marketConfig.create({
+        data: {
+          appName: 'Market',
+          showDeliveryBanner: true,
+          showCategories: true,
+          showPromoCards: true,
+          showSections: true
+        }
+      })
+    }
+    
+    res.json({ success: true, config })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// Configure multer for market icon uploads
+const marketIconStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads/market/icons')
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+    const ext = path.extname(file.originalname)
+    cb(null, 'market-icon-' + uniqueSuffix + ext)
+  }
+})
+
+const marketIconUpload = multer({
+  storage: marketIconStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp']
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Invalid file type. Only SVG, PNG, JPEG, and WebP are allowed.'))
+    }
+  }
+})
+
+/**
+ * PUT /api/market/config
+ * Update the market app configuration
+ */
+app.put('/api/market/config', marketIconUpload.single('appIcon'), async (req, res) => {
+  try {
+    const {
+      appName,
+      appNameAr,
+      appIconSvg,
+      headerBgColor,
+      headerTextColor,
+      showDeliveryBanner,
+      deliveryCost,
+      deliveryTime,
+      showCategories,
+      showPromoCards,
+      showSections
+    } = req.body
+    
+    // Get or create config
+    let config = await prisma.marketConfig.findFirst()
+    const configId = config?.id
+    
+    const updateData = {}
+    if (appName !== undefined) updateData.appName = appName
+    if (appNameAr !== undefined) updateData.appNameAr = appNameAr
+    if (appIconSvg !== undefined) updateData.appIconSvg = appIconSvg
+    if (headerBgColor !== undefined) updateData.headerBgColor = headerBgColor
+    if (headerTextColor !== undefined) updateData.headerTextColor = headerTextColor
+    if (showDeliveryBanner !== undefined) updateData.showDeliveryBanner = showDeliveryBanner === 'true' || showDeliveryBanner === true
+    if (deliveryCost !== undefined) updateData.deliveryCost = parseFloat(deliveryCost) || null
+    if (deliveryTime !== undefined) updateData.deliveryTime = deliveryTime
+    if (showCategories !== undefined) updateData.showCategories = showCategories === 'true' || showCategories === true
+    if (showPromoCards !== undefined) updateData.showPromoCards = showPromoCards === 'true' || showPromoCards === true
+    if (showSections !== undefined) updateData.showSections = showSections === 'true' || showSections === true
+    
+    // Handle icon upload
+    if (req.file) {
+      updateData.appIconUrl = `/uploads/market/icons/${req.file.filename}`
+    }
+    
+    if (configId) {
+      config = await prisma.marketConfig.update({
+        where: { id: configId },
+        data: updateData
+      })
+    } else {
+      config = await prisma.marketConfig.create({
+        data: {
+          appName: 'Market',
+          showDeliveryBanner: true,
+          showCategories: true,
+          showPromoCards: true,
+          showSections: true,
+          ...updateData
+        }
+      })
+    }
+    
+    res.json({ success: true, config })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Sections Management (Featured collections, Ready food, etc.)
+// ============================================================================
+
+// Configure multer for section cover uploads
+const sectionCoverStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, 'uploads/market/sections')
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    cb(null, uploadDir)
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+    const ext = path.extname(file.originalname)
+    cb(null, 'section-' + uniqueSuffix + ext)
+  }
+})
+
+const sectionCoverUpload = multer({
+  storage: sectionCoverStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, and WebP are allowed.'))
+    }
+  }
+})
+
+/**
+ * GET /api/market/sections
+ * List all market sections
+ * @query includeInactive - Include inactive sections
+ * @query cityId - Filter by city
+ * @query sectionType - Filter by section type
+ */
+app.get('/api/market/sections', async (req, res) => {
+  try {
+    const includeInactive = req.query.includeInactive === 'true'
+    const cityId = req.query.cityId || null
+    const sectionType = req.query.sectionType || null
+    
+    const where = {}
+    if (!includeInactive) where.isActive = true
+    if (sectionType) where.sectionType = sectionType
+    
+    // City filtering: show global (cityId=null) + city-specific
+    if (cityId) {
+      where.OR = [
+        { cityId: null },
+        { cityId }
+      ]
+    }
+    
+    const sections = await prisma.marketSection.findMany({
+      where,
+      include: {
+        city: true
+      },
+      orderBy: { sortOrder: 'asc' }
+    })
+    
+    res.json({ success: true, sections })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/sections/:id
+ * Get a single section
+ */
+app.get('/api/market/sections/:id', async (req, res) => {
+  try {
+    const section = await prisma.marketSection.findUnique({
+      where: { id: req.params.id },
+      include: { city: true }
+    })
+    
+    if (!section) {
+      return res.status(404).json({ success: false, error: 'Section not found' })
+    }
+    
+    res.json({ success: true, section })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/sections
+ * Create a new section
+ */
+app.post('/api/market/sections', sectionCoverUpload.single('coverImage'), async (req, res) => {
+  try {
+    const {
+      title,
+      titleAr,
+      subtitle,
+      subtitleAr,
+      sectionType,
+      iconEmoji,
+      iconUrl,
+      bgColor,
+      categoryId,
+      subcategoryId,
+      filterTags,
+      productIds,
+      maxItems,
+      showViewAll,
+      sortOrder,
+      isActive,
+      cityId
+    } = req.body
+    
+    const coverImageUrl = req.file ? `/uploads/market/sections/${req.file.filename}` : null
+    
+    const section = await prisma.marketSection.create({
+      data: {
+        title,
+        titleAr,
+        subtitle,
+        subtitleAr,
+        sectionType: sectionType || 'GRID',
+        iconEmoji,
+        iconUrl,
+        coverImageUrl,
+        bgColor,
+        categoryId,
+        subcategoryId,
+        filterTags,
+        productIds,
+        maxItems: parseInt(maxItems) || 10,
+        showViewAll: showViewAll === 'true' || showViewAll === true,
+        sortOrder: parseInt(sortOrder) || 0,
+        isActive: isActive !== 'false' && isActive !== false,
+        cityId: cityId || null
+      },
+      include: { city: true }
+    })
+    
+    res.status(201).json({ success: true, section })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/sections/:id
+ * Update a section
+ */
+app.put('/api/market/sections/:id', sectionCoverUpload.single('coverImage'), async (req, res) => {
+  try {
+    const { id } = req.params
+    const {
+      title,
+      titleAr,
+      subtitle,
+      subtitleAr,
+      sectionType,
+      iconEmoji,
+      iconUrl,
+      bgColor,
+      categoryId,
+      subcategoryId,
+      filterTags,
+      productIds,
+      maxItems,
+      showViewAll,
+      sortOrder,
+      isActive,
+      cityId
+    } = req.body
+    
+    const existing = await prisma.marketSection.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Section not found' })
+    }
+    
+    const updateData = {}
+    if (title !== undefined) updateData.title = title
+    if (titleAr !== undefined) updateData.titleAr = titleAr
+    if (subtitle !== undefined) updateData.subtitle = subtitle
+    if (subtitleAr !== undefined) updateData.subtitleAr = subtitleAr
+    if (sectionType !== undefined) updateData.sectionType = sectionType
+    if (iconEmoji !== undefined) updateData.iconEmoji = iconEmoji
+    if (iconUrl !== undefined) updateData.iconUrl = iconUrl
+    if (bgColor !== undefined) updateData.bgColor = bgColor
+    if (categoryId !== undefined) updateData.categoryId = categoryId
+    if (subcategoryId !== undefined) updateData.subcategoryId = subcategoryId
+    if (filterTags !== undefined) updateData.filterTags = filterTags
+    if (productIds !== undefined) updateData.productIds = productIds
+    if (maxItems !== undefined) updateData.maxItems = parseInt(maxItems)
+    if (showViewAll !== undefined) updateData.showViewAll = showViewAll === 'true' || showViewAll === true
+    if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder)
+    if (isActive !== undefined) updateData.isActive = isActive === 'true' || isActive === true
+    if (cityId !== undefined) updateData.cityId = cityId || null
+    
+    if (req.file) {
+      updateData.coverImageUrl = `/uploads/market/sections/${req.file.filename}`
+    }
+    
+    const section = await prisma.marketSection.update({
+      where: { id },
+      data: updateData,
+      include: { city: true }
+    })
+    
+    res.json({ success: true, section })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/sections/:id
+ * Delete a section
+ */
+app.delete('/api/market/sections/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    
+    const existing = await prisma.marketSection.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Section not found' })
+    }
+    
+    await prisma.marketSection.delete({ where: { id } })
+    
+    res.json({ success: true, message: 'Section deleted' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/sections/seed-defaults
+ * Seed default sections (like Yandex Lavka style)
+ */
+app.post('/api/market/sections/seed-defaults', async (req, res) => {
+  try {
+    // Clear existing sections first (optional)
+    // await prisma.marketSection.deleteMany({})
+    
+    const defaults = [
+      {
+        title: 'Featured Products',
+        titleAr: 'منتجات مميزة',
+        sectionType: 'FEATURED',
+        iconEmoji: '⭐',
+        sortOrder: 0,
+        maxItems: 6,
+        showViewAll: true,
+        isActive: true
+      },
+      {
+        title: 'Ready Food',
+        titleAr: 'طعام جاهز',
+        sectionType: 'BANNER',
+        iconEmoji: '🍕',
+        bgColor: '#FF6B35',
+        sortOrder: 1,
+        maxItems: 8,
+        showViewAll: true,
+        isActive: true
+      },
+      {
+        title: 'Fresh Vegetables',
+        titleAr: 'خضروات طازجة',
+        sectionType: 'HORIZONTAL',
+        iconEmoji: '🥬',
+        bgColor: '#4CAF50',
+        sortOrder: 2,
+        maxItems: 10,
+        showViewAll: true,
+        isActive: true
+      },
+      {
+        title: 'Dairy & Eggs',
+        titleAr: 'ألبان وبيض',
+        sectionType: 'GRID',
+        iconEmoji: '🥛',
+        sortOrder: 3,
+        maxItems: 8,
+        showViewAll: true,
+        isActive: true
+      },
+      {
+        title: 'Popular Now',
+        titleAr: 'رائج الآن',
+        sectionType: 'HORIZONTAL',
+        iconEmoji: '🔥',
+        sortOrder: 4,
+        maxItems: 12,
+        showViewAll: true,
+        isActive: true
+      }
+    ]
+
+    const created = await prisma.marketSection.createMany({
+      data: defaults
+    })
+
+    res.status(201).json({ 
+      success: true, 
+      message: `Created ${created.count} default sections`,
+      count: created.count 
+    })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Market: Seller Management Endpoints
 // ============================================================================
 
@@ -5884,19 +6327,6 @@ app.post('/api/orders/items/:itemId/confirm-delivery', async (req, res) => {
       }
     })
 
-    // Send DM to seller notifying them of delivery confirmation
-    const orderWithConvos = await prisma.marketOrder.findUnique({
-      where: { id: item.orderId },
-      include: { conversations: true }
-    })
-    const conversation = orderWithConvos?.conversations.find(c => c.sellerId === item.sellerId)
-    if (conversation) {
-      sendDeliveryConfirmedDM(conversation.conversationId, {
-        orderId: item.orderId,
-        itemTitle: item.title
-      }).catch(err => console.error('[Delivery Confirmed DM] Failed:', err))
-    }
-
     console.log(`[Orders] Delivery confirmed for item ${itemId}, escrow released`)
 
     res.json({ success: true, message: 'Delivery confirmed, payment released to seller' })
@@ -6031,7 +6461,6 @@ app.get('/api/orders/active/:conversationId', async (req, res) => {
 async function sendOrderStatusDM(conversationId, status, data) {
   try {
     if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
-      console.log('[Order Status DM] Skipping - BSKY credentials not configured')
       return
     }
 
@@ -6043,40 +6472,8 @@ async function sendOrderStatusDM(conversationId, status, data) {
     await messaging.initialize()
     
     await messaging.sendOrderStatusUpdate(conversationId, status, data)
-    console.log(`[Order Status DM] Sent ${status} update to conversation ${conversationId}`)
   } catch (error) {
     console.error('[Order Status DM] Error:', error)
-  }
-}
-
-/**
- * Helper function to send delivery confirmed DM to seller
- */
-async function sendDeliveryConfirmedDM(conversationId, data) {
-  try {
-    if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
-      console.log('[Delivery Confirmed DM] Skipping - BSKY credentials not configured')
-      return
-    }
-
-    const { BlueskyMessaging } = await import('@social-app/core/bluesky/messaging.js')
-    const messaging = new BlueskyMessaging(
-      process.env.BSKY_SERVICE_IDENTIFIER,
-      process.env.BSKY_SERVICE_PASSWORD
-    )
-    await messaging.initialize()
-    
-    const text = `🎉 Buyer confirmed delivery!
-
-Order #${data.orderId.slice(-6).toUpperCase()}
-${data.itemTitle || ''}
-
-Payment has been released to your account.`
-    
-    await messaging.sendMessage(conversationId, { text })
-    console.log(`[Delivery Confirmed DM] Sent to conversation ${conversationId}`)
-  } catch (error) {
-    console.error('[Delivery Confirmed DM] Error:', error)
   }
 }
 

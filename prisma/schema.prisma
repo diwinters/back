@@ -158,6 +158,7 @@ model City {
   marketSellers     MarketSeller[]
   marketPosts       MarketPost[]
   marketPromoCards  MarketPromoCard[]
+  marketSections    MarketSection[]
   usersPreferred    User[]  @relation("UserPreferredCity")
   checkoutConfigs   CheckoutConfig[]  @relation("CheckoutConfigCity")
   promoCodes        PromoCode[]       @relation("PromoCodeCity")
@@ -1004,6 +1005,90 @@ model MarketPromoCard {
   @@index([position, isActive])
   @@index([carouselOrder])
   @@index([cityId])
+}
+
+// =============================================================================
+// MARKET: App Config (Admin configurable - app icon, branding, etc.)
+// =============================================================================
+
+model MarketConfig {
+  id              String   @id @default(cuid())
+  
+  // Branding
+  appName         String   @default("Market")
+  appNameAr       String?  // Arabic name
+  appIconSvg      String?  @db.Text  // SVG content for the market icon
+  appIconUrl      String?  // Uploaded icon image URL
+  
+  // Header Configuration
+  headerBgColor   String?  // Custom header background color
+  headerTextColor String?  // Custom header text color
+  
+  // Delivery Banner
+  showDeliveryBanner Boolean @default(true)
+  deliveryCost    Float?   // e.g., 0 for free delivery, or specific cost
+  deliveryTime    String?  // e.g., "20-30 min"
+  
+  // Feature Toggles
+  showCategories  Boolean  @default(true)
+  showPromoCards  Boolean  @default(true)
+  showSections    Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// =============================================================================
+// MARKET: Home Sections (Admin configurable - Featured collections, Ready food, etc.)
+// =============================================================================
+
+model MarketSection {
+  id              String   @id @default(cuid())
+  
+  // City (for location-based filtering, null = all cities)
+  cityId          String?
+  city            City?    @relation(fields: [cityId], references: [id])
+  
+  // Display
+  title           String              // Section title (e.g., "Ready Food", "Fresh Vegetables")
+  titleAr         String?             // Arabic title
+  subtitle        String?             // Optional subtitle
+  subtitleAr      String?             // Arabic subtitle
+  
+  // Section Type
+  sectionType     MarketSectionType @default(GRID)
+  
+  // Visual
+  iconEmoji       String?             // Emoji icon (e.g., 🍕, 🥗)
+  iconUrl         String?             // Custom icon URL
+  coverImageUrl   String?             // Large cover image for BANNER type
+  bgColor         String?             // Background color (hex)
+  
+  // Content Filtering
+  categoryId      String?             // Filter by category
+  subcategoryId   String?             // Filter by subcategory
+  filterTags      String?             // Comma-separated tags
+  productIds      String?             // Specific product IDs (comma-separated) for curated sections
+  maxItems        Int      @default(10) // Max items to show
+  
+  // Layout
+  showViewAll     Boolean  @default(true)  // Show "View All" button
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([cityId, isActive, sortOrder])
+  @@index([categoryId])
+}
+
+enum MarketSectionType {
+  GRID          // Grid of products (2 columns)
+  HORIZONTAL    // Horizontal scrollable row
+  BANNER        // Full-width banner with image
+  FEATURED      // Featured items with large cards
+  CATEGORY_ROW  // Row of category pills linking to that category
 }
 
 // =============================================================================
