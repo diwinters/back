@@ -2564,40 +2564,92 @@ async function loadMarketCategories() {
 }
 
 function renderMarketCategories(categories) {
-    const tbody = document.getElementById('marketCategoriesBody')
+    const grid = document.getElementById('marketCategoriesGrid')
     
     if (categories.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#666;">No categories yet. Click "Add Category" to create one.</td></tr>'
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:60px; color:#666; background:#f9fafb; border-radius:12px;">No categories yet. Click "Add Category" to create one.</div>'
         return
     }
     
-    tbody.innerHTML = categories.map(cat => `
-        <tr>
-            <td>
+    grid.innerHTML = categories.map(cat => `
+        <div class="category-card" style="background: white; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e5e7eb;">
+            <!-- Category Header with Gradient -->
+            <div style="height: 80px; background: linear-gradient(135deg, ${cat.gradientStart || '#667eea'}, ${cat.gradientEnd || '#764ba2'}); padding: 16px; display: flex; align-items: center; gap: 12px; position: relative;">
                 ${cat.iconUrl 
-                    ? `<img src="${cat.iconUrl}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;">` 
-                    : cat.emoji || '📁'}
-            </td>
-            <td>
-                <strong>${cat.name}</strong>
-                ${cat.isFeatured ? '<span class="badge badge-warning" style="margin-left:6px;">⭐ Featured</span>' : ''}
-            </td>
-            <td>${cat.nameAr || '-'}</td>
-            <td>
-                ${cat.subcategories.length > 0 
-                    ? cat.subcategories.map(sub => `<span class="badge badge-info" style="margin:2px;">${sub.name}</span>`).join('') 
-                    : '<span style="color:#999;">None</span>'}
-                <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;margin-left:8px;" onclick="showSubcategoryForm('${cat.id}', '${cat.name}')">+ Add</button>
-            </td>
-            <td>${cat._count?.posts || 0}</td>
-            <td>${cat.sortOrder}</td>
-            <td><span class="badge ${cat.isActive ? 'badge-success' : 'badge-danger'}">${cat.isActive ? 'Active' : 'Inactive'}</span></td>
-            <td>
-                <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="editCategory('${cat.id}')">Edit</button>
-                <button class="btn btn-danger" style="padding:6px 12px;font-size:12px;" onclick="deleteCategory('${cat.id}')">Delete</button>
-            </td>
-        </tr>
+                    ? `<img src="${cat.iconUrl}" style="width:48px;height:48px;border-radius:12px;object-fit:cover;background:white;padding:4px;">` 
+                    : `<span style="font-size:36px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.2));">${cat.emoji || '📁'}</span>`}
+                <div style="flex:1;">
+                    <div style="color:white;font-weight:700;font-size:18px;text-shadow:0 1px 2px rgba(0,0,0,0.2);">${cat.name}</div>
+                    ${cat.nameAr ? `<div style="color:rgba(255,255,255,0.8);font-size:12px;" dir="rtl">${cat.nameAr}</div>` : ''}
+                </div>
+                ${cat.isFeatured ? '<span style="position:absolute;top:8px;right:8px;background:#fbbf24;color:#000;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">⭐ Featured</span>' : ''}
+            </div>
+            
+            <!-- Category Info -->
+            <div style="padding: 16px;">
+                <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                    <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📋 ${cat._count?.posts || 0} posts</span>
+                    <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📊 Order: ${cat.sortOrder}</span>
+                    <span class="badge ${cat.isActive ? 'badge-success' : 'badge-danger'}" style="font-size:12px;">${cat.isActive ? '✓ Active' : '✗ Inactive'}</span>
+                </div>
+                
+                <!-- Subcategories Section -->
+                <div style="margin-top: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 600; color: #374151; font-size: 13px;">Subcategories (${cat.subcategories.length})</span>
+                        <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="showSubcategoryForm('${cat.id}', '${cat.name.replace(/'/g, "\\'")}')">+ Add</button>
+                    </div>
+                    
+                    ${cat.subcategories.length > 0 ? `
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            ${cat.subcategories.map(sub => `
+                                <div class="subcategory-chip" onclick="showSubcategoryForm('${cat.id}', '${cat.name.replace(/'/g, "\\'")}', '${sub.id}')" 
+                                     style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all 0.2s;
+                                            background: ${sub.gradientStart && sub.gradientEnd ? `linear-gradient(135deg, ${sub.gradientStart}, ${sub.gradientEnd})` : '#f3f4f6'};
+                                            ${sub.gradientStart ? 'color: #000;' : 'color: #374151;'}">
+                                    ${sub.iconUrl 
+                                        ? `<img src="${sub.iconUrl}" style="width:20px;height:20px;border-radius:4px;object-fit:cover;">` 
+                                        : sub.emoji ? `<span style="font-size:14px;">${sub.emoji}</span>` : ''}
+                                    <span style="font-size: 12px; font-weight: 500;">${sub.name}</span>
+                                    <span style="font-size:10px;opacity:0.7;margin-left:4px;">${sub.isActive ? '' : '(off)'}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : '<div style="color:#9ca3af;font-size:12px;padding:8px 0;">No subcategories yet</div>'}
+                </div>
+                
+                <!-- Actions -->
+                <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+                    <button class="btn btn-primary" style="flex:1;padding:8px 12px;font-size:13px;" onclick="editCategory('${cat.id}')">✏️ Edit</button>
+                    <button class="btn btn-warning" style="padding:8px 12px;font-size:13px;" onclick="toggleCategoryFeatured('${cat.id}', ${!cat.isFeatured})">${cat.isFeatured ? '⭐ Unfeature' : '☆ Feature'}</button>
+                    <button class="btn btn-danger" style="padding:8px 12px;font-size:13px;" onclick="deleteCategory('${cat.id}')">🗑️</button>
+                </div>
+            </div>
+        </div>
     `).join('')
+}
+
+// Quick toggle featured status
+async function toggleCategoryFeatured(categoryId, featured) {
+    try {
+        const formData = new FormData()
+        formData.append('isFeatured', featured ? 'true' : 'false')
+        
+        const res = await fetch(`${API_BASE}/api/market/categories/${categoryId}`, {
+            method: 'PUT',
+            body: formData
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', featured ? 'Category featured!' : 'Category unfeatured', 'success')
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to update', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to update category', 'error')
+    }
 }
 
 function populateCategoryFilters() {
@@ -2756,6 +2808,9 @@ function showSubcategoryForm(categoryId, categoryName, subcategoryId = null) {
     document.getElementById('subcategoryParentName').value = categoryName
     document.getElementById('subcategoryId').value = subcategoryId || ''
     
+    // Reset preview
+    updateSubcategoryPreview()
+    
     if (subcategoryId) {
         const cat = marketCategoriesCache.find(c => c.id === categoryId)
         const sub = cat?.subcategories.find(s => s.id === subcategoryId)
@@ -2764,22 +2819,82 @@ function showSubcategoryForm(categoryId, categoryName, subcategoryId = null) {
             document.getElementById('subcategoryNameAr').value = sub.nameAr || ''
             document.getElementById('subcategoryDescription').value = sub.description || ''
             document.getElementById('subcategoryEmoji').value = sub.emoji || ''
+            document.getElementById('subcategoryGradientStart').value = sub.gradientStart || '#667eea'
+            document.getElementById('subcategoryGradientEnd').value = sub.gradientEnd || '#764ba2'
             document.getElementById('subcategorySortOrder').value = sub.sortOrder
             document.getElementById('subcategoryIsActive').value = sub.isActive ? 'true' : 'false'
+            
+            // Show existing icon if any
+            if (sub.iconUrl) {
+                document.getElementById('subcategoryIconPreview').innerHTML = `<img src="${sub.iconUrl}" alt="Icon" style="max-height:40px;">`
+                document.getElementById('subcategoryIconZone').classList.add('has-image')
+            } else {
+                resetSubcategoryIconPreview()
+            }
+            
+            updateSubcategoryPreview()
         }
     } else {
         document.getElementById('subcategoryName').value = ''
         document.getElementById('subcategoryNameAr').value = ''
         document.getElementById('subcategoryDescription').value = ''
         document.getElementById('subcategoryEmoji').value = ''
+        document.getElementById('subcategoryGradientStart').value = '#667eea'
+        document.getElementById('subcategoryGradientEnd').value = '#764ba2'
         document.getElementById('subcategorySortOrder').value = '0'
         document.getElementById('subcategoryIsActive').value = 'true'
+        resetSubcategoryIconPreview()
     }
 }
 
 function hideSubcategoryForm() {
     document.getElementById('subcategoryFormModal').style.display = 'none'
+    resetSubcategoryIconPreview()
 }
+
+function resetSubcategoryIconPreview() {
+    const preview = document.getElementById('subcategoryIconPreview')
+    const zone = document.getElementById('subcategoryIconZone')
+    if (preview) preview.innerHTML = '<span class="upload-icon">🖼️</span><span>Click to upload icon</span>'
+    if (zone) zone.classList.remove('has-image')
+}
+
+function previewSubcategoryIcon(input) {
+    const preview = document.getElementById('subcategoryIconPreview')
+    const zone = document.getElementById('subcategoryIconZone')
+    
+    if (input.files && input.files[0]) {
+        const reader = new FileReader()
+        reader.onload = function(e) {
+            preview.innerHTML = `<img src="${e.target.result}" alt="Preview" style="max-height:40px;">`
+            zone.classList.add('has-image')
+        }
+        reader.readAsDataURL(input.files[0])
+    }
+}
+
+function updateSubcategoryPreview() {
+    const card = document.getElementById('subcategoryPreviewCard')
+    const emojiEl = document.getElementById('subcategoryPreviewEmoji')
+    const nameEl = document.getElementById('subcategoryPreviewName')
+    
+    if (!card) return
+    
+    const gradientStart = document.getElementById('subcategoryGradientStart')?.value || '#667eea'
+    const gradientEnd = document.getElementById('subcategoryGradientEnd')?.value || '#764ba2'
+    const emoji = document.getElementById('subcategoryEmoji')?.value || ''
+    const name = document.getElementById('subcategoryName')?.value || 'Subcategory'
+    
+    card.style.background = `linear-gradient(135deg, ${gradientStart}, ${gradientEnd})`
+    if (emojiEl) emojiEl.textContent = emoji
+    if (nameEl) nameEl.textContent = name
+}
+
+// Add event listeners for live preview
+document.getElementById('subcategoryGradientStart')?.addEventListener('input', updateSubcategoryPreview)
+document.getElementById('subcategoryGradientEnd')?.addEventListener('input', updateSubcategoryPreview)
+document.getElementById('subcategoryEmoji')?.addEventListener('input', updateSubcategoryPreview)
+document.getElementById('subcategoryName')?.addEventListener('input', updateSubcategoryPreview)
 
 // Subcategory form submission
 document.getElementById('subcategoryForm')?.addEventListener('submit', async function(e) {
@@ -2788,13 +2903,19 @@ document.getElementById('subcategoryForm')?.addEventListener('submit', async fun
     const categoryId = document.getElementById('subcategoryCategoryId').value
     const subcategoryId = document.getElementById('subcategoryId').value
     
-    const payload = {
-        name: document.getElementById('subcategoryName').value,
-        nameAr: document.getElementById('subcategoryNameAr').value,
-        description: document.getElementById('subcategoryDescription').value,
-        emoji: document.getElementById('subcategoryEmoji').value,
-        sortOrder: document.getElementById('subcategorySortOrder').value,
-        isActive: document.getElementById('subcategoryIsActive').value
+    const formData = new FormData()
+    formData.append('name', document.getElementById('subcategoryName').value)
+    formData.append('nameAr', document.getElementById('subcategoryNameAr').value)
+    formData.append('description', document.getElementById('subcategoryDescription').value)
+    formData.append('emoji', document.getElementById('subcategoryEmoji').value)
+    formData.append('gradientStart', document.getElementById('subcategoryGradientStart').value)
+    formData.append('gradientEnd', document.getElementById('subcategoryGradientEnd').value)
+    formData.append('sortOrder', document.getElementById('subcategorySortOrder').value)
+    formData.append('isActive', document.getElementById('subcategoryIsActive').value)
+    
+    const iconInput = document.getElementById('subcategoryIconInput')
+    if (iconInput?.files && iconInput.files[0]) {
+        formData.append('icon', iconInput.files[0])
     }
     
     try {
@@ -2803,11 +2924,7 @@ document.getElementById('subcategoryForm')?.addEventListener('submit', async fun
             : `${API_BASE}/api/market/categories/${categoryId}/subcategories`
         const method = subcategoryId ? 'PUT' : 'POST'
         
-        const res = await fetch(url, { 
-            method, 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload) 
-        })
+        const res = await fetch(url, { method, body: formData })
         const data = await res.json()
         
         if (data.success) {
@@ -2821,6 +2938,25 @@ document.getElementById('subcategoryForm')?.addEventListener('submit', async fun
         showMessage('marketMessage', 'Failed to save subcategory', 'error')
     }
 })
+
+// Delete subcategory function
+async function deleteSubcategory(subcategoryId, categoryId) {
+    if (!confirm('Delete this subcategory? This cannot be undone.')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/subcategories/${subcategoryId}`, { method: 'DELETE' })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', 'Subcategory deleted', 'success')
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to delete subcategory', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to delete subcategory', 'error')
+    }
+}
 
 // ============================================================================
 // Promo Cards Management
