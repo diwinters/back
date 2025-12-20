@@ -32,12 +32,14 @@ export class MarketService {
     categoryId?: string
     subcategoryId?: string
     cityId?: string
+    search?: string
+    sortBy?: 'newest' | 'price_asc' | 'price_desc' | 'best_selling'
   }) {
     const page = params.page || 1
     const pageSize = params.pageSize || 20
     const skip = (page - 1) * pageSize
 
-    logger.info(`[MarketService] Fetching active posts page=${page} pageSize=${pageSize} cityId=${params.cityId || 'all'}`)
+    logger.info(`[MarketService] Fetching active posts page=${page} pageSize=${pageSize} cityId=${params.cityId || 'all'} search=${params.search || 'none'}`)
 
     const where: any = {
       status: 'ACTIVE',
@@ -58,6 +60,33 @@ export class MarketService {
       logger.info(`[MarketService] No city filter - showing all posts`)
     }
 
+    // Search filtering: case-insensitive search on title and description
+    if (params.search && params.search.trim()) {
+      const searchTerm = params.search.trim()
+      where.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { description: { contains: searchTerm, mode: 'insensitive' } }
+      ]
+      logger.info(`[MarketService] Search filter: "${searchTerm}"`)
+    }
+
+    // Determine sort order
+    let orderBy: any = { createdAt: 'desc' } // default: newest
+    switch (params.sortBy) {
+      case 'price_asc':
+        orderBy = { price: 'asc' }
+        break
+      case 'price_desc':
+        orderBy = { price: 'desc' }
+        break
+      case 'best_selling':
+        orderBy = { soldCount: 'desc' }
+        break
+      case 'newest':
+      default:
+        orderBy = { createdAt: 'desc' }
+    }
+
     logger.info(`[MarketService] Query where: ${JSON.stringify(where)}`)
 
     const [posts, total] = await Promise.all([
@@ -72,7 +101,7 @@ export class MarketService {
           category: true,
           subcategory: true
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: pageSize
       }),
@@ -672,6 +701,164 @@ export class MarketService {
     await prisma.promoCode.update({
       where: { id: params.promoCodeId },
       data: { totalUsedCount: { increment: 1 } }
+    })
+  }
+
+  // =============================================================================
+  // SEARCH HISTORY & VISITED PRODUCTS
+  // =============================================================================
+
+  /**
+   * Save a search query to user's history
+   */
+  async saveSearchHistory(params: {
+    userDid: string
+    query: string
+    resultsCount?: number
+  }) {
+    logger.info(`[MarketService] Saving search history for user ${params.userDid}: "${params.query}"`)
+
+    // Don't save empty queries or very short ones
+    if (!params.query || params.query.trim().length < 2) {
+      return null
+    }
+
+    return prisma.marketSearchHistory.create({
+      data: {
+        userDid: params.userDid,
+        query: params.query.trim(),
+        resultsCount: params.resultsCount ?? 0
+      }
+    })
+  }
+
+  /**
+   * Get user's recent search history
+   */
+  async getSearchHistory(userDid: string, limit: number = 10) {
+    logger.info(`[MarketService] Getting search history for user ${userDid}`)
+
+    // Get unique recent searches (deduplicated)
+    const searches = await prisma.marketSearchHistory.findMany({
+      where: { userDid },
+      orderBy: { createdAt: 'desc' },
+      take: limit * 2, // Get more to filter duplicates
+      select: {
+        id: true,
+        query: true,
+        resultsCount: true,
+        createdAt: true
+      }
+    })
+
+    // Deduplicate by query (keep most recent)
+    const uniqueSearches = searches.reduce((acc, search) => {
+      if (!acc.some(s => s.query.toLowerCase() === search.query.toLowerCase())) {
+        acc.push(search)
+      }
+      return acc
+    }, [] as typeof searches)
+
+    return uniqueSearches.slice(0, limit)
+  }
+
+  /**
+   * Clear user's search history
+   */
+  async clearSearchHistory(userDid: string) {
+    logger.info(`[MarketService] Clearing search history for user ${userDid}`)
+
+    return prisma.marketSearchHistory.deleteMany({
+      where: { userDid }
+    })
+  }
+
+  /**
+   * Delete a single search history entry
+   */
+  async deleteSearchHistoryItem(userDid: string, searchId: string) {
+    logger.info(`[MarketService] Deleting search history item ${searchId} for user ${userDid}`)
+
+    return prisma.marketSearchHistory.deleteMany({
+      where: { 
+        id: searchId,
+        userDid // Ensure user owns this entry
+      }
+    })
+  }
+
+  /**
+   * Track a product visit
+   */
+  async trackProductVisit(params: {
+    userDid: string
+    postId: string
+  }) {
+    logger.info(`[MarketService] Tracking product visit for user ${params.userDid}: ${params.postId}`)
+
+    // Upsert: create or update visit count
+    return prisma.marketVisitedProduct.upsert({
+      where: {
+        userDid_postId: {
+          userDid: params.userDid,
+          postId: params.postId
+        }
+      },
+      create: {
+        userDid: params.userDid,
+        postId: params.postId,
+        visitCount: 1
+      },
+      update: {
+        visitCount: { increment: 1 },
+        lastVisitedAt: new Date()
+      }
+    })
+  }
+
+  /**
+   * Get user's recently visited products
+   */
+  async getVisitedProducts(userDid: string, limit: number = 10) {
+    logger.info(`[MarketService] Getting visited products for user ${userDid}`)
+
+    const visited = await prisma.marketVisitedProduct.findMany({
+      where: { userDid },
+      orderBy: { lastVisitedAt: 'desc' },
+      take: limit,
+      include: {
+        post: {
+          include: {
+            seller: {
+              include: {
+                user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+              }
+            },
+            category: true,
+            subcategory: true
+          }
+        }
+      }
+    })
+
+    // Filter out archived/inactive posts and return just the posts
+    return visited
+      .filter(v => v.post.status === 'ACTIVE' && !v.post.isArchived)
+      .map(v => ({
+        ...v.post,
+        visitCount: v.visitCount,
+        lastVisitedAt: v.lastVisitedAt
+      }))
+  }
+
+  /**
+   * Clear user's visited products history
+   */
+  async clearVisitedProducts(userDid: string) {
+    logger.info(`[MarketService] Clearing visited products for user ${userDid}`)
+
+    return prisma.marketVisitedProduct.deleteMany({
+      where: { userDid }
     })
   }
 }

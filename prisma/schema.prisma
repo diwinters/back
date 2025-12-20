@@ -786,6 +786,7 @@ model MarketPost {
   shippingOptions ProductShippingOption[]
   cartItems       CartItem[]
   orderItems      MarketOrderItem[]
+  visitedBy       MarketVisitedProduct[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1768,4 +1769,35 @@ model WalletConfig {
   updatedAt       DateTime @updatedAt
 
   @@index([key, cityId])
+}
+
+// =============================================================================
+// MARKET: Search History & Visited Products
+// =============================================================================
+
+model MarketSearchHistory {
+  id              String   @id @default(cuid())
+  userDid         String                    // User's DID
+  
+  query           String                    // Search query text
+  resultsCount    Int      @default(0)      // Number of results returned
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([userDid, createdAt(sort: Desc)])
+  @@index([userDid, query])
+}
+
+model MarketVisitedProduct {
+  id              String   @id @default(cuid())
+  userDid         String                    // User's DID
+  postId          String                    // The visited product post ID
+  post            MarketPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  visitCount      Int      @default(1)      // How many times visited
+  lastVisitedAt   DateTime @default(now())
+  createdAt       DateTime @default(now())
+  
+  @@unique([userDid, postId])
+  @@index([userDid, lastVisitedAt(sort: Desc)])
 }
