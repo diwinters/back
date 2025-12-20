@@ -3,9 +3,73 @@ import { prisma, logger, AppError, ErrorCode, NotFoundError } from '@gominiapp/c
 export class MarketService {
   /**
    * Get all active categories with subcategories
+   * If cityId is provided, returns categories that are:
+   * 1. Global (isGlobal = true) - shown in all cities
+   * 2. Enabled for this specific city via CategoryCity junction table
+   * 
+   * If no cityId is provided, returns all active categories (backward compatible)
    */
-  async getCategories() {
-    logger.info('[MarketService] Fetching categories')
+  async getCategories(cityId?: string) {
+    logger.info(`[MarketService] Fetching categories${cityId ? ` for city ${cityId}` : ' (all)'}`)
+    
+    if (cityId) {
+      // City-specific query: get global categories + categories enabled for this city
+      const categories = await prisma.marketCategory.findMany({
+        where: {
+          isActive: true,
+          OR: [
+            // Global categories - shown everywhere
+            { isGlobal: true },
+            // City-specific categories - enabled for this city
+            {
+              cities: {
+                some: {
+                  cityId: cityId,
+                  isActive: true
+                }
+              }
+            }
+          ]
+        },
+        include: {
+          subcategories: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' }
+          },
+          cities: {
+            where: { cityId: cityId },
+            select: {
+              isFeatured: true,
+              sortOrder: true,
+              isActive: true
+            }
+          },
+          _count: {
+            select: { posts: { where: { status: 'ACTIVE', isArchived: false, cityId: cityId } } }
+          }
+        },
+        orderBy: { sortOrder: 'asc' }
+      })
+      
+      // Transform to include per-city isFeatured and adjust post count
+      const transformedCategories = categories.map(cat => {
+        const cityConfig = cat.cities[0] // Will have at most 1 entry due to where clause
+        return {
+          ...cat,
+          // Use city-specific isFeatured if available, otherwise false for global categories
+          isFeatured: cityConfig?.isFeatured ?? false,
+          // Use city-specific sortOrder if available, otherwise use global sortOrder
+          sortOrder: cityConfig?.sortOrder ?? cat.sortOrder,
+          // Remove the cities array from response (internal use only)
+          cities: undefined
+        }
+      }).sort((a, b) => a.sortOrder - b.sortOrder) // Re-sort by potentially overridden sortOrder
+      
+      logger.info(`[MarketService] Found ${transformedCategories.length} categories for city ${cityId}`)
+      return transformedCategories
+    }
+    
+    // No city filter - return all active categories (backward compatible)
     const categories = await prisma.marketCategory.findMany({
       where: { isActive: true },
       include: {
@@ -19,8 +83,16 @@ export class MarketService {
       },
       orderBy: { sortOrder: 'asc' }
     })
-    logger.info(`[MarketService] Found ${categories.length} categories`)
-    return categories
+    
+    // For backward compatibility, set isFeatured to false when no city context
+    // (Featured is now per-city)
+    const transformedCategories = categories.map(cat => ({
+      ...cat,
+      isFeatured: false // No city context = no featured categories
+    }))
+    
+    logger.info(`[MarketService] Found ${transformedCategories.length} categories (all)`)
+    return transformedCategories
   }
 
   /**

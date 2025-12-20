@@ -2355,7 +2355,7 @@ const categoryIconUpload = multer({
 
 /**
  * GET /api/market/categories
- * List all market categories with subcategories
+ * List all market categories with subcategories and city assignments
  */
 app.get('/api/market/categories', async (req, res) => {
   try {
@@ -2369,6 +2369,9 @@ app.get('/api/market/categories', async (req, res) => {
         subcategories: {
           where: includeInactive ? {} : { isActive: true },
           orderBy: { sortOrder: 'asc' }
+        },
+        cities: {
+          include: { city: { select: { id: true, name: true, code: true } } }
         },
         _count: { select: { posts: true } }
       },
@@ -2386,7 +2389,7 @@ app.get('/api/market/categories', async (req, res) => {
 
 /**
  * GET /api/market/categories/:id
- * Get a single category with subcategories
+ * Get a single category with subcategories and city assignments
  */
 app.get('/api/market/categories/:id', async (req, res) => {
   try {
@@ -2394,6 +2397,9 @@ app.get('/api/market/categories/:id', async (req, res) => {
       where: { id: req.params.id },
       include: {
         subcategories: { orderBy: { sortOrder: 'asc' } },
+        cities: {
+          include: { city: { select: { id: true, name: true, code: true } } }
+        },
         _count: { select: { posts: true } }
       }
     })
@@ -2414,7 +2420,7 @@ app.get('/api/market/categories/:id', async (req, res) => {
  */
 app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'Category name is required' })
@@ -2424,15 +2430,6 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
     const existing = await prisma.marketCategory.findUnique({ where: { name } })
     if (existing) {
       return res.status(400).json({ success: false, error: 'Category with this name already exists' })
-    }
-
-    // Check featured limit (max 3)
-    const wantFeatured = isFeatured === 'true' || isFeatured === true
-    if (wantFeatured) {
-      const featuredCount = await prisma.marketCategory.count({ where: { isFeatured: true } })
-      if (featuredCount >= 3) {
-        return res.status(400).json({ success: false, error: 'Maximum 3 categories can be featured. Please unfeature another category first.' })
-      }
     }
 
     const iconUrl = req.file ? `/uploads/market/categories/${req.file.filename}` : null
@@ -2448,9 +2445,9 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
         gradientEnd: gradientEnd || null,
         sortOrder: parseInt(sortOrder) || 0,
         isActive: isActive !== 'false',
-        isFeatured: wantFeatured
+        isGlobal: isGlobal === 'true' || isGlobal === true
       },
-      include: { subcategories: true }
+      include: { subcategories: true, cities: { include: { city: true } } }
     })
 
     res.status(201).json({ success: true, data: category })
@@ -2465,7 +2462,7 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
  */
 app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
 
     const existing = await prisma.marketCategory.findUnique({ where: { id: req.params.id } })
     if (!existing) {
@@ -2480,15 +2477,6 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
       }
     }
 
-    // Check featured limit if trying to feature
-    const wantFeatured = isFeatured === 'true' || isFeatured === true
-    if (isFeatured !== undefined && wantFeatured && !existing.isFeatured) {
-      const featuredCount = await prisma.marketCategory.count({ where: { isFeatured: true } })
-      if (featuredCount >= 3) {
-        return res.status(400).json({ success: false, error: 'Maximum 3 categories can be featured. Please unfeature another category first.' })
-      }
-    }
-
     const updateData = {}
     if (name !== undefined) updateData.name = name
     if (nameAr !== undefined) updateData.nameAr = nameAr || null
@@ -2498,13 +2486,13 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
     if (gradientEnd !== undefined) updateData.gradientEnd = gradientEnd || null
     if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder) || 0
     if (isActive !== undefined) updateData.isActive = isActive !== 'false'
-    if (isFeatured !== undefined) updateData.isFeatured = wantFeatured
+    if (isGlobal !== undefined) updateData.isGlobal = isGlobal === 'true' || isGlobal === true
     if (req.file) updateData.iconUrl = `/uploads/market/categories/${req.file.filename}`
 
     const category = await prisma.marketCategory.update({
       where: { id: req.params.id },
       data: updateData,
-      include: { subcategories: true }
+      include: { subcategories: true, cities: { include: { city: true } } }
     })
 
     res.json({ success: true, data: category })
@@ -2538,6 +2526,254 @@ app.delete('/api/market/categories/:id', async (req, res) => {
     await prisma.marketCategory.delete({ where: { id: req.params.id } })
 
     res.json({ success: true, message: 'Category deleted successfully' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
+// Market: Category-City Assignment Management
+// ============================================================================
+
+/**
+ * GET /api/market/categories/:categoryId/cities
+ * Get all city assignments for a category
+ */
+app.get('/api/market/categories/:categoryId/cities', async (req, res) => {
+  try {
+    const { categoryId } = req.params
+
+    const category = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    const assignments = await prisma.categoryCity.findMany({
+      where: { categoryId },
+      include: { city: { select: { id: true, name: true, code: true, isActive: true } } },
+      orderBy: { city: { name: 'asc' } }
+    })
+
+    res.json({ success: true, data: assignments })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/categories/:categoryId/cities
+ * Assign a category to a city (or update existing assignment)
+ */
+app.post('/api/market/categories/:categoryId/cities', async (req, res) => {
+  try {
+    const { categoryId } = req.params
+    const { cityId, isActive, isFeatured, sortOrder } = req.body
+
+    if (!cityId) {
+      return res.status(400).json({ success: false, error: 'cityId is required' })
+    }
+
+    // Verify category exists
+    const category = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    // Verify city exists
+    const city = await prisma.city.findUnique({ where: { id: cityId } })
+    if (!city) {
+      return res.status(404).json({ success: false, error: 'City not found' })
+    }
+
+    // Check featured limit for this city (max 3)
+    const wantFeatured = isFeatured === 'true' || isFeatured === true
+    if (wantFeatured) {
+      const featuredCount = await prisma.categoryCity.count({
+        where: { cityId, isFeatured: true, categoryId: { not: categoryId } }
+      })
+      if (featuredCount >= 3) {
+        return res.status(400).json({ 
+          success: false, 
+          error: `Maximum 3 featured categories per city. ${city.name} already has 3 featured categories.` 
+        })
+      }
+    }
+
+    // Upsert the assignment
+    const assignment = await prisma.categoryCity.upsert({
+      where: { categoryId_cityId: { categoryId, cityId } },
+      create: {
+        categoryId,
+        cityId,
+        isActive: isActive !== 'false',
+        isFeatured: wantFeatured,
+        sortOrder: parseInt(sortOrder) || 0
+      },
+      update: {
+        isActive: isActive !== 'false',
+        isFeatured: wantFeatured,
+        sortOrder: parseInt(sortOrder) || 0
+      },
+      include: { city: { select: { id: true, name: true, code: true } } }
+    })
+
+    res.json({ success: true, data: assignment })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/categories/:categoryId/cities/:cityId
+ * Update a category-city assignment
+ */
+app.put('/api/market/categories/:categoryId/cities/:cityId', async (req, res) => {
+  try {
+    const { categoryId, cityId } = req.params
+    const { isActive, isFeatured, sortOrder } = req.body
+
+    // Verify assignment exists
+    const existing = await prisma.categoryCity.findUnique({
+      where: { categoryId_cityId: { categoryId, cityId } }
+    })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Category-city assignment not found' })
+    }
+
+    // Check featured limit for this city (max 3)
+    const wantFeatured = isFeatured === 'true' || isFeatured === true
+    if (wantFeatured && !existing.isFeatured) {
+      const featuredCount = await prisma.categoryCity.count({
+        where: { cityId, isFeatured: true }
+      })
+      if (featuredCount >= 3) {
+        const city = await prisma.city.findUnique({ where: { id: cityId } })
+        return res.status(400).json({ 
+          success: false, 
+          error: `Maximum 3 featured categories per city. ${city?.name || 'This city'} already has 3 featured categories.` 
+        })
+      }
+    }
+
+    const assignment = await prisma.categoryCity.update({
+      where: { categoryId_cityId: { categoryId, cityId } },
+      data: {
+        isActive: isActive !== undefined ? isActive !== 'false' : undefined,
+        isFeatured: isFeatured !== undefined ? wantFeatured : undefined,
+        sortOrder: sortOrder !== undefined ? parseInt(sortOrder) || 0 : undefined
+      },
+      include: { city: { select: { id: true, name: true, code: true } } }
+    })
+
+    res.json({ success: true, data: assignment })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/categories/:categoryId/cities/:cityId
+ * Remove a category from a city
+ */
+app.delete('/api/market/categories/:categoryId/cities/:cityId', async (req, res) => {
+  try {
+    const { categoryId, cityId } = req.params
+
+    const existing = await prisma.categoryCity.findUnique({
+      where: { categoryId_cityId: { categoryId, cityId } }
+    })
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Category-city assignment not found' })
+    }
+
+    await prisma.categoryCity.delete({
+      where: { categoryId_cityId: { categoryId, cityId } }
+    })
+
+    res.json({ success: true, message: 'Category removed from city' })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/categories/:categoryId/cities/bulk
+ * Bulk assign/update category to multiple cities
+ */
+app.post('/api/market/categories/:categoryId/cities/bulk', async (req, res) => {
+  try {
+    const { categoryId } = req.params
+    const { cities } = req.body  // Array of { cityId, isActive, isFeatured, sortOrder }
+
+    if (!Array.isArray(cities)) {
+      return res.status(400).json({ success: false, error: 'cities must be an array' })
+    }
+
+    // Verify category exists
+    const category = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    const results = []
+    const errors = []
+
+    for (const cityConfig of cities) {
+      try {
+        const { cityId, isActive, isFeatured, sortOrder } = cityConfig
+        
+        // Verify city exists
+        const city = await prisma.city.findUnique({ where: { id: cityId } })
+        if (!city) {
+          errors.push({ cityId, error: 'City not found' })
+          continue
+        }
+
+        // Check featured limit
+        const wantFeatured = isFeatured === true
+        if (wantFeatured) {
+          const existing = await prisma.categoryCity.findUnique({
+            where: { categoryId_cityId: { categoryId, cityId } }
+          })
+          if (!existing?.isFeatured) {
+            const featuredCount = await prisma.categoryCity.count({
+              where: { cityId, isFeatured: true, categoryId: { not: categoryId } }
+            })
+            if (featuredCount >= 3) {
+              errors.push({ cityId, error: `Max 3 featured categories in ${city.name}` })
+              continue
+            }
+          }
+        }
+
+        const assignment = await prisma.categoryCity.upsert({
+          where: { categoryId_cityId: { categoryId, cityId } },
+          create: {
+            categoryId,
+            cityId,
+            isActive: isActive !== false,
+            isFeatured: wantFeatured,
+            sortOrder: sortOrder || 0
+          },
+          update: {
+            isActive: isActive !== false,
+            isFeatured: wantFeatured,
+            sortOrder: sortOrder || 0
+          },
+          include: { city: { select: { id: true, name: true, code: true } } }
+        })
+
+        results.push(assignment)
+      } catch (err) {
+        errors.push({ cityId: cityConfig.cityId, error: err.message })
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      data: results,
+      errors: errors.length > 0 ? errors : undefined
+    })
   } catch (error) {
     res.status(500).json({ success: false, error: error.message })
   }

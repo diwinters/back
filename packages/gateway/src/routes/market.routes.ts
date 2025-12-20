@@ -8,8 +8,9 @@ const marketService = new MarketService()
 // Public routes
 router.get('/categories', async (req, res, next) => {
   try {
-    logger.info('[Market] GET /categories')
-    const categories = await marketService.getCategories()
+    const cityId = req.query.cityId as string | undefined
+    logger.info(`[Market] GET /categories${cityId ? ` cityId=${cityId}` : ''}`)
+    const categories = await marketService.getCategories(cityId)
     logger.info(`[Market] Returning ${categories.length} categories`)
     res.json({ success: true, data: categories })
   } catch (error) {

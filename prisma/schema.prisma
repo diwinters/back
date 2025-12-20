@@ -159,6 +159,7 @@ model City {
   marketPosts       MarketPost[]
   marketPromoCards  MarketPromoCard[]
   marketSections    MarketSection[]
+  marketCategories  CategoryCity[]  // Categories enabled for this city
   usersPreferred    User[]  @relation("UserPreferredCity")
   checkoutConfigs   CheckoutConfig[]  @relation("CheckoutConfigCity")
   promoCodes        PromoCode[]       @relation("PromoCodeCity")
@@ -1395,17 +1396,43 @@ model MarketCategory {
   gradientEnd     String?  // Gradient end color (hex)
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
-  isFeatured      Boolean  @default(false) // Featured categories show subcategories in catalog
+  
+  // Global flag - if true, category shows in ALL cities regardless of CategoryCity entries
+  isGlobal        Boolean  @default(false)
   
   // Relations
   subcategories   MarketSubcategory[]
   posts           MarketPost[]
+  cities          CategoryCity[]  // Many-to-many with cities (per-city config)
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([isActive, sortOrder])
-  @@index([isFeatured, isActive])
+  @@index([isGlobal, isActive])
+}
+
+// Junction table for Category-City many-to-many with per-city settings
+model CategoryCity {
+  id              String   @id @default(cuid())
+  
+  categoryId      String
+  category        MarketCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  cityId          String
+  city            City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  
+  // Per-city settings
+  isActive        Boolean  @default(true)   // Is this category active in this city?
+  isFeatured      Boolean  @default(false)  // Is this category featured in this city's bottom bar?
+  sortOrder       Int      @default(0)      // City-specific sort order (optional override)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([categoryId, cityId])
+  @@index([cityId, isActive])
+  @@index([cityId, isFeatured])
 }
 
 model MarketSubcategory {
