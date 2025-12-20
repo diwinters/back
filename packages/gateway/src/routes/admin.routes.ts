@@ -612,26 +612,13 @@ router.get('/market/categories/:id', async (req, res, next) => {
  */
 router.post('/market/categories', async (req, res, next) => {
   try {
-    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
     
     if (!name) {
       return res.status(400).json({
         success: false,
         error: 'name is required'
       })
-    }
-    
-    // Check featured limit (max 3)
-    if (isFeatured) {
-      const featuredCount = await prisma.marketCategory.count({
-        where: { isFeatured: true }
-      })
-      if (featuredCount >= 3) {
-        return res.status(400).json({
-          success: false,
-          error: 'Maximum 3 categories can be featured. Please unfeature another category first.'
-        })
-      }
     }
     
     const category = await prisma.marketCategory.create({
@@ -645,10 +632,11 @@ router.post('/market/categories', async (req, res, next) => {
         gradientEnd,
         sortOrder: sortOrder ?? 0,
         isActive: isActive ?? true,
-        isFeatured: isFeatured ?? false
+        isGlobal: isGlobal ?? false
       },
       include: {
-        subcategories: true
+        subcategories: true,
+        cities: { include: { city: { select: { id: true, name: true, code: true } } } }
       }
     })
     
@@ -677,7 +665,7 @@ router.post('/market/categories', async (req, res, next) => {
 router.put('/market/categories/:id', async (req, res, next) => {
   try {
     const { id } = req.params
-    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
     
     const existing = await prisma.marketCategory.findUnique({ where: { id } })
     if (!existing) {
@@ -685,19 +673,6 @@ router.put('/market/categories/:id', async (req, res, next) => {
         success: false,
         error: 'Category not found'
       })
-    }
-    
-    // Check featured limit if trying to feature
-    if (isFeatured && !existing.isFeatured) {
-      const featuredCount = await prisma.marketCategory.count({
-        where: { isFeatured: true }
-      })
-      if (featuredCount >= 3) {
-        return res.status(400).json({
-          success: false,
-          error: 'Maximum 3 categories can be featured. Please unfeature another category first.'
-        })
-      }
     }
     
     const category = await prisma.marketCategory.update({
@@ -712,12 +687,13 @@ router.put('/market/categories/:id', async (req, res, next) => {
         ...(gradientEnd !== undefined && { gradientEnd }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isActive !== undefined && { isActive }),
-        ...(isFeatured !== undefined && { isFeatured })
+        ...(isGlobal !== undefined && { isGlobal })
       },
       include: {
         subcategories: {
           orderBy: { sortOrder: 'asc' }
-        }
+        },
+        cities: { include: { city: { select: { id: true, name: true, code: true } } } }
       }
     })
     
