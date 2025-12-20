@@ -2414,7 +2414,7 @@ app.get('/api/market/categories/:id', async (req, res) => {
  */
 app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'Category name is required' })
@@ -2424,6 +2424,15 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
     const existing = await prisma.marketCategory.findUnique({ where: { name } })
     if (existing) {
       return res.status(400).json({ success: false, error: 'Category with this name already exists' })
+    }
+
+    // Check featured limit (max 3)
+    const wantFeatured = isFeatured === 'true' || isFeatured === true
+    if (wantFeatured) {
+      const featuredCount = await prisma.marketCategory.count({ where: { isFeatured: true } })
+      if (featuredCount >= 3) {
+        return res.status(400).json({ success: false, error: 'Maximum 3 categories can be featured. Please unfeature another category first.' })
+      }
     }
 
     const iconUrl = req.file ? `/uploads/market/categories/${req.file.filename}` : null
@@ -2438,7 +2447,8 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
         gradientStart: gradientStart || null,
         gradientEnd: gradientEnd || null,
         sortOrder: parseInt(sortOrder) || 0,
-        isActive: isActive !== 'false'
+        isActive: isActive !== 'false',
+        isFeatured: wantFeatured
       },
       include: { subcategories: true }
     })
@@ -2455,7 +2465,7 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
  */
 app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
 
     const existing = await prisma.marketCategory.findUnique({ where: { id: req.params.id } })
     if (!existing) {
@@ -2470,6 +2480,15 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
       }
     }
 
+    // Check featured limit if trying to feature
+    const wantFeatured = isFeatured === 'true' || isFeatured === true
+    if (isFeatured !== undefined && wantFeatured && !existing.isFeatured) {
+      const featuredCount = await prisma.marketCategory.count({ where: { isFeatured: true } })
+      if (featuredCount >= 3) {
+        return res.status(400).json({ success: false, error: 'Maximum 3 categories can be featured. Please unfeature another category first.' })
+      }
+    }
+
     const updateData = {}
     if (name !== undefined) updateData.name = name
     if (nameAr !== undefined) updateData.nameAr = nameAr || null
@@ -2479,6 +2498,7 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
     if (gradientEnd !== undefined) updateData.gradientEnd = gradientEnd || null
     if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder) || 0
     if (isActive !== undefined) updateData.isActive = isActive !== 'false'
+    if (isFeatured !== undefined) updateData.isFeatured = wantFeatured
     if (req.file) updateData.iconUrl = `/uploads/market/categories/${req.file.filename}`
 
     const category = await prisma.marketCategory.update({

@@ -2578,7 +2578,10 @@ function renderMarketCategories(categories) {
                     ? `<img src="${cat.iconUrl}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;">` 
                     : cat.emoji || '📁'}
             </td>
-            <td><strong>${cat.name}</strong></td>
+            <td>
+                <strong>${cat.name}</strong>
+                ${cat.isFeatured ? '<span class="badge badge-warning" style="margin-left:6px;">⭐ Featured</span>' : ''}
+            </td>
             <td>${cat.nameAr || '-'}</td>
             <td>
                 ${cat.subcategories.length > 0 
@@ -2631,6 +2634,7 @@ function showCategoryForm(categoryId = null) {
             document.getElementById('categoryGradientEnd').value = cat.gradientEnd || '#764ba2'
             document.getElementById('categorySortOrder').value = cat.sortOrder
             document.getElementById('categoryIsActive').value = cat.isActive ? 'true' : 'false'
+            document.getElementById('categoryIsFeatured').checked = cat.isFeatured || false
             
             // Show existing icon if any
             if (cat.iconUrl) {
@@ -2642,6 +2646,7 @@ function showCategoryForm(categoryId = null) {
         document.getElementById('categoryForm').reset()
         document.getElementById('categoryGradientStart').value = '#667eea'
         document.getElementById('categoryGradientEnd').value = '#764ba2'
+        document.getElementById('categoryIsFeatured').checked = false
         resetCategoryIconPreview()
     }
 }
@@ -2711,6 +2716,7 @@ document.getElementById('categoryForm')?.addEventListener('submit', async functi
     formData.append('gradientEnd', document.getElementById('categoryGradientEnd').value)
     formData.append('sortOrder', document.getElementById('categorySortOrder').value)
     formData.append('isActive', document.getElementById('categoryIsActive').value)
+    formData.append('isFeatured', document.getElementById('categoryIsFeatured').checked ? 'true' : 'false')
     
     const iconInput = document.getElementById('categoryIconInput')
     if (iconInput.files && iconInput.files[0]) {
