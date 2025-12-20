@@ -5884,6 +5884,19 @@ app.post('/api/orders/items/:itemId/confirm-delivery', async (req, res) => {
       }
     })
 
+    // Send DM to seller notifying them of delivery confirmation
+    const orderWithConvos = await prisma.marketOrder.findUnique({
+      where: { id: item.orderId },
+      include: { conversations: true }
+    })
+    const conversation = orderWithConvos?.conversations.find(c => c.sellerId === item.sellerId)
+    if (conversation) {
+      sendDeliveryConfirmedDM(conversation.conversationId, {
+        orderId: item.orderId,
+        itemTitle: item.title
+      }).catch(err => console.error('[Delivery Confirmed DM] Failed:', err))
+    }
+
     console.log(`[Orders] Delivery confirmed for item ${itemId}, escrow released`)
 
     res.json({ success: true, message: 'Delivery confirmed, payment released to seller' })
@@ -6018,6 +6031,7 @@ app.get('/api/orders/active/:conversationId', async (req, res) => {
 async function sendOrderStatusDM(conversationId, status, data) {
   try {
     if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
+      console.log('[Order Status DM] Skipping - BSKY credentials not configured')
       return
     }
 
@@ -6029,8 +6043,40 @@ async function sendOrderStatusDM(conversationId, status, data) {
     await messaging.initialize()
     
     await messaging.sendOrderStatusUpdate(conversationId, status, data)
+    console.log(`[Order Status DM] Sent ${status} update to conversation ${conversationId}`)
   } catch (error) {
     console.error('[Order Status DM] Error:', error)
+  }
+}
+
+/**
+ * Helper function to send delivery confirmed DM to seller
+ */
+async function sendDeliveryConfirmedDM(conversationId, data) {
+  try {
+    if (!process.env.BSKY_SERVICE_IDENTIFIER || !process.env.BSKY_SERVICE_PASSWORD) {
+      console.log('[Delivery Confirmed DM] Skipping - BSKY credentials not configured')
+      return
+    }
+
+    const { BlueskyMessaging } = await import('@social-app/core/bluesky/messaging.js')
+    const messaging = new BlueskyMessaging(
+      process.env.BSKY_SERVICE_IDENTIFIER,
+      process.env.BSKY_SERVICE_PASSWORD
+    )
+    await messaging.initialize()
+    
+    const text = `🎉 Buyer confirmed delivery!
+
+Order #${data.orderId.slice(-6).toUpperCase()}
+${data.itemTitle || ''}
+
+Payment has been released to your account.`
+    
+    await messaging.sendMessage(conversationId, { text })
+    console.log(`[Delivery Confirmed DM] Sent to conversation ${conversationId}`)
+  } catch (error) {
+    console.error('[Delivery Confirmed DM] Error:', error)
   }
 }
 
