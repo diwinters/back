@@ -532,6 +532,483 @@ router.get('/cities', async (req, res, next) => {
 })
 
 // =============================================================================
+// MARKET CATEGORIES ADMIN ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/admin/market/categories
+ * List all categories (including inactive) with subcategories
+ */
+router.get('/market/categories', async (req, res, next) => {
+  try {
+    const categories = await prisma.marketCategory.findMany({
+      include: {
+        subcategories: {
+          orderBy: { sortOrder: 'asc' }
+        },
+        _count: {
+          select: { posts: { where: { status: 'ACTIVE', isArchived: false } } }
+        }
+      },
+      orderBy: { sortOrder: 'asc' }
+    })
+    
+    res.json({
+      success: true,
+      data: categories.map(c => ({
+        ...c,
+        postCount: c._count.posts
+      }))
+    })
+  } catch (error) {
+    logger.error('Failed to list categories', { error })
+    next(error)
+  }
+})
+
+/**
+ * GET /api/admin/market/categories/:id
+ * Get single category with subcategories
+ */
+router.get('/market/categories/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    
+    const category = await prisma.marketCategory.findUnique({
+      where: { id },
+      include: {
+        subcategories: {
+          orderBy: { sortOrder: 'asc' }
+        },
+        _count: {
+          select: { posts: { where: { status: 'ACTIVE', isArchived: false } } }
+        }
+      }
+    })
+    
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found'
+      })
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        ...category,
+        postCount: category._count.posts
+      }
+    })
+  } catch (error) {
+    logger.error('Failed to get category', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/categories
+ * Create a new category
+ */
+router.post('/market/categories', async (req, res, next) => {
+  try {
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      })
+    }
+    
+    // Check featured limit (max 3)
+    if (isFeatured) {
+      const featuredCount = await prisma.marketCategory.count({
+        where: { isFeatured: true }
+      })
+      if (featuredCount >= 3) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 3 categories can be featured. Please unfeature another category first.'
+        })
+      }
+    }
+    
+    const category = await prisma.marketCategory.create({
+      data: {
+        name,
+        nameAr,
+        description,
+        emoji,
+        iconUrl,
+        gradientStart,
+        gradientEnd,
+        sortOrder: sortOrder ?? 0,
+        isActive: isActive ?? true,
+        isFeatured: isFeatured ?? false
+      },
+      include: {
+        subcategories: true
+      }
+    })
+    
+    logger.info('Category created', { categoryId: category.id })
+    
+    res.status(201).json({
+      success: true,
+      data: category
+    })
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'A category with this name already exists'
+      })
+    }
+    logger.error('Failed to create category', { error })
+    next(error)
+  }
+})
+
+/**
+ * PUT /api/admin/market/categories/:id
+ * Update a category
+ */
+router.put('/market/categories/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isFeatured } = req.body
+    
+    const existing = await prisma.marketCategory.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found'
+      })
+    }
+    
+    // Check featured limit if trying to feature
+    if (isFeatured && !existing.isFeatured) {
+      const featuredCount = await prisma.marketCategory.count({
+        where: { isFeatured: true }
+      })
+      if (featuredCount >= 3) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 3 categories can be featured. Please unfeature another category first.'
+        })
+      }
+    }
+    
+    const category = await prisma.marketCategory.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(nameAr !== undefined && { nameAr }),
+        ...(description !== undefined && { description }),
+        ...(emoji !== undefined && { emoji }),
+        ...(iconUrl !== undefined && { iconUrl }),
+        ...(gradientStart !== undefined && { gradientStart }),
+        ...(gradientEnd !== undefined && { gradientEnd }),
+        ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive }),
+        ...(isFeatured !== undefined && { isFeatured })
+      },
+      include: {
+        subcategories: {
+          orderBy: { sortOrder: 'asc' }
+        }
+      }
+    })
+    
+    logger.info('Category updated', { categoryId: id })
+    
+    res.json({
+      success: true,
+      data: category
+    })
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'A category with this name already exists'
+      })
+    }
+    logger.error('Failed to update category', { error })
+    next(error)
+  }
+})
+
+/**
+ * DELETE /api/admin/market/categories/:id
+ * Delete a category (blocked if has posts)
+ */
+router.delete('/market/categories/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    
+    const category = await prisma.marketCategory.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { posts: true } }
+      }
+    })
+    
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found'
+      })
+    }
+    
+    if (category._count.posts > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete category with ${category._count.posts} posts. Move or delete posts first.`
+      })
+    }
+    
+    await prisma.marketCategory.delete({ where: { id } })
+    
+    logger.info('Category deleted', { categoryId: id })
+    
+    res.json({
+      success: true,
+      message: 'Category deleted'
+    })
+  } catch (error) {
+    logger.error('Failed to delete category', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/categories/reorder
+ * Reorder categories
+ */
+router.post('/market/categories/reorder', async (req, res, next) => {
+  try {
+    const { categoryIds } = req.body
+    
+    if (!categoryIds || !Array.isArray(categoryIds)) {
+      return res.status(400).json({
+        success: false,
+        error: 'categoryIds array is required'
+      })
+    }
+    
+    await prisma.$transaction(
+      categoryIds.map((categoryId: string, index: number) =>
+        prisma.marketCategory.update({
+          where: { id: categoryId },
+          data: { sortOrder: index + 1 }
+        })
+      )
+    )
+    
+    logger.info('Categories reordered')
+    
+    res.json({
+      success: true,
+      message: 'Categories reordered'
+    })
+  } catch (error) {
+    logger.error('Failed to reorder categories', { error })
+    next(error)
+  }
+})
+
+// =============================================================================
+// MARKET SUBCATEGORIES ADMIN ENDPOINTS
+// =============================================================================
+
+/**
+ * POST /api/admin/market/categories/:id/subcategories
+ * Create a subcategory
+ */
+router.post('/market/categories/:categoryId/subcategories', async (req, res, next) => {
+  try {
+    const { categoryId } = req.params
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+    
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        error: 'name is required'
+      })
+    }
+    
+    const category = await prisma.marketCategory.findUnique({ where: { id: categoryId } })
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found'
+      })
+    }
+    
+    const subcategory = await prisma.marketSubcategory.create({
+      data: {
+        categoryId,
+        name,
+        nameAr,
+        description,
+        emoji,
+        iconUrl,
+        gradientStart,
+        gradientEnd,
+        sortOrder: sortOrder ?? 0,
+        isActive: isActive ?? true
+      }
+    })
+    
+    logger.info('Subcategory created', { subcategoryId: subcategory.id, categoryId })
+    
+    res.status(201).json({
+      success: true,
+      data: subcategory
+    })
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'A subcategory with this name already exists in this category'
+      })
+    }
+    logger.error('Failed to create subcategory', { error })
+    next(error)
+  }
+})
+
+/**
+ * PUT /api/admin/market/subcategories/:id
+ * Update a subcategory
+ */
+router.put('/market/subcategories/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive } = req.body
+    
+    const existing = await prisma.marketSubcategory.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Subcategory not found'
+      })
+    }
+    
+    const subcategory = await prisma.marketSubcategory.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(nameAr !== undefined && { nameAr }),
+        ...(description !== undefined && { description }),
+        ...(emoji !== undefined && { emoji }),
+        ...(iconUrl !== undefined && { iconUrl }),
+        ...(gradientStart !== undefined && { gradientStart }),
+        ...(gradientEnd !== undefined && { gradientEnd }),
+        ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive })
+      }
+    })
+    
+    logger.info('Subcategory updated', { subcategoryId: id })
+    
+    res.json({
+      success: true,
+      data: subcategory
+    })
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({
+        success: false,
+        error: 'A subcategory with this name already exists in this category'
+      })
+    }
+    logger.error('Failed to update subcategory', { error })
+    next(error)
+  }
+})
+
+/**
+ * DELETE /api/admin/market/subcategories/:id
+ * Delete a subcategory (blocked if has posts)
+ */
+router.delete('/market/subcategories/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    
+    const subcategory = await prisma.marketSubcategory.findUnique({
+      where: { id },
+      include: {
+        _count: { select: { posts: true } }
+      }
+    })
+    
+    if (!subcategory) {
+      return res.status(404).json({
+        success: false,
+        error: 'Subcategory not found'
+      })
+    }
+    
+    if (subcategory._count.posts > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete subcategory with ${subcategory._count.posts} posts. Move or delete posts first.`
+      })
+    }
+    
+    await prisma.marketSubcategory.delete({ where: { id } })
+    
+    logger.info('Subcategory deleted', { subcategoryId: id })
+    
+    res.json({
+      success: true,
+      message: 'Subcategory deleted'
+    })
+  } catch (error) {
+    logger.error('Failed to delete subcategory', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/categories/:categoryId/subcategories/reorder
+ * Reorder subcategories within a category
+ */
+router.post('/market/categories/:categoryId/subcategories/reorder', async (req, res, next) => {
+  try {
+    const { subcategoryIds } = req.body
+    
+    if (!subcategoryIds || !Array.isArray(subcategoryIds)) {
+      return res.status(400).json({
+        success: false,
+        error: 'subcategoryIds array is required'
+      })
+    }
+    
+    await prisma.$transaction(
+      subcategoryIds.map((subcategoryId: string, index: number) =>
+        prisma.marketSubcategory.update({
+          where: { id: subcategoryId },
+          data: { sortOrder: index + 1 }
+        })
+      )
+    )
+    
+    logger.info('Subcategories reordered')
+    
+    res.json({
+      success: true,
+      message: 'Subcategories reordered'
+    })
+  } catch (error) {
+    logger.error('Failed to reorder subcategories', { error })
+    next(error)
+  }
+})
+
+// =============================================================================
 // MARKET SETTINGS ADMIN ENDPOINTS
 // =============================================================================
 

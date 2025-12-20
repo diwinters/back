@@ -1394,6 +1394,7 @@ model MarketCategory {
   gradientEnd     String?  // Gradient end color (hex)
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
+  isFeatured      Boolean  @default(false) // Featured categories show subcategories in catalog
   
   // Relations
   subcategories   MarketSubcategory[]
@@ -1403,6 +1404,7 @@ model MarketCategory {
   updatedAt       DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+  @@index([isFeatured, isActive])
 }
 
 model MarketSubcategory {
