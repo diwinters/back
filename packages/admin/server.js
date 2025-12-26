@@ -4193,6 +4193,48 @@ app.get('/api/market/posts/active', async (req, res) => {
 })
 
 /**
+ * POST /api/market/posts/lookup-by-uris
+ * Batch lookup market posts by their postUris
+ * Returns a map of postUri -> MarketPost (only for posts that exist in market)
+ */
+app.post('/api/market/posts/lookup-by-uris', async (req, res) => {
+  try {
+    const { postUris } = req.body
+    
+    if (!Array.isArray(postUris) || postUris.length === 0) {
+      return res.json({ success: true, data: {} })
+    }
+
+    // Limit batch size to prevent abuse
+    const limitedUris = postUris.slice(0, 100)
+
+    const posts = await prisma.marketPost.findMany({
+      where: {
+        postUri: { in: limitedUris },
+        status: 'ACTIVE',
+        isArchived: false
+      },
+      include: {
+        seller: { include: { user: true } },
+        category: true,
+        subcategory: true
+      }
+    })
+
+    // Convert to a map of postUri -> MarketPost for easy lookup
+    const postMap = {}
+    for (const post of posts) {
+      postMap[post.postUri] = post
+    }
+
+    res.json({ success: true, data: postMap })
+  } catch (error) {
+    console.error('[Market] Error looking up posts by URIs:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/posts/:id
  * Get post details
  */
