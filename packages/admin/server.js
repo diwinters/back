@@ -5342,7 +5342,16 @@ app.post('/api/market/posts/submit', async (req, res) => {
     const validQuantity = isNaN(parsedQuantity) || parsedQuantity < 0 ? 1 : parsedQuantity
 
     // Use provided cityId, or fall back to seller's city
-    const postCityId = cityId || seller.cityId || null
+    let postCityId = cityId || seller.cityId || null
+    
+    // Validate city exists if provided
+    if (postCityId) {
+      const city = await prisma.city.findUnique({ where: { id: postCityId } })
+      if (!city) {
+        console.log('[Market] City not found, setting to null:', postCityId)
+        postCityId = null // City doesn't exist, make it global
+      }
+    }
     console.log('[Market] Final cityId for post:', postCityId)
 
     const post = await prisma.marketPost.create({
