@@ -2571,7 +2571,12 @@ function renderMarketCategories(categories) {
         return
     }
     
-    grid.innerHTML = categories.map(cat => `
+    grid.innerHTML = categories.map(cat => {
+        // Get cities where this category is pinned to home
+        const pinnedInCities = (cat.cities || []).filter(cc => cc.isPinnedToHome)
+        const hasPinnedCities = pinnedInCities.length > 0
+        
+        return `
         <div class="category-card" style="background: white; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e5e7eb;">
             <!-- Category Header with Gradient -->
             <div style="height: 80px; background: linear-gradient(135deg, ${cat.gradientStart || '#667eea'}, ${cat.gradientEnd || '#764ba2'}); padding: 16px; display: flex; align-items: center; gap: 12px; position: relative;">
@@ -2582,18 +2587,34 @@ function renderMarketCategories(categories) {
                     <div style="color:white;font-weight:700;font-size:18px;text-shadow:0 1px 2px rgba(0,0,0,0.2);">${cat.name}</div>
                     ${cat.nameAr ? `<div style="color:rgba(255,255,255,0.8);font-size:12px;" dir="rtl">${cat.nameAr}</div>` : ''}
                 </div>
-                <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
-                    ${cat.isPinnedToHome ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">📌 Home</span>' : ''}
-                    ${cat.isFeatured ? '<span style="background:#fbbf24;color:#000;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">⭐ Featured</span>' : ''}
+                <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;flex-wrap:wrap;max-width:150px;justify-content:flex-end;">
+                    ${hasPinnedCities ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">📌 Home</span>' : ''}
+                    ${cat.isGlobal ? '<span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">🌍 Global</span>' : ''}
                 </div>
             </div>
             
             <!-- Category Info -->
             <div style="padding: 16px;">
-                <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
                     <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📋 ${cat._count?.posts || 0} posts</span>
                     <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📊 Order: ${cat.sortOrder}</span>
                     <span class="badge ${cat.isActive ? 'badge-success' : 'badge-danger'}" style="font-size:12px;">${cat.isActive ? '✓ Active' : '✗ Inactive'}</span>
+                </div>
+                
+                <!-- Cities assigned -->
+                <div style="margin-bottom: 12px;">
+                    <div style="font-weight: 600; color: #374151; font-size: 12px; margin-bottom: 6px;">📍 Cities (${(cat.cities || []).length})</div>
+                    ${(cat.cities || []).length > 0 ? `
+                        <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                            ${(cat.cities || []).map(cc => `
+                                <span style="background:${cc.isPinnedToHome ? '#dcfce7' : '#f3f4f6'};color:${cc.isPinnedToHome ? '#166534' : '#374151'};padding:3px 8px;border-radius:12px;font-size:11px;display:inline-flex;align-items:center;gap:4px;">
+                                    ${cc.isPinnedToHome ? '📌' : ''} ${cc.city?.name || 'Unknown'}
+                                    ${cc.isFeatured ? '⭐' : ''}
+                                    ${cc.isPinnedToHome ? `<button onclick="event.stopPropagation();unpinFromHome('category','${cat.id}','${cc.cityId}','${cc.city?.name}')" style="background:#ef4444;color:white;border:none;padding:1px 4px;border-radius:4px;font-size:9px;cursor:pointer;margin-left:2px;">✕</button>` : ''}
+                                </span>
+                            `).join('')}
+                        </div>
+                    ` : '<div style="color:#9ca3af;font-size:11px;">Not assigned to any city</div>'}
                 </div>
                 
                 <!-- Subcategories Section -->
@@ -2609,7 +2630,6 @@ function renderMarketCategories(categories) {
                                 <div class="subcategory-chip" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; transition: all 0.2s; position: relative;
                                             background: ${sub.gradientStart && sub.gradientEnd ? `linear-gradient(135deg, ${sub.gradientStart}, ${sub.gradientEnd})` : '#f3f4f6'};
                                             ${sub.gradientStart ? 'color: #000;' : 'color: #374151;'}">
-                                    ${sub.isPinnedToHome ? '<span style="position:absolute;top:-4px;right:-4px;font-size:10px;">📌</span>' : ''}
                                     <span onclick="showSubcategoryForm('${cat.id}', '${cat.name.replace(/'/g, "\\'")}', '${sub.id}')" style="cursor:pointer;display:flex;align-items:center;gap:6px;">
                                         ${sub.iconUrl 
                                             ? `<img src="${sub.iconUrl}" style="width:20px;height:20px;border-radius:4px;object-fit:cover;">` 
@@ -2617,9 +2637,10 @@ function renderMarketCategories(categories) {
                                         <span style="font-size: 12px; font-weight: 500;">${sub.name}</span>
                                         <span style="font-size:10px;opacity:0.7;">${sub.isActive ? '' : '(off)'}</span>
                                     </span>
-                                    <button onclick="event.stopPropagation();toggleSubcategoryPinnedToHome('${sub.id}', ${!sub.isPinnedToHome})" 
-                                            style="background:${sub.isPinnedToHome ? '#ef4444' : '#10b981'};color:white;border:none;padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;margin-left:4px;">
-                                        ${sub.isPinnedToHome ? 'Unpin' : 'Pin'}
+                                    <button onclick="event.stopPropagation();toggleSubcategoryPinnedToHome('${sub.id}', true)" 
+                                            style="background:#10b981;color:white;border:none;padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;margin-left:4px;"
+                                            title="Pin to home (select city)">
+                                        📌
                                     </button>
                                 </div>
                             `).join('')}
@@ -2630,13 +2651,13 @@ function renderMarketCategories(categories) {
                 <!-- Actions -->
                 <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb; flex-wrap: wrap;">
                     <button class="btn btn-primary" style="flex:1;padding:8px 12px;font-size:13px;" onclick="editCategory('${cat.id}')">✏️ Edit</button>
-                    <button class="btn" style="padding:8px 12px;font-size:13px;background:${cat.isPinnedToHome ? '#ef4444' : '#10b981'};color:white;" onclick="toggleCategoryPinnedToHome('${cat.id}', ${!cat.isPinnedToHome})">${cat.isPinnedToHome ? '📌 Unpin' : '📌 Pin Home'}</button>
-                    <button class="btn btn-warning" style="padding:8px 12px;font-size:13px;" onclick="toggleCategoryFeatured('${cat.id}', ${!cat.isFeatured})">${cat.isFeatured ? '⭐ Unfeature' : '☆ Feature'}</button>
+                    <button class="btn" style="padding:8px 12px;font-size:13px;background:#10b981;color:white;" onclick="showPinToHomeModal('category', '${cat.id}', '${cat.name.replace(/'/g, "\\'")}')">📌 Pin</button>
+                    <button class="btn btn-secondary" style="padding:8px 12px;font-size:13px;" onclick="showCategoryCityManager('${cat.id}', '${cat.name.replace(/'/g, "\\'")}')">📍 Cities</button>
                     <button class="btn btn-danger" style="padding:8px 12px;font-size:13px;" onclick="deleteCategory('${cat.id}')">🗑️</button>
                 </div>
             </div>
         </div>
-    `).join('')
+    `}).join('')
 }
 
 // Quick toggle featured status
@@ -2663,48 +2684,162 @@ async function toggleCategoryFeatured(categoryId, featured) {
 }
 
 // Pin to Home functions
-async function toggleCategoryPinnedToHome(categoryId, pinned) {
-    try {
-        const res = await fetch(`${API_BASE}/api/market/categories/${categoryId}/pin-to-home`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ isPinnedToHome: pinned })
-        })
-        const data = await res.json()
-        
-        if (data.success) {
-            showMessage('marketMessage', pinned ? '📌 Category pinned to home!' : 'Category unpinned from home', 'success')
-            loadMarketCategories()
+// Show pin to home city selector modal
+function showPinToHomeModal(type, id, name) {
+    // Create modal if doesn't exist
+    let modal = document.getElementById('pinToHomeModal')
+    if (!modal) {
+        modal = document.createElement('div')
+        modal.id = 'pinToHomeModal'
+        modal.className = 'modal'
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <h3>📌 Pin to Home Screen</h3>
+                <p id="pinToHomeItemName" style="color:#666;margin-bottom:15px;"></p>
+                <div class="form-group">
+                    <label>Select City</label>
+                    <select id="pinToHomeCitySelect" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;">
+                        <option value="">-- Select a city --</option>
+                    </select>
+                </div>
+                <div id="pinnedCitiesInfo" style="margin:15px 0;padding:10px;background:#f3f4f6;border-radius:8px;font-size:13px;"></div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="hidePinToHomeModal()">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="confirmPinToHome()">📌 Pin to Home</button>
+                </div>
+            </div>
+        `
+        document.body.appendChild(modal)
+    }
+    
+    // Populate city select
+    const citySelect = document.getElementById('pinToHomeCitySelect')
+    citySelect.innerHTML = '<option value="">-- Select a city --</option>' + 
+        citiesCache
+            .filter(c => c.isActive)
+            .map(c => `<option value="${c.id}">${c.name}</option>`)
+            .join('')
+    
+    // Set item info
+    document.getElementById('pinToHomeItemName').textContent = `Item: ${name}`
+    
+    // Store data in modal
+    modal.dataset.type = type
+    modal.dataset.id = id
+    modal.dataset.name = name
+    
+    // Show which cities this item is already pinned in
+    updatePinnedCitiesInfo(type, id)
+    
+    modal.style.display = 'flex'
+}
+
+function updatePinnedCitiesInfo(type, id) {
+    const infoDiv = document.getElementById('pinnedCitiesInfo')
+    // Find the item in cache
+    if (type === 'category') {
+        const cat = marketCategoriesCache.find(c => c.id === id)
+        if (cat && cat.cities && cat.cities.length > 0) {
+            const pinnedInCities = cat.cities.filter(cc => cc.isPinnedToHome)
+            if (pinnedInCities.length > 0) {
+                infoDiv.innerHTML = `<strong>Currently pinned in:</strong><br>${pinnedInCities.map(cc => `• ${cc.city?.name || 'Unknown'}`).join('<br>')}`
+            } else {
+                infoDiv.innerHTML = '<em>Not pinned in any city yet</em>'
+            }
         } else {
-            showMessage('marketMessage', data.error || 'Failed to update (max 5 pins allowed)', 'error')
+            infoDiv.innerHTML = '<em>Not assigned to any city yet</em>'
         }
-    } catch (error) {
-        showMessage('marketMessage', 'Failed to update category: ' + error.message, 'error')
+    } else {
+        // For subcategories, we'd need to add cities data to the cache
+        infoDiv.innerHTML = '<em>Select a city to pin this subcategory</em>'
     }
 }
 
-async function toggleSubcategoryPinnedToHome(subcategoryId, pinned) {
+function hidePinToHomeModal() {
+    const modal = document.getElementById('pinToHomeModal')
+    if (modal) modal.style.display = 'none'
+}
+
+async function confirmPinToHome() {
+    const modal = document.getElementById('pinToHomeModal')
+    const cityId = document.getElementById('pinToHomeCitySelect').value
+    const type = modal.dataset.type
+    const id = modal.dataset.id
+    
+    if (!cityId) {
+        showMessage('marketMessage', 'Please select a city', 'error')
+        return
+    }
+    
     try {
-        const res = await fetch(`${API_BASE}/api/market/subcategories/${subcategoryId}/pin-to-home`, {
+        const endpoint = type === 'category' 
+            ? `/api/market/categories/${id}/pin-to-home`
+            : `/api/market/subcategories/${id}/pin-to-home`
+        
+        const res = await fetch(`${API_BASE}${endpoint}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ isPinnedToHome: pinned })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isPinnedToHome: true, cityId })
         })
         const data = await res.json()
         
         if (data.success) {
-            showMessage('marketMessage', pinned ? '📌 Subcategory pinned to home!' : 'Subcategory unpinned from home', 'success')
+            const city = citiesCache.find(c => c.id === cityId)
+            showMessage('marketMessage', `📌 Pinned to home in ${city?.name || 'selected city'}!`, 'success')
+            hidePinToHomeModal()
             loadMarketCategories()
         } else {
-            showMessage('marketMessage', data.error || 'Failed to update (max 5 pins allowed)', 'error')
+            showMessage('marketMessage', data.error || 'Failed to pin (max 5 per city)', 'error')
         }
     } catch (error) {
-        showMessage('marketMessage', 'Failed to update subcategory: ' + error.message, 'error')
+        showMessage('marketMessage', 'Failed to pin: ' + error.message, 'error')
     }
+}
+
+async function unpinFromHome(type, id, cityId, cityName) {
+    if (!confirm(`Unpin from home in ${cityName}?`)) return
+    
+    try {
+        const endpoint = type === 'category' 
+            ? `/api/market/categories/${id}/pin-to-home`
+            : `/api/market/subcategories/${id}/pin-to-home`
+        
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isPinnedToHome: false, cityId })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', `Unpinned from home in ${cityName}`, 'success')
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to unpin', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to unpin: ' + error.message, 'error')
+    }
+}
+
+// DEPRECATED: Old toggle functions (kept for backward compatibility)
+async function toggleCategoryPinnedToHome(categoryId, pinned) {
+    // Redirect to new modal-based flow
+    const cat = marketCategoriesCache.find(c => c.id === categoryId)
+    showPinToHomeModal('category', categoryId, cat?.name || 'Category')
+}
+
+async function toggleSubcategoryPinnedToHome(subcategoryId, pinned) {
+    // Need to find subcategory name from categories cache
+    let subName = 'Subcategory'
+    for (const cat of marketCategoriesCache) {
+        const sub = cat.subcategories?.find(s => s.id === subcategoryId)
+        if (sub) {
+            subName = sub.name
+            break
+        }
+    }
+    showPinToHomeModal('subcategory', subcategoryId, subName)
 }
 
 function populateCategoryFilters() {

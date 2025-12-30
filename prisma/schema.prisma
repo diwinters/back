@@ -159,7 +159,8 @@ model City {
   marketPosts       MarketPost[]
   marketPromoCards  MarketPromoCard[]
   marketSections    MarketSection[]
-  marketCategories  CategoryCity[]  // Categories enabled for this city
+  marketCategories  CategoryCity[]      // Categories enabled for this city
+  marketSubcategories SubcategoryCity[] // Subcategories enabled for this city
   usersPreferred    User[]  @relation("UserPreferredCity")
   checkoutConfigs   CheckoutConfig[]  @relation("CheckoutConfigCity")
   promoCodes        PromoCode[]       @relation("PromoCodeCity")
@@ -1432,12 +1433,17 @@ model CategoryCity {
   isFeatured      Boolean  @default(false)  // Is this category featured in this city's bottom bar?
   sortOrder       Int      @default(0)      // City-specific sort order (optional override)
   
+  // Per-city pin to home settings
+  isPinnedToHome  Boolean  @default(false)  // Pin this category to home in this city
+  homePinOrder    Int      @default(0)      // Order on home screen for this city
+  
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@unique([categoryId, cityId])
   @@index([cityId, isActive])
   @@index([cityId, isFeatured])
+  @@index([cityId, isPinnedToHome, homePinOrder])
 }
 
 model MarketSubcategory {
@@ -1457,12 +1463,14 @@ model MarketSubcategory {
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
   
-  // Pinned to Home - if true, this subcategory will appear on the home screen
+  // DEPRECATED: Use SubcategoryCity.isPinnedToHome for per-city pinning
+  // Keeping for backward compatibility but should migrate to SubcategoryCity
   isPinnedToHome  Boolean  @default(false)
-  homePinOrder    Int      @default(0)  // Order when displayed on home screen
+  homePinOrder    Int      @default(0)
   
   // Relations
   posts           MarketPost[]
+  cities          SubcategoryCity[]  // Per-city settings
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1470,6 +1478,32 @@ model MarketSubcategory {
   @@unique([categoryId, name])
   @@index([categoryId, isActive, sortOrder])
   @@index([isPinnedToHome, homePinOrder])
+}
+
+// Junction table for Subcategory-City many-to-many with per-city settings
+model SubcategoryCity {
+  id              String   @id @default(cuid())
+  
+  subcategoryId   String
+  subcategory     MarketSubcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  
+  cityId          String
+  city            City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  
+  // Per-city settings
+  isActive        Boolean  @default(true)   // Is this subcategory active in this city?
+  sortOrder       Int      @default(0)      // City-specific sort order
+  
+  // Per-city pin to home settings
+  isPinnedToHome  Boolean  @default(false)  // Pin this subcategory to home in this city
+  homePinOrder    Int      @default(0)      // Order on home screen for this city
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([subcategoryId, cityId])
+  @@index([cityId, isActive])
+  @@index([cityId, isPinnedToHome, homePinOrder])
 }
 
 // =============================================================================

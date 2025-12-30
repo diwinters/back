@@ -21,75 +21,96 @@ router.get('/categories', async (req, res, next) => {
 
 /**
  * GET /api/market/home-pinned
- * Get categories and subcategories pinned to home screen (for app display)
+ * Get categories and subcategories pinned to home screen for a SPECIFIC CITY
  * Returns up to 5 items ordered by homePinOrder
+ * 
+ * NOTE: Pin to home is now PER-CITY via CategoryCity and SubcategoryCity tables
  */
 router.get('/home-pinned', async (req, res, next) => {
   try {
     const cityId = req.query.cityId as string | undefined
     logger.info(`[Market] GET /home-pinned${cityId ? ` cityId=${cityId}` : ''}`)
 
-    // Fetch pinned categories and subcategories
-    const [pinnedCategories, pinnedSubcategories] = await Promise.all([
-      prisma.marketCategory.findMany({
+    if (!cityId) {
+      // No city = no pinned items (pinning is per-city)
+      logger.info(`[Market] No cityId provided, returning empty`)
+      return res.json({ success: true, data: [] })
+    }
+
+    // Fetch pinned category-city and subcategory-city assignments for this city
+    const [pinnedCategoryAssignments, pinnedSubcategoryAssignments] = await Promise.all([
+      prisma.categoryCity.findMany({
         where: { 
-          isPinnedToHome: true, 
-          isActive: true,
-          // If cityId provided, filter by city or global categories
-          ...(cityId ? {
-            OR: [
-              { isGlobal: true },
-              { cities: { some: { cityId, isActive: true } } }
-            ]
-          } : {})
-        },
-        orderBy: { homePinOrder: 'asc' },
-        select: {
-          id: true,
-          name: true,
-          nameAr: true,
-          emoji: true,
-          iconUrl: true,
-          gradientStart: true,
-          gradientEnd: true,
-          homePinOrder: true,
-        },
-        take: 5,
-      }),
-      prisma.marketSubcategory.findMany({
-        where: { 
+          cityId,
           isPinnedToHome: true, 
           isActive: true,
           category: { isActive: true }
         },
         orderBy: { homePinOrder: 'asc' },
-        select: {
-          id: true,
-          categoryId: true,
-          name: true,
-          nameAr: true,
-          emoji: true,
-          iconUrl: true,
-          gradientStart: true,
-          gradientEnd: true,
-          homePinOrder: true,
+        include: {
           category: {
-            select: { id: true, name: true }
+            select: {
+              id: true,
+              name: true,
+              nameAr: true,
+              emoji: true,
+              iconUrl: true,
+              gradientStart: true,
+              gradientEnd: true,
+            }
+          }
+        },
+        take: 5,
+      }),
+      prisma.subcategoryCity.findMany({
+        where: { 
+          cityId,
+          isPinnedToHome: true, 
+          isActive: true,
+          subcategory: { 
+            isActive: true,
+            category: { isActive: true }
+          }
+        },
+        orderBy: { homePinOrder: 'asc' },
+        include: {
+          subcategory: {
+            select: {
+              id: true,
+              categoryId: true,
+              name: true,
+              nameAr: true,
+              emoji: true,
+              iconUrl: true,
+              gradientStart: true,
+              gradientEnd: true,
+              category: {
+                select: { id: true, name: true }
+              }
+            }
           }
         },
         take: 5,
       })
     ])
 
-    // Combine and sort by homePinOrder, limit to 5
+    // Transform to expected format
     const combined = [
-      ...pinnedCategories.map(c => ({ ...c, type: 'category' as const })),
-      ...pinnedSubcategories.map(s => ({ ...s, type: 'subcategory' as const })),
+      ...pinnedCategoryAssignments.map(a => ({
+        ...a.category,
+        type: 'category' as const,
+        homePinOrder: a.homePinOrder,
+      })),
+      ...pinnedSubcategoryAssignments.map(a => ({
+        ...a.subcategory,
+        type: 'subcategory' as const,
+        homePinOrder: a.homePinOrder,
+      })),
     ]
       .sort((a, b) => a.homePinOrder - b.homePinOrder)
       .slice(0, 5)
 
-    logger.info(`[Market] Returning ${combined.length} home-pinned items`)
+    logger.info(`[Market] Returning ${combined.length} home-pinned items for city ${cityId}`)
     res.json({ success: true, data: combined })
   } catch (error) {
     logger.error('[Market] Error fetching home-pinned items:', error)

@@ -2537,12 +2537,17 @@ app.delete('/api/market/categories/:id', async (req, res) => {
 
 /**
  * POST /api/market/categories/:id/pin-to-home
- * Pin or unpin a category to home screen
+ * Pin or unpin a category to home screen FOR A SPECIFIC CITY
+ * Requires cityId in body
  */
 app.post('/api/market/categories/:id/pin-to-home', async (req, res) => {
   try {
     const { id } = req.params
-    const { isPinnedToHome } = req.body
+    const { isPinnedToHome, cityId } = req.body
+
+    if (!cityId) {
+      return res.status(400).json({ success: false, error: 'cityId is required for pin to home' })
+    }
 
     // Check if category exists
     const category = await prisma.marketCategory.findUnique({ where: { id } })
@@ -2550,40 +2555,60 @@ app.post('/api/market/categories/:id/pin-to-home', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Category not found' })
     }
 
-    // If pinning, check max limit (5 total: categories + subcategories)
+    // Check if category-city assignment exists
+    let assignment = await prisma.categoryCity.findUnique({
+      where: { categoryId_cityId: { categoryId: id, cityId } }
+    })
+
+    if (!assignment) {
+      // Auto-create the assignment if it doesn't exist
+      assignment = await prisma.categoryCity.create({
+        data: {
+          categoryId: id,
+          cityId,
+          isActive: true,
+          isFeatured: false,
+          sortOrder: 0,
+          isPinnedToHome: false,
+          homePinOrder: 0
+        }
+      })
+    }
+
+    // If pinning, check max limit (5 total per city)
     if (isPinnedToHome) {
       const [pinnedCats, pinnedSubs] = await Promise.all([
-        prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
-        prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+        prisma.categoryCity.count({ where: { cityId, isPinnedToHome: true } }),
+        prisma.subcategoryCity.count({ where: { cityId, isPinnedToHome: true } })
       ])
       
       const totalPinned = pinnedCats + pinnedSubs
-      if (totalPinned >= 5 && !category.isPinnedToHome) {
+      if (totalPinned >= 5 && !assignment.isPinnedToHome) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Maximum 5 items can be pinned to home. Please unpin something first.' 
+          error: 'Maximum 5 items can be pinned to home per city. Please unpin something first.' 
         })
       }
 
-      // Get next order number
-      const maxOrder = await prisma.marketCategory.aggregate({
+      // Get next order number for this city
+      const maxOrder = await prisma.categoryCity.aggregate({
         _max: { homePinOrder: true },
-        where: { isPinnedToHome: true }
+        where: { cityId, isPinnedToHome: true }
       })
       const nextOrder = (maxOrder._max.homePinOrder || 0) + 1
 
-      await prisma.marketCategory.update({
-        where: { id },
+      await prisma.categoryCity.update({
+        where: { categoryId_cityId: { categoryId: id, cityId } },
         data: { isPinnedToHome: true, homePinOrder: nextOrder }
       })
     } else {
-      await prisma.marketCategory.update({
-        where: { id },
+      await prisma.categoryCity.update({
+        where: { categoryId_cityId: { categoryId: id, cityId } },
         data: { isPinnedToHome: false, homePinOrder: 0 }
       })
     }
 
-    console.log('Category pin-to-home updated', { categoryId: id, isPinnedToHome })
+    console.log('Category pin-to-home updated', { categoryId: id, cityId, isPinnedToHome })
     res.json({ success: true })
   } catch (error) {
     console.error('Failed to update category pin-to-home', error)
@@ -2593,12 +2618,17 @@ app.post('/api/market/categories/:id/pin-to-home', async (req, res) => {
 
 /**
  * POST /api/market/subcategories/:id/pin-to-home
- * Pin or unpin a subcategory to home screen
+ * Pin or unpin a subcategory to home screen FOR A SPECIFIC CITY
+ * Requires cityId in body
  */
 app.post('/api/market/subcategories/:id/pin-to-home', async (req, res) => {
   try {
     const { id } = req.params
-    const { isPinnedToHome } = req.body
+    const { isPinnedToHome, cityId } = req.body
+
+    if (!cityId) {
+      return res.status(400).json({ success: false, error: 'cityId is required for pin to home' })
+    }
 
     // Check if subcategory exists
     const subcategory = await prisma.marketSubcategory.findUnique({ where: { id } })
@@ -2606,43 +2636,150 @@ app.post('/api/market/subcategories/:id/pin-to-home', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Subcategory not found' })
     }
 
-    // If pinning, check max limit (5 total: categories + subcategories)
+    // Check if subcategory-city assignment exists
+    let assignment = await prisma.subcategoryCity.findUnique({
+      where: { subcategoryId_cityId: { subcategoryId: id, cityId } }
+    })
+
+    if (!assignment) {
+      // Auto-create the assignment if it doesn't exist
+      assignment = await prisma.subcategoryCity.create({
+        data: {
+          subcategoryId: id,
+          cityId,
+          isActive: true,
+          sortOrder: 0,
+          isPinnedToHome: false,
+          homePinOrder: 0
+        }
+      })
+    }
+
+    // If pinning, check max limit (5 total per city)
     if (isPinnedToHome) {
       const [pinnedCats, pinnedSubs] = await Promise.all([
-        prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
-        prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+        prisma.categoryCity.count({ where: { cityId, isPinnedToHome: true } }),
+        prisma.subcategoryCity.count({ where: { cityId, isPinnedToHome: true } })
       ])
       
       const totalPinned = pinnedCats + pinnedSubs
-      if (totalPinned >= 5 && !subcategory.isPinnedToHome) {
+      if (totalPinned >= 5 && !assignment.isPinnedToHome) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Maximum 5 items can be pinned to home. Please unpin something first.' 
+          error: 'Maximum 5 items can be pinned to home per city. Please unpin something first.' 
         })
       }
 
-      // Get next order number
-      const maxOrder = await prisma.marketSubcategory.aggregate({
+      // Get next order number for this city
+      const maxOrder = await prisma.subcategoryCity.aggregate({
         _max: { homePinOrder: true },
-        where: { isPinnedToHome: true }
+        where: { cityId, isPinnedToHome: true }
       })
       const nextOrder = (maxOrder._max.homePinOrder || 0) + 1
 
-      await prisma.marketSubcategory.update({
-        where: { id },
+      await prisma.subcategoryCity.update({
+        where: { subcategoryId_cityId: { subcategoryId: id, cityId } },
         data: { isPinnedToHome: true, homePinOrder: nextOrder }
       })
     } else {
-      await prisma.marketSubcategory.update({
-        where: { id },
+      await prisma.subcategoryCity.update({
+        where: { subcategoryId_cityId: { subcategoryId: id, cityId } },
         data: { isPinnedToHome: false, homePinOrder: 0 }
       })
     }
 
-    console.log('Subcategory pin-to-home updated', { subcategoryId: id, isPinnedToHome })
+    console.log('Subcategory pin-to-home updated', { subcategoryId: id, cityId, isPinnedToHome })
     res.json({ success: true })
   } catch (error) {
     console.error('Failed to update subcategory pin-to-home', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * GET /api/market/home-pinned
+ * Get pinned categories/subcategories for a city's home screen
+ */
+app.get('/api/market/home-pinned', async (req, res) => {
+  try {
+    const { cityId } = req.query
+
+    if (!cityId) {
+      return res.json({ success: true, data: [] }) // No city = no pinned items
+    }
+
+    // Fetch pinned category-city assignments
+    const [pinnedCategoryAssignments, pinnedSubcategoryAssignments] = await Promise.all([
+      prisma.categoryCity.findMany({
+        where: { 
+          cityId,
+          isPinnedToHome: true,
+          isActive: true,
+          category: { isActive: true }
+        },
+        orderBy: { homePinOrder: 'asc' },
+        include: {
+          category: {
+            select: {
+              id: true,
+              name: true,
+              nameAr: true,
+              emoji: true,
+              iconUrl: true,
+              gradientStart: true,
+              gradientEnd: true,
+            }
+          }
+        },
+        take: 5,
+      }),
+      prisma.subcategoryCity.findMany({
+        where: { 
+          cityId,
+          isPinnedToHome: true,
+          isActive: true,
+          subcategory: { isActive: true, category: { isActive: true } }
+        },
+        orderBy: { homePinOrder: 'asc' },
+        include: {
+          subcategory: {
+            select: {
+              id: true,
+              categoryId: true,
+              name: true,
+              nameAr: true,
+              emoji: true,
+              iconUrl: true,
+              gradientStart: true,
+              gradientEnd: true,
+              category: { select: { id: true, name: true } }
+            }
+          }
+        },
+        take: 5,
+      })
+    ])
+
+    // Transform to expected format
+    const combined = [
+      ...pinnedCategoryAssignments.map(a => ({
+        ...a.category,
+        type: 'category',
+        homePinOrder: a.homePinOrder,
+      })),
+      ...pinnedSubcategoryAssignments.map(a => ({
+        ...a.subcategory,
+        type: 'subcategory',
+        homePinOrder: a.homePinOrder,
+      })),
+    ]
+      .sort((a, b) => a.homePinOrder - b.homePinOrder)
+      .slice(0, 5)
+
+    console.log(`[Market] Home-pinned for city ${cityId}:`, combined.length, 'items')
+    res.json({ success: true, data: combined })
+  } catch (error) {
+    console.error('Failed to get home-pinned items', error)
     res.status(500).json({ success: false, error: error.message })
   }
 })
