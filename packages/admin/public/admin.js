@@ -2582,12 +2582,15 @@ function renderMarketCategories(categories) {
                     <div style="color:white;font-weight:700;font-size:18px;text-shadow:0 1px 2px rgba(0,0,0,0.2);">${cat.name}</div>
                     ${cat.nameAr ? `<div style="color:rgba(255,255,255,0.8);font-size:12px;" dir="rtl">${cat.nameAr}</div>` : ''}
                 </div>
-                ${cat.isFeatured ? '<span style="position:absolute;top:8px;right:8px;background:#fbbf24;color:#000;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">⭐ Featured</span>' : ''}
+                <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
+                    ${cat.isPinnedToHome ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">📌 Home</span>' : ''}
+                    ${cat.isFeatured ? '<span style="background:#fbbf24;color:#000;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">⭐ Featured</span>' : ''}
+                </div>
             </div>
             
             <!-- Category Info -->
             <div style="padding: 16px;">
-                <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+                <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                     <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📋 ${cat._count?.posts || 0} posts</span>
                     <span style="background:#f3f4f6;padding:4px 10px;border-radius:6px;font-size:12px;">📊 Order: ${cat.sortOrder}</span>
                     <span class="badge ${cat.isActive ? 'badge-success' : 'badge-danger'}" style="font-size:12px;">${cat.isActive ? '✓ Active' : '✗ Inactive'}</span>
@@ -2603,15 +2606,21 @@ function renderMarketCategories(categories) {
                     ${cat.subcategories.length > 0 ? `
                         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                             ${cat.subcategories.map(sub => `
-                                <div class="subcategory-chip" onclick="showSubcategoryForm('${cat.id}', '${cat.name.replace(/'/g, "\\'")}', '${sub.id}')" 
-                                     style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: all 0.2s;
+                                <div class="subcategory-chip" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; transition: all 0.2s; position: relative;
                                             background: ${sub.gradientStart && sub.gradientEnd ? `linear-gradient(135deg, ${sub.gradientStart}, ${sub.gradientEnd})` : '#f3f4f6'};
                                             ${sub.gradientStart ? 'color: #000;' : 'color: #374151;'}">
-                                    ${sub.iconUrl 
-                                        ? `<img src="${sub.iconUrl}" style="width:20px;height:20px;border-radius:4px;object-fit:cover;">` 
-                                        : sub.emoji ? `<span style="font-size:14px;">${sub.emoji}</span>` : ''}
-                                    <span style="font-size: 12px; font-weight: 500;">${sub.name}</span>
-                                    <span style="font-size:10px;opacity:0.7;margin-left:4px;">${sub.isActive ? '' : '(off)'}</span>
+                                    ${sub.isPinnedToHome ? '<span style="position:absolute;top:-4px;right:-4px;font-size:10px;">📌</span>' : ''}
+                                    <span onclick="showSubcategoryForm('${cat.id}', '${cat.name.replace(/'/g, "\\'")}', '${sub.id}')" style="cursor:pointer;display:flex;align-items:center;gap:6px;">
+                                        ${sub.iconUrl 
+                                            ? `<img src="${sub.iconUrl}" style="width:20px;height:20px;border-radius:4px;object-fit:cover;">` 
+                                            : sub.emoji ? `<span style="font-size:14px;">${sub.emoji}</span>` : ''}
+                                        <span style="font-size: 12px; font-weight: 500;">${sub.name}</span>
+                                        <span style="font-size:10px;opacity:0.7;">${sub.isActive ? '' : '(off)'}</span>
+                                    </span>
+                                    <button onclick="event.stopPropagation();toggleSubcategoryPinnedToHome('${sub.id}', ${!sub.isPinnedToHome})" 
+                                            style="background:${sub.isPinnedToHome ? '#ef4444' : '#10b981'};color:white;border:none;padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;margin-left:4px;">
+                                        ${sub.isPinnedToHome ? 'Unpin' : 'Pin'}
+                                    </button>
                                 </div>
                             `).join('')}
                         </div>
@@ -2619,8 +2628,9 @@ function renderMarketCategories(categories) {
                 </div>
                 
                 <!-- Actions -->
-                <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+                <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e5e7eb; flex-wrap: wrap;">
                     <button class="btn btn-primary" style="flex:1;padding:8px 12px;font-size:13px;" onclick="editCategory('${cat.id}')">✏️ Edit</button>
+                    <button class="btn" style="padding:8px 12px;font-size:13px;background:${cat.isPinnedToHome ? '#ef4444' : '#10b981'};color:white;" onclick="toggleCategoryPinnedToHome('${cat.id}', ${!cat.isPinnedToHome})">${cat.isPinnedToHome ? '📌 Unpin' : '📌 Pin Home'}</button>
                     <button class="btn btn-warning" style="padding:8px 12px;font-size:13px;" onclick="toggleCategoryFeatured('${cat.id}', ${!cat.isFeatured})">${cat.isFeatured ? '⭐ Unfeature' : '☆ Feature'}</button>
                     <button class="btn btn-danger" style="padding:8px 12px;font-size:13px;" onclick="deleteCategory('${cat.id}')">🗑️</button>
                 </div>
@@ -2649,6 +2659,51 @@ async function toggleCategoryFeatured(categoryId, featured) {
         }
     } catch (error) {
         showMessage('marketMessage', 'Failed to update category', 'error')
+    }
+}
+
+// Pin to Home functions
+async function toggleCategoryPinnedToHome(categoryId, pinned) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/market/categories/${categoryId}/pin-to-home`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ isPinnedToHome: pinned })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', pinned ? '📌 Category pinned to home!' : 'Category unpinned from home', 'success')
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to update (max 5 pins allowed)', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to update category: ' + error.message, 'error')
+    }
+}
+
+async function toggleSubcategoryPinnedToHome(subcategoryId, pinned) {
+    try {
+        const res = await fetch(`${API_BASE}/api/admin/market/subcategories/${subcategoryId}/pin-to-home`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ isPinnedToHome: pinned })
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+            showMessage('marketMessage', pinned ? '📌 Subcategory pinned to home!' : 'Subcategory unpinned from home', 'success')
+            loadMarketCategories()
+        } else {
+            showMessage('marketMessage', data.error || 'Failed to update (max 5 pins allowed)', 'error')
+        }
+    } catch (error) {
+        showMessage('marketMessage', 'Failed to update subcategory: ' + error.message, 'error')
     }
 }
 
