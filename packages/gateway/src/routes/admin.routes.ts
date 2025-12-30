@@ -985,6 +985,205 @@ router.post('/market/categories/:categoryId/subcategories/reorder', async (req, 
 })
 
 // =============================================================================
+// PIN TO HOME ADMIN ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/admin/market/home-pinned
+ * Get all categories and subcategories pinned to home
+ */
+router.get('/market/home-pinned', async (req, res, next) => {
+  try {
+    const [pinnedCategories, pinnedSubcategories] = await Promise.all([
+      prisma.marketCategory.findMany({
+        where: { isPinnedToHome: true, isActive: true },
+        orderBy: { homePinOrder: 'asc' },
+        include: {
+          subcategories: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' }
+          }
+        }
+      }),
+      prisma.marketSubcategory.findMany({
+        where: { isPinnedToHome: true, isActive: true },
+        orderBy: { homePinOrder: 'asc' },
+        include: {
+          category: true
+        }
+      })
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        categories: pinnedCategories,
+        subcategories: pinnedSubcategories
+      }
+    })
+  } catch (error) {
+    logger.error('Failed to get home-pinned items', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/categories/:id/pin-to-home
+ * Pin or unpin a category to home screen
+ */
+router.post('/market/categories/:id/pin-to-home', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { isPinnedToHome, homePinOrder } = req.body
+
+    const existing = await prisma.marketCategory.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Category not found'
+      })
+    }
+
+    // Check limit: max 5 pinned categories + subcategories combined (6th slot is for Market button)
+    if (isPinnedToHome === true) {
+      const [pinnedCategoriesCount, pinnedSubcategoriesCount] = await Promise.all([
+        prisma.marketCategory.count({ where: { isPinnedToHome: true, id: { not: id } } }),
+        prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+      ])
+
+      if (pinnedCategoriesCount + pinnedSubcategoriesCount >= 5) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 5 items can be pinned to home (categories + subcategories combined). Unpin some items first.'
+        })
+      }
+    }
+
+    const category = await prisma.marketCategory.update({
+      where: { id },
+      data: {
+        isPinnedToHome: isPinnedToHome ?? existing.isPinnedToHome,
+        homePinOrder: homePinOrder ?? existing.homePinOrder ?? 0
+      },
+      include: {
+        subcategories: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' }
+        }
+      }
+    })
+
+    logger.info('Category pin-to-home updated', { categoryId: id, isPinnedToHome })
+
+    res.json({
+      success: true,
+      data: category
+    })
+  } catch (error) {
+    logger.error('Failed to update category pin-to-home', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/subcategories/:id/pin-to-home
+ * Pin or unpin a subcategory to home screen
+ */
+router.post('/market/subcategories/:id/pin-to-home', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { isPinnedToHome, homePinOrder } = req.body
+
+    const existing = await prisma.marketSubcategory.findUnique({ where: { id } })
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Subcategory not found'
+      })
+    }
+
+    // Check limit: max 5 pinned categories + subcategories combined (6th slot is for Market button)
+    if (isPinnedToHome === true) {
+      const [pinnedCategoriesCount, pinnedSubcategoriesCount] = await Promise.all([
+        prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
+        prisma.marketSubcategory.count({ where: { isPinnedToHome: true, id: { not: id } } })
+      ])
+
+      if (pinnedCategoriesCount + pinnedSubcategoriesCount >= 5) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 5 items can be pinned to home (categories + subcategories combined). Unpin some items first.'
+        })
+      }
+    }
+
+    const subcategory = await prisma.marketSubcategory.update({
+      where: { id },
+      data: {
+        isPinnedToHome: isPinnedToHome ?? existing.isPinnedToHome,
+        homePinOrder: homePinOrder ?? existing.homePinOrder ?? 0
+      },
+      include: {
+        category: true
+      }
+    })
+
+    logger.info('Subcategory pin-to-home updated', { subcategoryId: id, isPinnedToHome })
+
+    res.json({
+      success: true,
+      data: subcategory
+    })
+  } catch (error) {
+    logger.error('Failed to update subcategory pin-to-home', { error })
+    next(error)
+  }
+})
+
+/**
+ * POST /api/admin/market/home-pinned/reorder
+ * Reorder home-pinned items (categories and subcategories)
+ */
+router.post('/market/home-pinned/reorder', async (req, res, next) => {
+  try {
+    const { items } = req.body // Array of { type: 'category' | 'subcategory', id: string }
+
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        error: 'items array is required'
+      })
+    }
+
+    await prisma.$transaction(
+      items.map((item: { type: 'category' | 'subcategory'; id: string }, index: number) => {
+        if (item.type === 'category') {
+          return prisma.marketCategory.update({
+            where: { id: item.id },
+            data: { homePinOrder: index + 1 }
+          })
+        } else {
+          return prisma.marketSubcategory.update({
+            where: { id: item.id },
+            data: { homePinOrder: index + 1 }
+          })
+        }
+      })
+    )
+
+    logger.info('Home-pinned items reordered')
+
+    res.json({
+      success: true,
+      message: 'Home-pinned items reordered'
+    })
+  } catch (error) {
+    logger.error('Failed to reorder home-pinned items', { error })
+    next(error)
+  }
+})
+
+// =============================================================================
 // MARKET SETTINGS ADMIN ENDPOINTS
 // =============================================================================
 

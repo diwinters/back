@@ -1400,6 +1400,10 @@ model MarketCategory {
   // Global flag - if true, category shows in ALL cities regardless of CategoryCity entries
   isGlobal        Boolean  @default(false)
   
+  // Pinned to Home - if true, this category will appear on the home screen
+  isPinnedToHome  Boolean  @default(false)
+  homePinOrder    Int      @default(0)  // Order when displayed on home screen
+  
   // Relations
   subcategories   MarketSubcategory[]
   posts           MarketPost[]
@@ -1410,6 +1414,7 @@ model MarketCategory {
 
   @@index([isActive, sortOrder])
   @@index([isGlobal, isActive])
+  @@index([isPinnedToHome, homePinOrder])
 }
 
 // Junction table for Category-City many-to-many with per-city settings
@@ -1452,6 +1457,10 @@ model MarketSubcategory {
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
   
+  // Pinned to Home - if true, this subcategory will appear on the home screen
+  isPinnedToHome  Boolean  @default(false)
+  homePinOrder    Int      @default(0)  // Order when displayed on home screen
+  
   // Relations
   posts           MarketPost[]
   
@@ -1460,6 +1469,7 @@ model MarketSubcategory {
 
   @@unique([categoryId, name])
   @@index([categoryId, isActive, sortOrder])
+  @@index([isPinnedToHome, homePinOrder])
 }
 
 // =============================================================================

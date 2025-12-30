@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { authMiddleware, logger } from '@gominiapp/core'
+import { authMiddleware, logger, prisma } from '@gominiapp/core'
 import { MarketService } from '@gominiapp/go-service'
 
 const router = Router()
@@ -15,6 +15,109 @@ router.get('/categories', async (req, res, next) => {
     res.json({ success: true, data: categories })
   } catch (error) {
     logger.error('[Market] Error fetching categories:', error)
+    next(error)
+  }
+})
+
+/**
+ * GET /api/market/home-pinned
+ * Get categories and subcategories pinned to home screen (for app display)
+ * Returns up to 5 items ordered by homePinOrder
+ */
+router.get('/home-pinned', async (req, res, next) => {
+  try {
+    const cityId = req.query.cityId as string | undefined
+    logger.info(`[Market] GET /home-pinned${cityId ? ` cityId=${cityId}` : ''}`)
+
+    // Fetch pinned categories and subcategories
+    const [pinnedCategories, pinnedSubcategories] = await Promise.all([
+      prisma.marketCategory.findMany({
+        where: { 
+          isPinnedToHome: true, 
+          isActive: true,
+          // If cityId provided, filter by city or global categories
+          ...(cityId ? {
+            OR: [
+              { isGlobal: true },
+              { cities: { some: { cityId, isActive: true } } }
+            ]
+          } : {})
+        },
+        orderBy: { homePinOrder: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          nameAr: true,
+          emoji: true,
+          iconUrl: true,
+          gradientStart: true,
+          gradientEnd: true,
+          homePinOrder: true,
+        },
+        take: 5,
+      }),
+      prisma.marketSubcategory.findMany({
+        where: { 
+          isPinnedToHome: true, 
+          isActive: true,
+          category: { isActive: true }
+        },
+        orderBy: { homePinOrder: 'asc' },
+        select: {
+          id: true,
+          categoryId: true,
+          name: true,
+          nameAr: true,
+          emoji: true,
+          iconUrl: true,
+          gradientStart: true,
+          gradientEnd: true,
+          homePinOrder: true,
+          category: {
+            select: { id: true, name: true }
+          }
+        },
+        take: 5,
+      })
+    ])
+
+    // Combine and sort by homePinOrder, limit to 5
+    const combined = [
+      ...pinnedCategories.map(c => ({ ...c, type: 'category' as const })),
+      ...pinnedSubcategories.map(s => ({ ...s, type: 'subcategory' as const })),
+    ]
+      .sort((a, b) => a.homePinOrder - b.homePinOrder)
+      .slice(0, 5)
+
+    logger.info(`[Market] Returning ${combined.length} home-pinned items`)
+    res.json({ success: true, data: combined })
+  } catch (error) {
+    logger.error('[Market] Error fetching home-pinned items:', error)
+    next(error)
+  }
+})
+
+/**
+ * GET /api/market/best-sellers
+ * Get best selling products for home screen display
+ */
+router.get('/best-sellers', async (req, res, next) => {
+  try {
+    const cityId = req.query.cityId as string | undefined
+    const limit = req.query.limit ? Number(req.query.limit) : 10
+    logger.info(`[Market] GET /best-sellers${cityId ? ` cityId=${cityId}` : ''} limit=${limit}`)
+
+    const result = await marketService.getActivePosts({
+      cityId,
+      sortBy: 'best_selling',
+      pageSize: limit,
+      page: 1,
+    })
+
+    logger.info(`[Market] Returning ${result.data.length} best sellers`)
+    res.json({ success: true, data: result.data })
+  } catch (error) {
+    logger.error('[Market] Error fetching best sellers:', error)
     next(error)
   }
 })
