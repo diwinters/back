@@ -2532,6 +2532,122 @@ app.delete('/api/market/categories/:id', async (req, res) => {
 })
 
 // ============================================================================
+// Market: Pin to Home Functionality
+// ============================================================================
+
+/**
+ * POST /api/market/categories/:id/pin-to-home
+ * Pin or unpin a category to home screen
+ */
+app.post('/api/market/categories/:id/pin-to-home', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { isPinnedToHome } = req.body
+
+    // Check if category exists
+    const category = await prisma.marketCategory.findUnique({ where: { id } })
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' })
+    }
+
+    // If pinning, check max limit (5 total: categories + subcategories)
+    if (isPinnedToHome) {
+      const [pinnedCats, pinnedSubs] = await Promise.all([
+        prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
+        prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+      ])
+      
+      const totalPinned = pinnedCats + pinnedSubs
+      if (totalPinned >= 5 && !category.isPinnedToHome) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Maximum 5 items can be pinned to home. Please unpin something first.' 
+        })
+      }
+
+      // Get next order number
+      const maxOrder = await prisma.marketCategory.aggregate({
+        _max: { homePinOrder: true },
+        where: { isPinnedToHome: true }
+      })
+      const nextOrder = (maxOrder._max.homePinOrder || 0) + 1
+
+      await prisma.marketCategory.update({
+        where: { id },
+        data: { isPinnedToHome: true, homePinOrder: nextOrder }
+      })
+    } else {
+      await prisma.marketCategory.update({
+        where: { id },
+        data: { isPinnedToHome: false, homePinOrder: 0 }
+      })
+    }
+
+    console.log('Category pin-to-home updated', { categoryId: id, isPinnedToHome })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Failed to update category pin-to-home', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/subcategories/:id/pin-to-home
+ * Pin or unpin a subcategory to home screen
+ */
+app.post('/api/market/subcategories/:id/pin-to-home', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { isPinnedToHome } = req.body
+
+    // Check if subcategory exists
+    const subcategory = await prisma.marketSubcategory.findUnique({ where: { id } })
+    if (!subcategory) {
+      return res.status(404).json({ success: false, error: 'Subcategory not found' })
+    }
+
+    // If pinning, check max limit (5 total: categories + subcategories)
+    if (isPinnedToHome) {
+      const [pinnedCats, pinnedSubs] = await Promise.all([
+        prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
+        prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+      ])
+      
+      const totalPinned = pinnedCats + pinnedSubs
+      if (totalPinned >= 5 && !subcategory.isPinnedToHome) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Maximum 5 items can be pinned to home. Please unpin something first.' 
+        })
+      }
+
+      // Get next order number
+      const maxOrder = await prisma.marketSubcategory.aggregate({
+        _max: { homePinOrder: true },
+        where: { isPinnedToHome: true }
+      })
+      const nextOrder = (maxOrder._max.homePinOrder || 0) + 1
+
+      await prisma.marketSubcategory.update({
+        where: { id },
+        data: { isPinnedToHome: true, homePinOrder: nextOrder }
+      })
+    } else {
+      await prisma.marketSubcategory.update({
+        where: { id },
+        data: { isPinnedToHome: false, homePinOrder: 0 }
+      })
+    }
+
+    console.log('Subcategory pin-to-home updated', { subcategoryId: id, isPinnedToHome })
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Failed to update subcategory pin-to-home', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Market: Category-City Assignment Management
 // ============================================================================
 

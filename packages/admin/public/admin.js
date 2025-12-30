@@ -2665,7 +2665,7 @@ async function toggleCategoryFeatured(categoryId, featured) {
 // Pin to Home functions
 async function toggleCategoryPinnedToHome(categoryId, pinned) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/market/categories/${categoryId}/pin-to-home`, {
+        const res = await fetch(`${API_BASE}/api/market/categories/${categoryId}/pin-to-home`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -2687,7 +2687,7 @@ async function toggleCategoryPinnedToHome(categoryId, pinned) {
 
 async function toggleSubcategoryPinnedToHome(subcategoryId, pinned) {
     try {
-        const res = await fetch(`${API_BASE}/api/admin/market/subcategories/${subcategoryId}/pin-to-home`, {
+        const res = await fetch(`${API_BASE}/api/market/subcategories/${subcategoryId}/pin-to-home`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
