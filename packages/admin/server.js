@@ -8821,6 +8821,188 @@ app.delete('/api/market/promo-codes/:id', async (req, res) => {
 })
 
 // ============================================================================
+// Market Best Sellers (Admin Curated)
+// ============================================================================
+
+/**
+ * GET /api/market/best-sellers/admin
+ * Get all admin-curated best sellers for a city
+ */
+app.get('/api/market/best-sellers/admin', async (req, res) => {
+  try {
+    const { cityId } = req.query
+
+    const bestSellers = await prisma.marketBestSeller.findMany({
+      where: cityId ? { cityId } : {},
+      orderBy: [
+        { cityId: 'asc' },
+        { sortOrder: 'asc' },
+      ],
+      include: {
+        city: { select: { id: true, name: true, nameAr: true } },
+        marketPost: { select: { id: true, title: true, price: true } },
+      },
+    })
+
+    res.json({ success: true, data: bestSellers })
+  } catch (error) {
+    console.error('[Market] Error fetching admin best sellers:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * POST /api/market/best-sellers/admin
+ * Add a product as best seller by its post URI
+ */
+app.post('/api/market/best-sellers/admin', async (req, res) => {
+  try {
+    const { cityId, postUri, title, price, sortOrder = 0 } = req.body
+
+    if (!cityId || !postUri) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'cityId and postUri are required' 
+      })
+    }
+
+    // Check if already exists
+    const existing = await prisma.marketBestSeller.findFirst({
+      where: { cityId, postUri },
+    })
+
+    if (existing) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'This post is already a best seller for this city' 
+      })
+    }
+
+    // Try to find linked MarketPost by URI
+    let marketPostId = null
+    const marketPost = await prisma.marketPost.findFirst({
+      where: { postUri },
+    })
+    if (marketPost) {
+      marketPostId = marketPost.id
+    }
+
+    // Get max sortOrder for this city
+    const maxOrder = await prisma.marketBestSeller.aggregate({
+      where: { cityId },
+      _max: { sortOrder: true },
+    })
+    const newSortOrder = sortOrder || (maxOrder._max.sortOrder ?? -1) + 1
+
+    const bestSeller = await prisma.marketBestSeller.create({
+      data: {
+        cityId,
+        postUri,
+        marketPostId,
+        title,
+        price,
+        sortOrder: newSortOrder,
+        isActive: true,
+      },
+      include: {
+        city: { select: { id: true, name: true, nameAr: true } },
+        marketPost: { select: { id: true, title: true, price: true } },
+      },
+    })
+
+    console.log('[Market] Best seller added:', { cityId, postUri })
+    res.json({ success: true, data: bestSeller })
+  } catch (error) {
+    console.error('[Market] Error adding best seller:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/best-sellers/admin/:id
+ * Update a best seller entry
+ */
+app.put('/api/market/best-sellers/admin/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { sortOrder, isActive, title, price } = req.body
+
+    const bestSeller = await prisma.marketBestSeller.update({
+      where: { id },
+      data: {
+        ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive }),
+        ...(title !== undefined && { title }),
+        ...(price !== undefined && { price }),
+      },
+      include: {
+        city: { select: { id: true, name: true, nameAr: true } },
+        marketPost: { select: { id: true, title: true, price: true } },
+      },
+    })
+
+    console.log('[Market] Best seller updated:', { id })
+    res.json({ success: true, data: bestSeller })
+  } catch (error) {
+    console.error('[Market] Error updating best seller:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PUT /api/market/best-sellers/admin/reorder
+ * Reorder best sellers for a city
+ */
+app.put('/api/market/best-sellers/admin/reorder', async (req, res) => {
+  try {
+    const { cityId, orderedIds } = req.body
+
+    if (!cityId || !orderedIds || !Array.isArray(orderedIds)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'cityId and orderedIds array are required' 
+      })
+    }
+
+    // Update sort orders in a transaction
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.marketBestSeller.update({
+          where: { id },
+          data: { sortOrder: index },
+        })
+      )
+    )
+
+    console.log('[Market] Best sellers reordered for city:', cityId)
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Market] Error reordering best sellers:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * DELETE /api/market/best-sellers/admin/:id
+ * Remove a product from best sellers
+ */
+app.delete('/api/market/best-sellers/admin/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+
+    await prisma.marketBestSeller.delete({
+      where: { id },
+    })
+
+    console.log('[Market] Best seller removed:', { id })
+    res.json({ success: true, message: 'Best seller removed' })
+  } catch (error) {
+    console.error('[Market] Error removing best seller:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// ============================================================================
 // Server Start
 // ============================================================================
 

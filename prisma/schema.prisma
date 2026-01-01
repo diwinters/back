@@ -161,6 +161,7 @@ model City {
   marketSections    MarketSection[]
   marketCategories  CategoryCity[]      // Categories enabled for this city
   marketSubcategories SubcategoryCity[] // Subcategories enabled for this city
+  marketBestSellers MarketBestSeller[] @relation("BestSellerCity")
   usersPreferred    User[]  @relation("UserPreferredCity")
   checkoutConfigs   CheckoutConfig[]  @relation("CheckoutConfigCity")
   promoCodes        PromoCode[]       @relation("PromoCodeCity")
@@ -789,6 +790,7 @@ model MarketPost {
   cartItems       CartItem[]
   orderItems      MarketOrderItem[]
   visitedBy       MarketVisitedProduct[]
+  bestSellerEntries MarketBestSeller[]
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -839,6 +841,45 @@ model MarketSettings {
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// =============================================================================
+// MARKET: Best Sellers (Admin curated list of featured products)
+// =============================================================================
+
+model MarketBestSeller {
+  id              String   @id @default(cuid())
+  
+  // City scope (null = global, cityId = city-specific)
+  cityId          String?
+  city            City?    @relation("BestSellerCity", fields: [cityId], references: [id])
+  
+  // Product reference - can be either:
+  // 1. A MarketPost (for products in our system)
+  // 2. Just a Bluesky post URI (for any Bluesky post)
+  marketPostId    String?
+  marketPost      MarketPost? @relation(fields: [marketPostId], references: [id], onDelete: Cascade)
+  
+  // Bluesky post URI (used if marketPostId is null, or as backup)
+  postUri         String
+  
+  // Display info (can override/supplement post data)
+  title           String?
+  price           Float?
+  
+  // Ordering
+  sortOrder       Int      @default(0)
+  
+  // Status
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([cityId, postUri]) // Each post can only be best seller once per city
+  @@index([cityId])
+  @@index([isActive])
+  @@index([sortOrder])
 }
 
 // =============================================================================

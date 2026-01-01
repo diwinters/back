@@ -121,6 +121,7 @@ router.get('/home-pinned', async (req, res, next) => {
 /**
  * GET /api/market/best-sellers
  * Get best selling products for home screen display
+ * First tries admin-curated best sellers, falls back to soldCount-based sorting
  */
 router.get('/best-sellers', async (req, res, next) => {
   try {
@@ -128,6 +129,16 @@ router.get('/best-sellers', async (req, res, next) => {
     const limit = req.query.limit ? Number(req.query.limit) : 10
     logger.info(`[Market] GET /best-sellers${cityId ? ` cityId=${cityId}` : ''} limit=${limit}`)
 
+    // First, try to get admin-curated best sellers for this city
+    if (cityId) {
+      const curatedResults = await marketService.getCuratedBestSellers(cityId, limit)
+      if (curatedResults.length > 0) {
+        logger.info(`[Market] Returning ${curatedResults.length} curated best sellers`)
+        return res.json({ success: true, data: curatedResults, source: 'curated' })
+      }
+    }
+
+    // Fallback to soldCount-based sorting if no curated best sellers
     const result = await marketService.getActivePosts({
       cityId,
       sortBy: 'best_selling',
@@ -135,8 +146,8 @@ router.get('/best-sellers', async (req, res, next) => {
       page: 1,
     })
 
-    logger.info(`[Market] Returning ${result.data.length} best sellers`)
-    res.json({ success: true, data: result.data })
+    logger.info(`[Market] Returning ${result.data.length} best sellers (by soldCount)`)
+    res.json({ success: true, data: result.data, source: 'soldCount' })
   } catch (error) {
     logger.error('[Market] Error fetching best sellers:', error)
     next(error)

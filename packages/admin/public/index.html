@@ -1424,6 +1424,40 @@
                         <tbody id="promoCodesBody"></tbody>
                     </table>
                 </div>
+                
+                <!-- Best Sellers Section (Admin Curated) -->
+                <div style="border-top: 2px solid #e5e7eb; padding-top: 30px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #374151;">⭐ Best Sellers (Curated)</h3>
+                        <div>
+                            <select id="bestSellersCityFilter" onchange="loadBestSellers()" style="padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; margin-right: 10px;">
+                                <option value="">All Cities</option>
+                            </select>
+                            <button class="btn btn-success" onclick="showAddBestSellerModal()">➕ Add Best Seller</button>
+                            <button class="btn btn-primary" onclick="loadBestSellers()">🔄 Refresh</button>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #fef3c7; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; border: 1px solid #fcd34d;">
+                        <strong>💡 How it works:</strong> Add product post URIs here to curate best sellers for each city. The app will use Bluesky to fetch and display these posts on the home screen.
+                    </div>
+                    
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>⋮⋮</th>
+                                <th>Order</th>
+                                <th>Post URI</th>
+                                <th>Title</th>
+                                <th>Price</th>
+                                <th>City</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bestSellersBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -2720,6 +2754,48 @@
                     <button class="btn btn-primary" onclick="saveWalkthrough()">💾 Save Tour</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Add Best Seller Modal -->
+    <div id="addBestSellerModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 style="margin-bottom: 20px;">⭐ Add Best Seller</h3>
+            
+            <form id="bestSellerForm" onsubmit="saveBestSeller(event)">
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600;">City *</label>
+                    <select id="bestSellerCityId" required style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                        <option value="">Select City</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600;">Bluesky Post URI *</label>
+                    <input type="text" id="bestSellerPostUri" required placeholder="at://did:plc:.../app.bsky.feed.post/..." style="width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; font-family: monospace; font-size: 12px;">
+                    <small style="color: #6b7280; display: block; margin-top: 4px;">The AT Protocol URI of the product post (e.g. at://did:plc:abc123.../app.bsky.feed.post/xyz789)</small>
+                </div>
+                
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+                    <h4 style="margin-bottom: 12px; font-size: 14px; color: #374151;">Optional Overrides</h4>
+                    <small style="color: #6b7280; display: block; margin-bottom: 12px;">Leave empty to use data from the Bluesky post</small>
+                    
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display: block; margin-bottom: 4px;">Custom Title</label>
+                        <input type="text" id="bestSellerTitle" placeholder="Override product title" style="width: 100%; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: block; margin-bottom: 4px;">Custom Price (MAD)</label>
+                        <input type="number" id="bestSellerPrice" step="0.01" min="0" placeholder="Override price" style="width: 100%; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px;">
+                    </div>
+                </div>
+                
+                <div class="form-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeAddBestSellerModal()">Cancel</button>
+                    <button type="submit" class="btn btn-success">➕ Add Best Seller</button>
+                </div>
+            </form>
         </div>
     </div>
 

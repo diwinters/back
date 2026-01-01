@@ -2073,6 +2073,7 @@ function showMarketSubtab(subtab) {
         document.getElementById('marketCheckout').style.display = 'block'
         loadCheckoutConfig()
         loadPromoCodes()
+        loadBestSellers()
         populateCheckoutCityDropdowns()
     } else if (subtab === 'settings') {
         document.getElementById('marketSettings').style.display = 'block'
@@ -2191,8 +2192,8 @@ async function populateCheckoutCityDropdowns() {
         if (data.success) {
             citiesCache = data.data
             
-            // Populate city dropdowns
-            const dropdowns = ['checkoutConfigCityFilter', 'promoCodeCityFilter', 'promoCodeCityId']
+            // Populate city dropdowns (including best sellers dropdowns)
+            const dropdowns = ['checkoutConfigCityFilter', 'promoCodeCityFilter', 'promoCodeCityId', 'bestSellersCityFilter', 'bestSellerCityId']
             const optionsHtml = data.data.map(city => 
                 `<option value="${city.id}">${city.name}</option>`
             ).join('')
@@ -2540,6 +2541,170 @@ async function deletePromoCode(promoId, code) {
         }
     } catch (error) {
         showMarketMessage('Error deleting promo code: ' + error.message, 'error')
+    }
+}
+
+// ============================================================================
+// Best Sellers Management (Admin Curated)
+// ============================================================================
+
+let bestSellersCache = []
+
+async function loadBestSellers() {
+    const cityFilter = document.getElementById('bestSellersCityFilter')?.value || ''
+    
+    try {
+        const url = cityFilter 
+            ? `${API_BASE}/api/market/best-sellers/admin?cityId=${cityFilter}`
+            : `${API_BASE}/api/market/best-sellers/admin`
+        const res = await fetch(url)
+        const data = await res.json()
+        
+        if (data.success) {
+            bestSellersCache = data.data
+            renderBestSellers(data.data)
+        }
+    } catch (error) {
+        console.error('Failed to load best sellers:', error)
+        showMarketMessage('Failed to load best sellers: ' + error.message, 'error')
+    }
+}
+
+function renderBestSellers(bestSellers) {
+    const tbody = document.getElementById('bestSellersBody')
+    if (!tbody) return
+    
+    if (bestSellers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#666;">No best sellers configured. Click "Add Best Seller" to curate products.</td></tr>'
+        return
+    }
+    
+    tbody.innerHTML = bestSellers.map((item, index) => {
+        const title = item.marketPost?.title || item.title || 'Unknown Product'
+        const price = item.marketPost?.price || item.price || '-'
+        const linkedBadge = item.marketPost 
+            ? '<span style="background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:10px;">✓ Linked</span>'
+            : '<span style="background:#f59e0b;color:white;padding:2px 6px;border-radius:4px;font-size:10px;">URI Only</span>'
+        
+        return `
+            <tr data-id="${item.id}">
+                <td style="cursor:move;">⋮⋮</td>
+                <td>${item.sortOrder}</td>
+                <td>
+                    <div style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                        <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:11px;">${item.postUri}</code>
+                    </div>
+                </td>
+                <td><strong>${title}</strong> ${linkedBadge}</td>
+                <td>${typeof price === 'number' ? price.toFixed(2) + ' MAD' : price}</td>
+                <td>${item.city?.name || '<span style="color:#6b7280;">No City</span>'}</td>
+                <td>
+                    <span class="badge ${item.isActive ? 'badge-success' : 'badge-danger'}">
+                        ${item.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="toggleBestSellerActive('${item.id}', ${!item.isActive})">${item.isActive ? '⏸️' : '▶️'}</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteBestSeller('${item.id}')">🗑️</button>
+                </td>
+            </tr>
+        `
+    }).join('')
+}
+
+function showAddBestSellerModal() {
+    document.getElementById('addBestSellerModal').style.display = 'flex'
+    document.getElementById('bestSellerPostUri').value = ''
+    document.getElementById('bestSellerTitle').value = ''
+    document.getElementById('bestSellerPrice').value = ''
+}
+
+function closeAddBestSellerModal() {
+    document.getElementById('addBestSellerModal').style.display = 'none'
+}
+
+async function saveBestSeller(event) {
+    event.preventDefault()
+    
+    const cityId = document.getElementById('bestSellerCityId').value
+    const postUri = document.getElementById('bestSellerPostUri').value.trim()
+    const title = document.getElementById('bestSellerTitle').value.trim()
+    const price = document.getElementById('bestSellerPrice').value
+    
+    if (!cityId) {
+        showMarketMessage('Please select a city', 'error')
+        return
+    }
+    
+    if (!postUri) {
+        showMarketMessage('Post URI is required', 'error')
+        return
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/best-sellers/admin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cityId,
+                postUri,
+                title: title || undefined,
+                price: price ? parseFloat(price) : undefined
+            })
+        })
+        
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage('Best seller added successfully!', 'success')
+            closeAddBestSellerModal()
+            loadBestSellers()
+        } else {
+            showMarketMessage('Failed to add best seller: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error adding best seller: ' + error.message, 'error')
+    }
+}
+
+async function toggleBestSellerActive(id, isActive) {
+    try {
+        const res = await fetch(`${API_BASE}/api/market/best-sellers/admin/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isActive })
+        })
+        
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage(`Best seller ${isActive ? 'activated' : 'deactivated'}`, 'success')
+            loadBestSellers()
+        } else {
+            showMarketMessage('Failed to update best seller: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error updating best seller: ' + error.message, 'error')
+    }
+}
+
+async function deleteBestSeller(id) {
+    if (!confirm('Are you sure you want to remove this best seller?')) return
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/market/best-sellers/admin/${id}`, {
+            method: 'DELETE'
+        })
+        const result = await res.json()
+        
+        if (result.success) {
+            showMarketMessage('Best seller removed successfully!', 'success')
+            loadBestSellers()
+        } else {
+            showMarketMessage('Failed to remove best seller: ' + result.error, 'error')
+        }
+    } catch (error) {
+        showMarketMessage('Error removing best seller: ' + error.message, 'error')
     }
 }
 

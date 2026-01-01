@@ -194,6 +194,53 @@ export class MarketService {
   }
 
   /**
+   * Get admin-curated best sellers for a city
+   * Returns posts from MarketBestSeller table, ordered by sortOrder
+   */
+  async getCuratedBestSellers(cityId: string, limit: number = 10) {
+    logger.info(`[MarketService] Fetching curated best sellers for city ${cityId} limit=${limit}`)
+
+    const curatedEntries = await prisma.marketBestSeller.findMany({
+      where: {
+        cityId,
+        isActive: true,
+      },
+      orderBy: { sortOrder: 'asc' },
+      take: limit,
+      include: {
+        marketPost: {
+          include: {
+            seller: {
+              include: {
+                user: { select: { did: true, handle: true, displayName: true, avatarUrl: true } }
+              }
+            },
+            category: true,
+            subcategory: true
+          }
+        }
+      }
+    })
+
+    logger.info(`[MarketService] Found ${curatedEntries.length} curated best sellers`)
+
+    // Transform to return both the post data (if linked) and the postUri for Bluesky fetching
+    const results = curatedEntries.map(entry => ({
+      // If we have a linked MarketPost, include its data
+      ...(entry.marketPost || {}),
+      // Always include the Bluesky post URI so the app can fetch it
+      postUri: entry.postUri,
+      // Override title/price if curated entry has custom values
+      ...(entry.title && { customTitle: entry.title }),
+      ...(entry.price && { customPrice: entry.price }),
+      // Include best seller entry id for reference
+      bestSellerId: entry.id,
+    }))
+
+    return results
+  }
+
+  /**
    * Helper to find user by DID
    */
   private async findUserByDid(did: string) {
