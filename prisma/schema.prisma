@@ -113,6 +113,7 @@ model City {
   id          String   @id @default(cuid())
   code        String   @unique  // e.g., "DAKHLA", "LAAYOUNE", "CASA"
   name        String             // "Dakhla", "Laâyoune", "Casablanca"
+  nameAr      String?             // Arabic name (optional)
   country     String   @default("MA")
   timezone    String?  @default("Africa/Casablanca")
   currency    String   @default("MAD")
