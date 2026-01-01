@@ -2615,18 +2615,35 @@ function renderBestSellers(bestSellers) {
 function showAddBestSellerModal() {
     // Ensure cities are loaded before showing modal
     if (citiesCache && citiesCache.length > 0) {
-        document.getElementById('addBestSellerModal').style.display = 'flex'
-        document.getElementById('bestSellerPostUri').value = ''
-        document.getElementById('bestSellerTitle').value = ''
-        document.getElementById('bestSellerPrice').value = ''
+        // Cities already cached, just show modal
+        showBestSellerModal()
     } else {
         // Load cities if not already cached
         populateCheckoutCityDropdowns().then(() => {
-            document.getElementById('addBestSellerModal').style.display = 'flex'
-            document.getElementById('bestSellerPostUri').value = ''
-            document.getElementById('bestSellerTitle').value = ''
-            document.getElementById('bestSellerPrice').value = ''
+            showBestSellerModal()
+        }).catch(err => {
+            console.error('Failed to load cities:', err)
+            showBestSellerModal() // Show anyway with empty dropdown
         })
+    }
+}
+
+function showBestSellerModal() {
+    const modal = document.getElementById('addBestSellerModal')
+    if (modal) {
+        modal.style.display = 'flex'
+        document.getElementById('bestSellerPostUri').value = ''
+        document.getElementById('bestSellerTitle').value = ''
+        document.getElementById('bestSellerPrice').value = ''
+        
+        // Ensure the city dropdown is populated
+        const citySelect = document.getElementById('bestSellerCityId')
+        if (citySelect && citySelect.options.length <= 1) {
+            // Only "Select City" option, cities not populated - try to populate now
+            populateCheckoutCityDropdowns().catch(err => {
+                console.error('Failed to populate cities:', err)
+            })
+        }
     }
 }
 
