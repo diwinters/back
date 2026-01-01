@@ -1267,7 +1267,7 @@ app.get('/api/cities', async (req, res) => {
       },
       orderBy: { name: 'asc' }
     })
-    res.json({ success: true, data: cities })
+    res.json(cities)
   } catch (error) {
     res.status(500).json({ error: error.message })
   }
