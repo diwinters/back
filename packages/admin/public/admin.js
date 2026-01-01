@@ -2613,10 +2613,21 @@ function renderBestSellers(bestSellers) {
 }
 
 function showAddBestSellerModal() {
-    document.getElementById('addBestSellerModal').style.display = 'flex'
-    document.getElementById('bestSellerPostUri').value = ''
-    document.getElementById('bestSellerTitle').value = ''
-    document.getElementById('bestSellerPrice').value = ''
+    // Ensure cities are loaded before showing modal
+    if (citiesCache && citiesCache.length > 0) {
+        document.getElementById('addBestSellerModal').style.display = 'flex'
+        document.getElementById('bestSellerPostUri').value = ''
+        document.getElementById('bestSellerTitle').value = ''
+        document.getElementById('bestSellerPrice').value = ''
+    } else {
+        // Load cities if not already cached
+        populateCheckoutCityDropdowns().then(() => {
+            document.getElementById('addBestSellerModal').style.display = 'flex'
+            document.getElementById('bestSellerPostUri').value = ''
+            document.getElementById('bestSellerTitle').value = ''
+            document.getElementById('bestSellerPrice').value = ''
+        })
+    }
 }
 
 function closeAddBestSellerModal() {
