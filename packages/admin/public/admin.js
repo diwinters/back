@@ -1130,38 +1130,41 @@ const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGl3aW50ZXIiLCJhIjoiY21pYndocXRqMHpuZjJpc2F0d2p
 
 async function loadCitiesForDropdown() {
     try {
+        console.debug('[AdminCities] Fetching cities for dropdown')
         const res = await fetch(`${API_BASE}/api/cities`)
         citiesCache = await res.json()
+        console.debug('[AdminCities] Cities loaded for dropdown:', citiesCache)
         populateCityDropdowns()
     } catch (error) {
-        console.error('Failed to load cities:', error)
+        console.error('[AdminCities] Failed to load cities:', error)
     }
 }
 
 function populateCityDropdowns() {
     const dropdowns = ['createDriverCity', 'editDriverCity']
-    
     const optionsHtml = '<option value="">-- No City (Global) --</option>' + 
         citiesCache
             .filter(c => c.isActive)
             .map(c => `<option value="${c.id}">${c.name} (${c.code})</option>`)
             .join('')
-    
     dropdowns.forEach(id => {
         const el = document.getElementById(id)
-        if (el) el.innerHTML = optionsHtml
+        if (el) {
+            el.innerHTML = optionsHtml
+            console.debug(`[AdminCities] Populated dropdown #${id} with cities`, citiesCache)
+        }
     })
 }
 
 async function loadCities() {
     try {
+        console.debug('[AdminCities] Fetching all cities')
         const res = await fetch(`${API_BASE}/api/cities`)
         const cities = await res.json()
         citiesCache = cities
-        
+        console.debug('[AdminCities] Cities loaded:', cities)
         const tbody = document.getElementById('citiesBody')
         if (!tbody) return
-        
         tbody.innerHTML = cities.map(city => `
             <tr>
                 <td>
@@ -1189,10 +1192,11 @@ async function loadCities() {
                 </td>
             </tr>
         `).join('')
-        
+        console.debug(`[AdminCities] Rendered ${cities.length} cities in table`)
         showMessage('citiesMessage', `Loaded ${cities.length} cities`, 'success')
         populateCityDropdowns()
     } catch (error) {
+        console.error('[AdminCities] Error loading cities:', error)
         showMessage('citiesMessage', 'Error: ' + error.message, 'error')
     }
 }
@@ -2552,40 +2556,44 @@ let bestSellersCache = []
 
 async function loadBestSellers() {
     const cityFilter = document.getElementById('bestSellersCityFilter')?.value || ''
-    
+    console.debug('[BestSeller] Loading best sellers for city filter:', cityFilter)
     try {
         const url = cityFilter 
             ? `${API_BASE}/api/market/best-sellers/admin?cityId=${cityFilter}`
             : `${API_BASE}/api/market/best-sellers/admin`
+        console.debug('[BestSeller] Fetching best sellers from:', url)
         const res = await fetch(url)
         const data = await res.json()
-        
+        console.debug('[BestSeller] Response:', data)
         if (data.success) {
             bestSellersCache = data.data
+            console.debug('[BestSeller] Caching best sellers:', bestSellersCache)
             renderBestSellers(data.data)
         }
     } catch (error) {
-        console.error('Failed to load best sellers:', error)
+        console.error('[BestSeller] Failed to load best sellers:', error)
         showMarketMessage('Failed to load best sellers: ' + error.message, 'error')
     }
 }
 
 function renderBestSellers(bestSellers) {
     const tbody = document.getElementById('bestSellersBody')
-    if (!tbody) return
-    
-    if (bestSellers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#666;">No best sellers configured. Click "Add Best Seller" to curate products.</td></tr>'
+    if (!tbody) {
+        console.warn('[BestSeller] Could not find bestSellersBody element')
         return
     }
-    
+    if (bestSellers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#666;">No best sellers configured. Click "Add Best Seller" to curate products.</td></tr>'
+        console.debug('[BestSeller] No best sellers to render')
+        return
+    }
+    console.debug(`[BestSeller] Rendering ${bestSellers.length} best sellers`, bestSellers)
     tbody.innerHTML = bestSellers.map((item, index) => {
         const title = item.marketPost?.title || item.title || 'Unknown Product'
         const price = item.marketPost?.price || item.price || '-'
         const linkedBadge = item.marketPost 
             ? '<span style="background:#10b981;color:white;padding:2px 6px;border-radius:4px;font-size:10px;">✓ Linked</span>'
             : '<span style="background:#f59e0b;color:white;padding:2px 6px;border-radius:4px;font-size:10px;">URI Only</span>'
-        
         return `
             <tr data-id="${item.id}">
                 <td style="cursor:move;">⋮⋮</td>
