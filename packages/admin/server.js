@@ -4067,6 +4067,74 @@ app.get('/api/market/sellers/me', async (req, res) => {
 })
 
 /**
+ * GET /api/market/sellers/me/dashboard
+ * Get seller dashboard info with pending sales count
+ * Used for the home screen seller banner
+ * NOTE: This route MUST be defined BEFORE /api/market/sellers/:id
+ */
+app.get('/api/market/sellers/me/dashboard', async (req, res) => {
+  try {
+    const did = req.query.did
+    
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+
+    // Find the user by DID
+    const user = await prisma.user.findUnique({ where: { did } })
+    
+    if (!user) {
+      return res.json({ success: true, data: null })
+    }
+
+    // Find seller by userId
+    const seller = await prisma.marketSeller.findUnique({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        storeName: true,
+        status: true,
+        stripeOnboarded: true,
+        user: {
+          select: {
+            handle: true,
+            displayName: true,
+            avatarUrl: true
+          }
+        }
+      }
+    })
+
+    if (!seller || seller.status !== 'APPROVED') {
+      return res.json({ success: true, data: null })
+    }
+
+    // Count pending sales (items with status PAID - waiting to be processed/shipped)
+    const pendingSalesCount = await prisma.marketOrderItem.count({
+      where: {
+        sellerId: seller.id,
+        status: { in: ['PAID', 'PROCESSING'] }
+      }
+    })
+
+    res.json({
+      success: true,
+      data: {
+        id: seller.id,
+        storeName: seller.storeName,
+        status: seller.status,
+        stripeOnboarded: seller.stripeOnboarded,
+        pendingSalesCount,
+        user: seller.user
+      }
+    })
+  } catch (error) {
+    console.error('[Market] Error getting seller dashboard:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/sellers/:id
  * Get seller details
  */
