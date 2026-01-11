@@ -17,9 +17,32 @@ datasource db {
 model AppConfig {
   id               Int      @id @default(1)
   videoFeedListUri String?
+  
+  // Labeler configuration for filtering app-specific posts
+  labelerDid       String?  // DID of the Raceef labeler service (e.g., did:plc:xxx)
+  labelerLabelValue String?  @default("raceef-post") // Custom label value to filter by
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+// =============================================================================
+// POST LABELS (Tracking labels applied by Raceef labeler)
+// =============================================================================
+
+model PostLabel {
+  id          String   @id @default(cuid())
+  postUri     String   // AT-URI of the labeled post
+  postCid     String?  // CID of the post version (optional)
+  labelValue  String   // The label value (e.g., "raceef-post")
+  labelerDid  String   // DID of the labeler that applied the label
+  authorDid   String   // DID of the post author
+  
+  createdAt   DateTime @default(now())
+
+  @@unique([postUri, labelValue]) // Prevent duplicate labels
+  @@index([authorDid])
+  @@index([labelValue])
 }
 
 // =============================================================================

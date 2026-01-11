@@ -229,6 +229,7 @@ router.get('/vehicle-types/:code', async (req, res, next) => {
 /**
  * GET /api/config/video-feed
  * Returns the Bluesky List AT-URI configured by admin for the app's video feed.
+ * Also returns the labeler configuration for filtering app-specific posts.
  * Public endpoint - no auth required.
  */
 router.get('/video-feed', async (req, res, next) => {
@@ -237,13 +238,20 @@ router.get('/video-feed', async (req, res, next) => {
       where: {id: 1},
       update: {},
       create: {id: 1},
-      select: {videoFeedListUri: true, updatedAt: true},
+      select: {
+        videoFeedListUri: true, 
+        labelerDid: true,
+        labelerLabelValue: true,
+        updatedAt: true
+      },
     })
 
     res.json({
       success: true,
       data: {
         videoFeedListUri: cfg.videoFeedListUri ?? null,
+        labelerDid: cfg.labelerDid ?? null,
+        labelerLabelValue: cfg.labelerLabelValue ?? 'raceef-post',
         updatedAt: cfg.updatedAt,
       },
     })
