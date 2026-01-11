@@ -4109,11 +4109,11 @@ app.get('/api/market/sellers/me/dashboard', async (req, res) => {
       return res.json({ success: true, data: null })
     }
 
-    // Count pending sales (items with status PAID - waiting to be processed/shipped)
+    // Count pending sales (items with status PENDING or CONFIRMED - waiting to be packaged/shipped)
     const pendingSalesCount = await prisma.marketOrderItem.count({
       where: {
         sellerId: seller.id,
-        status: { in: ['PAID', 'PROCESSING'] }
+        status: { in: ['PENDING', 'CONFIRMED', 'PACKAGED'] }
       }
     })
 
