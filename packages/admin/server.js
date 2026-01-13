@@ -6717,7 +6717,7 @@ app.post('/api/checkout/confirm', async (req, res) => {
       await prisma.walletTransaction.create({
         data: {
           walletId: buyerWallet.id,
-          type: 'ESCROW',
+          type: 'ESCROW_HOLD',
           amount: -order.total,
           netAmount: -order.total,
           currency: order.currency,
