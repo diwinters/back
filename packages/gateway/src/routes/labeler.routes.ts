@@ -174,7 +174,11 @@ router.get('/status', async (req, res, next) => {
 
 /**
  * GET /api/labeler/labels
- * Get all labels for a given post or author
+ * Get all labeled post URIs (from PostLabel table AND MarketPost table)
+ * 
+ * This endpoint returns URIs of posts that should appear in Raceef search:
+ * 1. Posts explicitly labeled via the labeler (PostLabel table)
+ * 2. Market product posts (MarketPost table) - these are also Raceef app posts
  * 
  * Query params:
  * - uri: Filter by post URI
@@ -184,19 +188,75 @@ router.get('/labels', async (req, res, next) => {
   try {
     const { uri, authorDid } = req.query
 
-    const where: any = {}
-    if (uri) where.postUri = uri as string
-    if (authorDid) where.authorDid = authorDid as string
+    // Get labels from PostLabel table
+    const labelWhere: any = {}
+    if (uri) labelWhere.postUri = uri as string
+    if (authorDid) labelWhere.authorDid = authorDid as string
 
     const labels = await prisma.postLabel.findMany({
-      where,
+      where: labelWhere,
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 500,
     })
+
+    // Also get market posts (products) - these are also app posts
+    const marketWhere: any = { 
+      postUri: { not: null },
+      status: 'ACTIVE' // Only active products
+    }
+    if (uri) marketWhere.postUri = uri as string
+    // For authorDid, we need to join through seller->user
+    
+    const marketPosts = await prisma.marketPost.findMany({
+      where: marketWhere,
+      select: {
+        postUri: true,
+        seller: {
+          select: {
+            user: {
+              select: { did: true }
+            }
+          }
+        }
+      },
+      take: 500,
+    })
+
+    // Filter market posts by authorDid if specified
+    let filteredMarketPosts = marketPosts
+    if (authorDid) {
+      filteredMarketPosts = marketPosts.filter(
+        mp => mp.seller?.user?.did === authorDid
+      )
+    }
+
+    // Combine both into a unified format
+    const combinedLabels = [
+      ...labels.map(l => ({
+        postUri: l.postUri,
+        authorDid: l.authorDid,
+        source: 'label' as const,
+      })),
+      ...filteredMarketPosts.map(mp => ({
+        postUri: mp.postUri!,
+        authorDid: mp.seller?.user?.did || null,
+        source: 'market' as const,
+      })),
+    ]
+
+    // Deduplicate by postUri
+    const seen = new Set<string>()
+    const uniqueLabels = combinedLabels.filter(l => {
+      if (seen.has(l.postUri)) return false
+      seen.add(l.postUri)
+      return true
+    })
+
+    logger.info(`[Labeler] Returning ${uniqueLabels.length} labeled URIs (${labels.length} from labels, ${filteredMarketPosts.length} from market)`)
 
     res.json({
       success: true,
-      data: { labels }
+      data: { labels: uniqueLabels }
     })
   } catch (error) {
     logger.error('[Labeler] Failed to get labels', { error })

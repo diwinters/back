@@ -3079,6 +3079,11 @@ function showCategoryForm(categoryId = null) {
             document.getElementById('categoryIsActive').value = cat.isActive ? 'true' : 'false'
             document.getElementById('categoryIsFeatured').checked = cat.isFeatured || false
             
+            // Set style mode based on whether gradient is set
+            const hasCustomGradient = cat.gradientStart && cat.gradientEnd
+            document.getElementById('categoryStyleMode').value = hasCustomGradient ? 'custom' : 'default'
+            toggleCategoryGradientFields()
+            
             // Show existing icon if any
             if (cat.iconUrl) {
                 document.getElementById('categoryIconPreview').innerHTML = `<img src="${cat.iconUrl}" alt="Icon">`
@@ -3090,8 +3095,22 @@ function showCategoryForm(categoryId = null) {
         document.getElementById('categoryGradientStart').value = '#667eea'
         document.getElementById('categoryGradientEnd').value = '#764ba2'
         document.getElementById('categoryIsFeatured').checked = false
+        document.getElementById('categoryStyleMode').value = 'default'
+        toggleCategoryGradientFields()
         resetCategoryIconPreview()
     }
+}
+
+function toggleCategoryGradientFields() {
+    const mode = document.getElementById('categoryStyleMode').value
+    const fields = document.getElementById('categoryGradientFields')
+    fields.style.display = mode === 'custom' ? 'block' : 'none'
+}
+
+function toggleSubcategoryGradientFields() {
+    const mode = document.getElementById('subcategoryStyleMode').value
+    const fields = document.getElementById('subcategoryGradientFields')
+    fields.style.display = mode === 'custom' ? 'block' : 'none'
 }
 
 function hideCategoryForm() {
@@ -3149,14 +3168,24 @@ document.getElementById('categoryForm')?.addEventListener('submit', async functi
     e.preventDefault()
     
     const categoryId = document.getElementById('categoryId').value
+    const styleMode = document.getElementById('categoryStyleMode').value
     const formData = new FormData()
     
     formData.append('name', document.getElementById('categoryName').value)
     formData.append('nameAr', document.getElementById('categoryNameAr').value)
     formData.append('description', document.getElementById('categoryDescription').value)
     formData.append('emoji', document.getElementById('categoryEmoji').value)
-    formData.append('gradientStart', document.getElementById('categoryGradientStart').value)
-    formData.append('gradientEnd', document.getElementById('categoryGradientEnd').value)
+    
+    // Only send gradient colors if custom style is selected
+    if (styleMode === 'custom') {
+        formData.append('gradientStart', document.getElementById('categoryGradientStart').value)
+        formData.append('gradientEnd', document.getElementById('categoryGradientEnd').value)
+    } else {
+        // Clear gradient for default style
+        formData.append('gradientStart', '')
+        formData.append('gradientEnd', '')
+    }
+    
     formData.append('sortOrder', document.getElementById('categorySortOrder').value)
     formData.append('isActive', document.getElementById('categoryIsActive').value)
     formData.append('isFeatured', document.getElementById('categoryIsFeatured').checked ? 'true' : 'false')
@@ -3215,6 +3244,11 @@ function showSubcategoryForm(categoryId, categoryName, subcategoryId = null) {
             document.getElementById('subcategorySortOrder').value = sub.sortOrder
             document.getElementById('subcategoryIsActive').value = sub.isActive ? 'true' : 'false'
             
+            // Set style mode based on whether gradient is set
+            const hasCustomGradient = sub.gradientStart && sub.gradientEnd
+            document.getElementById('subcategoryStyleMode').value = hasCustomGradient ? 'custom' : 'default'
+            toggleSubcategoryGradientFields()
+            
             // Show existing icon if any
             if (sub.iconUrl) {
                 document.getElementById('subcategoryIconPreview').innerHTML = `<img src="${sub.iconUrl}" alt="Icon" style="max-height:40px;">`
@@ -3234,6 +3268,8 @@ function showSubcategoryForm(categoryId, categoryName, subcategoryId = null) {
         document.getElementById('subcategoryGradientEnd').value = '#764ba2'
         document.getElementById('subcategorySortOrder').value = '0'
         document.getElementById('subcategoryIsActive').value = 'true'
+        document.getElementById('subcategoryStyleMode').value = 'default'
+        toggleSubcategoryGradientFields()
         resetSubcategoryIconPreview()
     }
 }
@@ -3293,14 +3329,24 @@ document.getElementById('subcategoryForm')?.addEventListener('submit', async fun
     
     const categoryId = document.getElementById('subcategoryCategoryId').value
     const subcategoryId = document.getElementById('subcategoryId').value
+    const styleMode = document.getElementById('subcategoryStyleMode').value
     
     const formData = new FormData()
     formData.append('name', document.getElementById('subcategoryName').value)
     formData.append('nameAr', document.getElementById('subcategoryNameAr').value)
     formData.append('description', document.getElementById('subcategoryDescription').value)
     formData.append('emoji', document.getElementById('subcategoryEmoji').value)
-    formData.append('gradientStart', document.getElementById('subcategoryGradientStart').value)
-    formData.append('gradientEnd', document.getElementById('subcategoryGradientEnd').value)
+    
+    // Only send gradient colors if custom style is selected
+    if (styleMode === 'custom') {
+        formData.append('gradientStart', document.getElementById('subcategoryGradientStart').value)
+        formData.append('gradientEnd', document.getElementById('subcategoryGradientEnd').value)
+    } else {
+        // Clear gradient for default style
+        formData.append('gradientStart', '')
+        formData.append('gradientEnd', '')
+    }
+    
     formData.append('sortOrder', document.getElementById('subcategorySortOrder').value)
     formData.append('isActive', document.getElementById('subcategoryIsActive').value)
     

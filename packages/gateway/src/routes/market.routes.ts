@@ -194,6 +194,76 @@ router.get('/sellers/me', async (req, res, next) => {
   }
 })
 
+// GET /sellers/search - Search approved sellers (creators)
+router.get('/sellers/search', async (req, res, next) => {
+  try {
+    const { q, page = '1', pageSize = '20' } = req.query
+    const query = (q as string) || ''
+    const pageNum = parseInt(page as string, 10) || 1
+    const pageSizeNum = parseInt(pageSize as string, 10) || 20
+    
+    logger.info(`[Market] GET /sellers/search q="${query}" page=${pageNum}`)
+    
+    // Search approved sellers by store name, description, or user info
+    const whereClause: any = {
+      status: 'APPROVED',
+    }
+    
+    if (query) {
+      whereClause.OR = [
+        { storeName: { contains: query, mode: 'insensitive' } },
+        { storeDescription: { contains: query, mode: 'insensitive' } },
+        { user: { handle: { contains: query, mode: 'insensitive' } } },
+        { user: { displayName: { contains: query, mode: 'insensitive' } } },
+      ]
+    }
+    
+    const sellers = await prisma.marketSeller.findMany({
+      where: whereClause,
+      include: {
+        user: {
+          select: {
+            id: true,
+            did: true,
+            handle: true,
+            displayName: true,
+            avatarUrl: true,
+          }
+        },
+        _count: {
+          select: { posts: { where: { status: 'ACTIVE' } } }
+        }
+      },
+      orderBy: [
+        { verifiedAt: 'desc' },
+        { createdAt: 'desc' }
+      ],
+      skip: (pageNum - 1) * pageSizeNum,
+      take: pageSizeNum,
+    })
+    
+    // Get total count for pagination
+    const total = await prisma.marketSeller.count({
+      where: whereClause
+    })
+    
+    logger.info(`[Market] Found ${sellers.length} sellers (total: ${total})`)
+    
+    res.json({
+      success: true,
+      data: sellers,
+      meta: {
+        total,
+        page: pageNum,
+        pageSize: pageSizeNum,
+      }
+    })
+  } catch (error) {
+    logger.error('[Market] Error searching sellers:', error)
+    next(error)
+  }
+})
+
 // Note: These routes use DID from request body/query for authorization
 // In production, you'd want to verify the DID signature
 
