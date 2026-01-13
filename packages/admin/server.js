@@ -5301,12 +5301,12 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
             data: { status: 'REFUNDED', releasedAt: new Date() }
           }),
           prisma.wallet.update({
-            where: { did: buyerDid },
+            where: { userDid: buyerDid },
             data: { balance: { increment: escrow.amount } }
           }),
           prisma.walletTransaction.create({
             data: {
-              walletId: (await prisma.wallet.findUnique({ where: { did: buyerDid } })).id,
+              walletId: (await prisma.wallet.findUnique({ where: { userDid: buyerDid } })).id,
               type: 'REFUND',
               amount: escrow.amount,
               description: `Dispute refund for order item ${dispute.orderItemId}`,
@@ -5323,12 +5323,12 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
             data: { status: 'RELEASED', releasedAt: new Date() }
           }),
           prisma.wallet.update({
-            where: { did: sellerDid },
+            where: { userDid: sellerDid },
             data: { balance: { increment: escrow.amount } }
           }),
           prisma.walletTransaction.create({
             data: {
-              walletId: (await prisma.wallet.findUnique({ where: { did: sellerDid } })).id,
+              walletId: (await prisma.wallet.findUnique({ where: { userDid: sellerDid } })).id,
               type: 'CREDIT',
               amount: escrow.amount,
               description: `Dispute resolved - payment for order item ${dispute.orderItemId}`,
@@ -5344,8 +5344,8 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
         const sellerAmount = escrow.amount - refundAmount
 
         const [buyerWallet, sellerWallet] = await Promise.all([
-          prisma.wallet.findUnique({ where: { did: buyerDid } }),
-          prisma.wallet.findUnique({ where: { did: sellerDid } })
+          prisma.wallet.findUnique({ where: { userDid: buyerDid } }),
+          prisma.wallet.findUnique({ where: { userDid: sellerDid } })
         ])
 
         await prisma.$transaction([
@@ -5354,11 +5354,11 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
             data: { status: 'RELEASED', releasedAt: new Date() }
           }),
           prisma.wallet.update({
-            where: { did: buyerDid },
+            where: { userDid: buyerDid },
             data: { balance: { increment: refundAmount } }
           }),
           prisma.wallet.update({
-            where: { did: sellerDid },
+            where: { userDid: sellerDid },
             data: { balance: { increment: sellerAmount } }
           }),
           prisma.walletTransaction.create({
@@ -6687,7 +6687,7 @@ app.post('/api/checkout/confirm', async (req, res) => {
     if (paymentMethod === 'WALLET') {
       // Get buyer's wallet
       const buyerWallet = await prisma.wallet.findUnique({
-        where: { did: order.buyerDid }
+        where: { userDid: order.buyerDid }
       })
 
       if (!buyerWallet) {
@@ -6749,13 +6749,13 @@ app.post('/api/checkout/confirm', async (req, res) => {
 
         // Get or create seller's wallet
         let sellerWallet = await prisma.wallet.findUnique({
-          where: { did: sellerData.seller.user.did }
+          where: { userDid: sellerData.seller.user.did }
         })
 
         if (!sellerWallet) {
           sellerWallet = await prisma.wallet.create({
             data: {
-              did: sellerData.seller.user.did,
+              userDid: sellerData.seller.user.did,
               balance: 0,
               currency: order.currency,
             }
