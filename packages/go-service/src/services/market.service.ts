@@ -365,40 +365,45 @@ export class MarketService {
     })
 
     if (!category) {
-      throw new AppError('Category not found', ErrorCode.NOT_FOUND, 404)
+      throw new NotFoundError('Category not found')
     }
 
     const listingType = category.listingType
+    const isServiceListing = listingType === 'SERVICE'
+
+    // Build the base data object
+    const createData: any = {
+      sellerId: seller.id,
+      postUri: data.postUri,
+      postCid: data.postCid,
+      categoryId: data.categoryId,
+      subcategoryId: data.subcategoryId || null,
+      cityId: data.cityId || null,
+      listingType,
+      title: data.title,
+      description: data.description || null,
+      price: data.price || null,
+      currency: data.currency || 'MAD',
+      quantity: isServiceListing ? 1 : (data.quantity ?? 1),
+      status: 'ACTIVE',
+      isInStock: isServiceListing ? true : (data.quantity ?? 1) > 0,
+    }
+
+    // Add service-specific fields if it's a service listing
+    if (isServiceListing) {
+      createData.duration = data.duration || null
+      createData.durationUnit = data.durationUnit || null
+      createData.minGuests = data.minGuests || null
+      createData.maxGuests = data.maxGuests || null
+      createData.bookingLeadTime = data.bookingLeadTime || null
+      createData.serviceLocation = data.serviceLocation || null
+      createData.serviceLatitude = data.serviceLatitude || null
+      createData.serviceLongitude = data.serviceLongitude || null
+      createData.includedItems = data.includedItems ? JSON.stringify(data.includedItems) : null
+    }
 
     return prisma.marketPost.create({
-      data: {
-        sellerId: seller.id,
-        postUri: data.postUri,
-        postCid: data.postCid,
-        categoryId: data.categoryId,
-        subcategoryId: data.subcategoryId,
-        cityId: data.cityId,
-        listingType, // Inherit from category
-        title: data.title,
-        description: data.description,
-        price: data.price,
-        currency: data.currency || 'MAD',
-        quantity: listingType === 'PRODUCT' ? (data.quantity ?? 1) : 1,
-        status: 'ACTIVE',
-        isInStock: listingType === 'PRODUCT' ? (data.quantity ?? 1) > 0 : true,
-        // Service-specific fields
-        ...(listingType === 'SERVICE' && {
-          duration: data.duration,
-          durationUnit: data.durationUnit,
-          minGuests: data.minGuests,
-          maxGuests: data.maxGuests,
-          bookingLeadTime: data.bookingLeadTime,
-          serviceLocation: data.serviceLocation,
-          serviceLatitude: data.serviceLatitude,
-          serviceLongitude: data.serviceLongitude,
-          includedItems: data.includedItems ? JSON.stringify(data.includedItems) : null,
-        })
-      }
+      data: createData
     })
   }
 
