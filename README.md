@@ -20,7 +20,8 @@ backend/
 │   ├── go-service/         # Business logic services
 │   │   └── services/
 │   │       ├── driver.service.ts   # Driver management
-│   │       ├── order.service.ts    # Ride/delivery orders
+│   │       ├── order.service.ts    # Ride/delivery 
+ orders
 │   │       ├── rating.service.ts   # Driver ratings
 │   │       └── user.service.ts     # User management
 │   └── gateway/            # Express API server
