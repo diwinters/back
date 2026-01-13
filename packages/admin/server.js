@@ -5330,7 +5330,7 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
           prisma.walletTransaction.create({
             data: {
               walletId: (await prisma.wallet.findUnique({ where: { userDid: sellerDid } })).id,
-              type: 'CREDIT',
+              type: 'ESCROW_RELEASE',
               amount: escrow.amount,
               netAmount: escrow.amount,
               description: `Dispute resolved - payment for order item ${dispute.orderItemId}`,
@@ -5377,7 +5377,7 @@ app.put('/api/market/disputes/:id/resolve', async (req, res) => {
           prisma.walletTransaction.create({
             data: {
               walletId: sellerWallet.id,
-              type: 'CREDIT',
+              type: 'ESCROW_RELEASE',
               amount: sellerAmount,
               netAmount: sellerAmount,
               description: `Partial payment (${100 - percentage}%) for order item ${dispute.orderItemId}`,
@@ -6720,7 +6720,6 @@ app.post('/api/checkout/confirm', async (req, res) => {
           type: 'ESCROW_HOLD',
           amount: -order.total,
           netAmount: -order.total,
-          currency: order.currency,
           description: `Order #${order.id.slice(-6).toUpperCase()} - Payment held in escrow`,
           status: 'COMPLETED',
           referenceId: order.id,
@@ -7100,10 +7099,9 @@ app.post('/api/orders/items/:itemId/confirm-delivery', async (req, res) => {
         prisma.walletTransaction.create({
           data: {
             walletId: escrowHold.sellerWalletId,
-            type: 'SALE',
+            type: 'ESCROW_RELEASE',
             amount: escrowHold.sellerAmount,
             netAmount: escrowHold.sellerAmount,
-            currency: item.order.currency,
             description: `Sale - Order #${item.orderId.slice(-6).toUpperCase()}`,
             status: 'COMPLETED',
             referenceId: item.orderId,
@@ -7524,7 +7522,6 @@ app.put('/api/orders/disputes/:id/resolve', async (req, res) => {
                 type: 'REFUND',
                 amount: escrow.buyerAmount,
                 netAmount: escrow.buyerAmount,
-                currency: dispute.orderItem.order.currency,
                 description: `Dispute refund - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
                 status: 'COMPLETED',
                 referenceId: disputeId
@@ -7546,10 +7543,9 @@ app.put('/api/orders/disputes/:id/resolve', async (req, res) => {
           prisma.walletTransaction.create({
             data: {
               walletId: escrow.sellerWalletId,
-              type: 'SALE',
+              type: 'ESCROW_RELEASE',
               amount: escrow.sellerAmount,
               netAmount: escrow.sellerAmount,
-              currency: dispute.orderItem.order.currency,
               description: `Dispute resolved - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
               status: 'COMPLETED',
               referenceId: disputeId
@@ -7585,7 +7581,6 @@ app.put('/api/orders/disputes/:id/resolve', async (req, res) => {
                 type: 'REFUND',
                 amount: buyerRefund,
                 netAmount: buyerRefund,
-                currency: dispute.orderItem.order.currency,
                 description: `Partial dispute refund - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
                 status: 'COMPLETED',
                 referenceId: disputeId
@@ -7594,10 +7589,9 @@ app.put('/api/orders/disputes/:id/resolve', async (req, res) => {
             prisma.walletTransaction.create({
               data: {
                 walletId: escrow.sellerWalletId,
-                type: 'SALE',
+                type: 'ESCROW_RELEASE',
                 amount: sellerPayout,
                 netAmount: sellerPayout,
-                currency: dispute.orderItem.order.currency,
                 description: `Partial dispute release - Order #${dispute.orderItem.orderId.slice(-6).toUpperCase()}`,
                 status: 'COMPLETED',
                 referenceId: disputeId
