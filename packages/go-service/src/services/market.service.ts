@@ -340,6 +340,16 @@ export class MarketService {
     price?: number
     currency?: string
     quantity?: number
+    // Service-specific fields (when listingType = SERVICE)
+    duration?: number
+    durationUnit?: string
+    minGuests?: number
+    maxGuests?: number
+    bookingLeadTime?: number
+    serviceLocation?: string
+    serviceLatitude?: number
+    serviceLongitude?: number
+    includedItems?: string[]
   }) {
     // Find seller by DID
     const seller = await this.findSellerByDid(data.did)
@@ -348,6 +358,18 @@ export class MarketService {
       throw new AppError('Seller not approved', ErrorCode.FORBIDDEN, 403)
     }
 
+    // Get category to determine listing type
+    const category = await prisma.marketCategory.findUnique({
+      where: { id: data.categoryId },
+      select: { listingType: true }
+    })
+
+    if (!category) {
+      throw new AppError('Category not found', ErrorCode.NOT_FOUND, 404)
+    }
+
+    const listingType = category.listingType
+
     return prisma.marketPost.create({
       data: {
         sellerId: seller.id,
@@ -355,14 +377,27 @@ export class MarketService {
         postCid: data.postCid,
         categoryId: data.categoryId,
         subcategoryId: data.subcategoryId,
-        cityId: data.cityId,  // Link product to city
+        cityId: data.cityId,
+        listingType, // Inherit from category
         title: data.title,
         description: data.description,
         price: data.price,
         currency: data.currency || 'MAD',
-        quantity: data.quantity ?? 1,
-        status: 'ACTIVE', // Auto-approve for now
-        isInStock: (data.quantity ?? 1) > 0
+        quantity: listingType === 'PRODUCT' ? (data.quantity ?? 1) : 1,
+        status: 'ACTIVE',
+        isInStock: listingType === 'PRODUCT' ? (data.quantity ?? 1) > 0 : true,
+        // Service-specific fields
+        ...(listingType === 'SERVICE' && {
+          duration: data.duration,
+          durationUnit: data.durationUnit,
+          minGuests: data.minGuests,
+          maxGuests: data.maxGuests,
+          bookingLeadTime: data.bookingLeadTime,
+          serviceLocation: data.serviceLocation,
+          serviceLatitude: data.serviceLatitude,
+          serviceLongitude: data.serviceLongitude,
+          includedItems: data.includedItems ? JSON.stringify(data.includedItems) : null,
+        })
       }
     })
   }

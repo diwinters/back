@@ -785,16 +785,44 @@ model MarketPost {
   subcategoryId   String?
   subcategory     MarketSubcategory? @relation(fields: [subcategoryId], references: [id])
   
+  // Listing Type: Inherited from category
+  listingType     ListingType @default(PRODUCT)
+  
   // Product Info (cached from post or provided separately)
   title           String
   description     String?
   price           Float?
   currency        String   @default("MAD")
   
-  // Inventory Tracking
+  // Inventory Tracking (for PRODUCT type)
   quantity        Int      @default(1)
   soldCount       Int      @default(0)
   isInStock       Boolean  @default(true)
+  
+  // =========================================================================
+  // SERVICE-SPECIFIC FIELDS (only used when listingType = SERVICE)
+  // =========================================================================
+  
+  // Duration (e.g., 2 hours, 1 night, 30 minutes)
+  duration        Int?              // Duration value
+  durationUnit    DurationUnit?     // MINUTES, HOURS, DAYS, NIGHTS
+  
+  // Capacity (for group activities, accommodations)
+  minGuests       Int?              // Minimum guests/people
+  maxGuests       Int?              // Maximum guests/people (capacity)
+  
+  // Booking Requirements
+  bookingLeadTime Int?              // Hours in advance required to book
+  
+  // Service Location (if different from seller location)
+  serviceLocation String?           // Address or location description
+  serviceLatitude Float?
+  serviceLongitude Float?
+  
+  // What's Included (JSON array of strings)
+  includedItems   String?           // JSON: ["Equipment", "Guide", "Lunch"]
+  
+  // =========================================================================
   
   // Prime Product (only if seller is Prime and chooses to list as Prime)
   isPrime         Boolean  @default(false)
@@ -814,6 +842,7 @@ model MarketPost {
   orderItems      MarketOrderItem[]
   visitedBy       MarketVisitedProduct[]
   bestSellerEntries MarketBestSeller[]
+  availability    ServiceAvailability[]   // Calendar slots (for SERVICE type)
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -825,6 +854,7 @@ model MarketPost {
   @@index([isArchived])
   @@index([isPrime])
   @@index([cityId])
+  @@index([listingType])
 }
 
 enum MarketPostStatus {
@@ -833,6 +863,53 @@ enum MarketPostStatus {
   REJECTED        // Rejected by admin
   SOLD            // Marked as sold
   REMOVED         // Removed by seller
+}
+
+// Listing type: PRODUCT (physical goods) or SERVICE (rentals, experiences, coaching, etc.)
+enum ListingType {
+  PRODUCT   // Physical goods (default)
+  SERVICE   // Rentals, experiences, coaching, tours, etc.
+}
+
+// Duration unit for services
+enum DurationUnit {
+  MINUTES
+  HOURS
+  DAYS
+  NIGHTS  // For accommodations
+}
+
+// =============================================================================
+// MARKET: Service Availability (Calendar slots for services)
+// =============================================================================
+
+model ServiceAvailability {
+  id              String   @id @default(cuid())
+  
+  postId          String
+  post            MarketPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  // Date and time slot
+  date            DateTime @db.Date        // The date of availability
+  startTime       String?                  // Start time (HH:mm format, e.g., "09:00")
+  endTime         String?                  // End time (HH:mm format, e.g., "17:00")
+  
+  // Capacity for this slot
+  totalSlots      Int      @default(1)     // Total capacity for this slot
+  bookedSlots     Int      @default(0)     // Number of slots already booked
+  
+  // Pricing override (optional, if different from post price)
+  priceOverride   Float?
+  
+  // Status
+  isAvailable     Boolean  @default(true)  // Manually block this slot
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([postId, date, startTime])
+  @@index([postId, date])
+  @@index([date, isAvailable])
 }
 
 // =============================================================================
@@ -1454,6 +1531,9 @@ model MarketCategory {
   nameAr          String?  // Arabic name
   description     String?
   
+  // Listing Type: PRODUCT or SERVICE (determines form fields for sellers)
+  listingType     ListingType @default(PRODUCT)
+  
   // Display
   emoji           String?  // Emoji icon (optional)
   iconUrl         String?  // SVG icon URL (admin uploaded)
@@ -1518,6 +1598,9 @@ model MarketSubcategory {
   name            String
   nameAr          String?  // Arabic name
   description     String?
+  
+  // Listing Type: Inherited from parent category (stored for reference/queries)
+  listingType     ListingType @default(PRODUCT)
   
   // Display
   emoji           String?

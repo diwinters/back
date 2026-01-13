@@ -2776,6 +2776,7 @@ function renderMarketCategories(categories) {
         // Get cities where this category is pinned to home
         const pinnedInCities = (cat.cities || []).filter(cc => cc.isPinnedToHome)
         const hasPinnedCities = pinnedInCities.length > 0
+        const isService = cat.listingType === 'SERVICE'
         
         return `
         <div class="category-card" style="background: white; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e5e7eb;">
@@ -2788,7 +2789,8 @@ function renderMarketCategories(categories) {
                     <div style="color:white;font-weight:700;font-size:18px;text-shadow:0 1px 2px rgba(0,0,0,0.2);">${cat.name}</div>
                     ${cat.nameAr ? `<div style="color:rgba(255,255,255,0.8);font-size:12px;" dir="rtl">${cat.nameAr}</div>` : ''}
                 </div>
-                <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;flex-wrap:wrap;max-width:150px;justify-content:flex-end;">
+                <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;flex-wrap:wrap;max-width:180px;justify-content:flex-end;">
+                    <span style="background:${isService ? '#f59e0b' : '#3b82f6'};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${isService ? '🎯 Service' : '📦 Product'}</span>
                     ${hasPinnedCities ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">📌 Home</span>' : ''}
                     ${cat.isGlobal ? '<span style="background:#6366f1;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">🌍 Global</span>' : ''}
                 </div>
@@ -3073,6 +3075,7 @@ function showCategoryForm(categoryId = null) {
             document.getElementById('categoryNameAr').value = cat.nameAr || ''
             document.getElementById('categoryDescription').value = cat.description || ''
             document.getElementById('categoryEmoji').value = cat.emoji || ''
+            document.getElementById('categoryListingType').value = cat.listingType || 'PRODUCT'
             document.getElementById('categoryGradientStart').value = cat.gradientStart || '#667eea'
             document.getElementById('categoryGradientEnd').value = cat.gradientEnd || '#764ba2'
             document.getElementById('categorySortOrder').value = cat.sortOrder
@@ -3092,6 +3095,7 @@ function showCategoryForm(categoryId = null) {
         }
     } else {
         document.getElementById('categoryForm').reset()
+        document.getElementById('categoryListingType').value = 'PRODUCT'
         document.getElementById('categoryGradientStart').value = '#667eea'
         document.getElementById('categoryGradientEnd').value = '#764ba2'
         document.getElementById('categoryIsFeatured').checked = false
@@ -3175,6 +3179,7 @@ document.getElementById('categoryForm')?.addEventListener('submit', async functi
     formData.append('nameAr', document.getElementById('categoryNameAr').value)
     formData.append('description', document.getElementById('categoryDescription').value)
     formData.append('emoji', document.getElementById('categoryEmoji').value)
+    formData.append('listingType', document.getElementById('categoryListingType').value)
     
     // Only send gradient colors if custom style is selected
     if (styleMode === 'custom') {

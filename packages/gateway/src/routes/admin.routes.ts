@@ -612,7 +612,7 @@ router.get('/market/categories/:id', async (req, res, next) => {
  */
 router.post('/market/categories', async (req, res, next) => {
   try {
-    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body
     
     if (!name) {
       return res.status(400).json({
@@ -632,7 +632,8 @@ router.post('/market/categories', async (req, res, next) => {
         gradientEnd,
         sortOrder: sortOrder ?? 0,
         isActive: isActive ?? true,
-        isGlobal: isGlobal ?? false
+        isGlobal: isGlobal ?? false,
+        listingType: listingType ?? 'PRODUCT'
       },
       include: {
         subcategories: true,
@@ -665,7 +666,7 @@ router.post('/market/categories', async (req, res, next) => {
 router.put('/market/categories/:id', async (req, res, next) => {
   try {
     const { id } = req.params
-    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
+    const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body
     
     const existing = await prisma.marketCategory.findUnique({ where: { id } })
     if (!existing) {
@@ -687,7 +688,8 @@ router.put('/market/categories/:id', async (req, res, next) => {
         ...(gradientEnd !== undefined && { gradientEnd }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isActive !== undefined && { isActive }),
-        ...(isGlobal !== undefined && { isGlobal })
+        ...(isGlobal !== undefined && { isGlobal }),
+        ...(listingType !== undefined && { listingType })
       },
       include: {
         subcategories: {
@@ -696,6 +698,14 @@ router.put('/market/categories/:id', async (req, res, next) => {
         cities: { include: { city: { select: { id: true, name: true, code: true } } } }
       }
     })
+    
+    // If listingType changed, update all subcategories to match
+    if (listingType !== undefined) {
+      await prisma.marketSubcategory.updateMany({
+        where: { categoryId: id },
+        data: { listingType }
+      })
+    }
     
     logger.info('Category updated', { categoryId: id })
     
@@ -833,11 +843,12 @@ router.post('/market/categories/:categoryId/subcategories', async (req, res, nex
         gradientStart,
         gradientEnd,
         sortOrder: sortOrder ?? 0,
-        isActive: isActive ?? true
+        isActive: isActive ?? true,
+        listingType: category.listingType // Inherit from parent category
       }
     })
     
-    logger.info('Subcategory created', { subcategoryId: subcategory.id, categoryId })
+    logger.info('Subcategory created', { subcategoryId: subcategory.id, categoryId, listingType: category.listingType })
     
     res.status(201).json({
       success: true,
