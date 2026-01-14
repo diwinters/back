@@ -7571,9 +7571,7 @@ app.patch('/api/orders/:id/cancel', async (req, res) => {
     const updatedOrder = await prisma.marketOrder.update({
       where: { id },
       data: {
-        status: 'CANCELLED',
-        cancelledAt: new Date(),
-        cancellationReason: reason || 'Cancelled by buyer'
+        status: 'CANCELLED'
       },
       include: { items: true }
     })
@@ -9287,6 +9285,8 @@ app.get('/api/market/bookings/seller/:did', forwardToGateway) // Get ALL seller 
 app.get('/api/market/bookings/:id', forwardToGateway)
 app.patch('/api/market/bookings/:id/status', forwardToGateway)
 app.patch('/api/market/bookings/:id/cancel', forwardToGateway)
+app.patch('/api/market/bookings/:id/confirm', forwardToGateway) // Confirm booking (seller)
+app.patch('/api/market/bookings/:id/complete', forwardToGateway) // Complete booking (seller)
 
 // ============================================================================
 // Server Start
