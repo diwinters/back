@@ -9,7 +9,6 @@ const fs = require('fs')
 const multer = require('multer')
 const { PrismaClient } = require('@prisma/client')
 const Redis = require('ioredis')
-const { createProxyMiddleware } = require('http-proxy-middleware')
 
 const app = express()
 const prisma = new PrismaClient()
@@ -22,6 +21,36 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 const redis = new Redis(REDIS_URL)
 redis.on('error', (err) => console.error('Redis error:', err))
 redis.on('connect', () => console.log('Redis connected'))
+
+/**
+ * Forward request to gateway
+ */
+async function forwardToGateway(req, res) {
+  const targetUrl = `${GATEWAY_URL}${req.originalUrl}`
+  console.log('[Proxy] Forwarding to gateway:', req.method, targetUrl)
+  
+  try {
+    const fetchOptions = {
+      method: req.method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...req.headers,
+        host: undefined, // Remove host header
+      },
+    }
+    
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      fetchOptions.body = JSON.stringify(req.body)
+    }
+    
+    const response = await fetch(targetUrl, fetchOptions)
+    const data = await response.json()
+    res.status(response.status).json(data)
+  } catch (error) {
+    console.error('[Proxy] Error forwarding to gateway:', error.message)
+    res.status(502).json({ success: false, error: 'Gateway error: ' + error.message })
+  }
+}
 
 /**
  * Publish a new order event for the gateway WebSocket server to broadcast
@@ -9087,36 +9116,26 @@ app.delete('/api/market/best-sellers/admin/:id', async (req, res) => {
 })
 
 // ============================================================================
-// Proxy for Gateway API routes (recurring patterns, bookings, etc.)
+// Gateway Proxy Routes (recurring patterns, bookings, etc.)
+// These routes are forwarded to the gateway service
 // ============================================================================
 
-// Create a single proxy instance
-const gatewayProxy = createProxyMiddleware({
-  target: GATEWAY_URL,
-  changeOrigin: true,
-  logLevel: 'debug',
-  onError: (err, req, res) => {
-    console.error('[Proxy] Error:', err.message)
-    res.status(502).json({ success: false, error: 'Gateway proxy error: ' + err.message })
-  },
-  onProxyReq: (proxyReq, req, res) => {
-    console.log('[Proxy] Forwarding:', req.method, req.url, '-> gateway')
-  }
-})
+// Recurring patterns
+app.get('/api/market/posts/:postId/recurring-patterns', forwardToGateway)
+app.post('/api/market/posts/:postId/recurring-patterns', forwardToGateway)
+app.patch('/api/market/recurring-patterns/:id', forwardToGateway)
+app.delete('/api/market/recurring-patterns/:id', forwardToGateway)
 
-// Proxy routes that should go to gateway (use regex to match dynamic paths)
-app.use('/api/market/posts', (req, res, next) => {
-  // Only proxy specific sub-paths to gateway
-  if (req.url.includes('/recurring-patterns') || 
-      req.url.includes('/generate-from-patterns') ||
-      req.url.includes('/bookings')) {
-    return gatewayProxy(req, res, next)
-  }
-  next()
-})
+// Generate from patterns  
+app.post('/api/market/posts/:postId/generate-from-patterns', forwardToGateway)
 
-app.use('/api/market/recurring-patterns', gatewayProxy)
-app.use('/api/market/bookings', gatewayProxy)
+// Service bookings
+app.get('/api/market/posts/:postId/bookings', forwardToGateway)
+app.post('/api/market/posts/:postId/bookings', forwardToGateway)
+app.get('/api/market/bookings/user', forwardToGateway)
+app.get('/api/market/bookings/:id', forwardToGateway)
+app.patch('/api/market/bookings/:id/status', forwardToGateway)
+app.patch('/api/market/bookings/:id/cancel', forwardToGateway)
 
 // ============================================================================
 // Server Start
