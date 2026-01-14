@@ -9118,9 +9118,17 @@ app.delete('/api/market/best-sellers/admin/:id', async (req, res) => {
 })
 
 // ============================================================================
-// Gateway Proxy Routes (recurring patterns, bookings, etc.)
+// Gateway Proxy Routes (recurring patterns, bookings, availability, etc.)
 // These routes are forwarded to the gateway service
 // ============================================================================
+
+// Service Availability
+app.get('/api/market/posts/:postId/availability', forwardToGateway)
+app.post('/api/market/posts/:postId/availability', forwardToGateway)
+app.delete('/api/market/posts/:postId/availability', forwardToGateway)
+app.post('/api/market/posts/:postId/availability/generate', forwardToGateway)
+app.post('/api/market/availability/:slotId/book', forwardToGateway)
+app.post('/api/market/availability/:slotId/cancel', forwardToGateway)
 
 // Recurring patterns
 app.get('/api/market/posts/:postId/recurring-patterns', forwardToGateway)
