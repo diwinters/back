@@ -6858,6 +6858,28 @@ app.post('/api/checkout/confirm', async (req, res) => {
       }
     })
 
+    // Update soldCount on each product post
+    for (const item of order.items) {
+      if (item.marketPostId) {
+        const post = item.marketPost
+        const qty = item.quantity || 1
+        const newQuantity = Math.max(0, (post.quantity || 0) - qty)
+        const newSoldCount = (post.soldCount || 0) + qty
+
+        await prisma.marketPost.update({
+          where: { id: item.marketPostId },
+          data: {
+            quantity: newQuantity,
+            soldCount: newSoldCount,
+            isInStock: newQuantity > 0,
+            // Auto-mark as SOLD if quantity reaches 0 and status was ACTIVE
+            status: newQuantity === 0 && post.status === 'ACTIVE' ? 'SOLD' : post.status
+          }
+        })
+        console.log(`[Checkout] Updated soldCount for post ${item.marketPostId}: +${qty} (total: ${newSoldCount})`)
+      }
+    }
+
     // Note: DMs are now sent from the client app using user's session
     console.log(`[Checkout] Confirmed order ${order.id} via ${paymentMethod}`)
 
