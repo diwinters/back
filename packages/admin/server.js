@@ -2420,7 +2420,7 @@ app.get('/api/market/categories/:id', async (req, res) => {
  */
 app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body
 
     if (!name) {
       return res.status(400).json({ success: false, error: 'Category name is required' })
@@ -2445,7 +2445,8 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
         gradientEnd: gradientEnd || null,
         sortOrder: parseInt(sortOrder) || 0,
         isActive: isActive !== 'false',
-        isGlobal: isGlobal === 'true' || isGlobal === true
+        isGlobal: isGlobal === 'true' || isGlobal === true,
+        listingType: listingType || 'PRODUCT'
       },
       include: { subcategories: true, cities: { include: { city: true } } }
     })
@@ -2462,7 +2463,7 @@ app.post('/api/market/categories', categoryIconUpload.single('icon'), async (req
  */
 app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (req, res) => {
   try {
-    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal } = req.body
+    const { name, nameAr, description, emoji, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body
 
     const existing = await prisma.marketCategory.findUnique({ where: { id: req.params.id } })
     if (!existing) {
@@ -2487,6 +2488,7 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
     if (sortOrder !== undefined) updateData.sortOrder = parseInt(sortOrder) || 0
     if (isActive !== undefined) updateData.isActive = isActive !== 'false'
     if (isGlobal !== undefined) updateData.isGlobal = isGlobal === 'true' || isGlobal === true
+    if (listingType !== undefined) updateData.listingType = listingType
     if (req.file) updateData.iconUrl = `/uploads/market/categories/${req.file.filename}`
 
     const category = await prisma.marketCategory.update({
@@ -2494,6 +2496,14 @@ app.put('/api/market/categories/:id', categoryIconUpload.single('icon'), async (
       data: updateData,
       include: { subcategories: true, cities: { include: { city: true } } }
     })
+
+    // If listingType changed, update all subcategories to match
+    if (listingType !== undefined && listingType !== existing.listingType) {
+      await prisma.marketSubcategory.updateMany({
+        where: { categoryId: req.params.id },
+        data: { listingType }
+      })
+    }
 
     res.json({ success: true, data: category })
   } catch (error) {
