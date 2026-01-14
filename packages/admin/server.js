@@ -9145,6 +9145,7 @@ app.post('/api/market/posts/:postId/bookings', forwardToGateway)
 app.post('/api/market/bookings', forwardToGateway) // Create new booking (buyer)
 app.get('/api/market/bookings/me', forwardToGateway) // Get user's own bookings
 app.get('/api/market/bookings/user', forwardToGateway)
+app.get('/api/market/bookings/seller/:did', forwardToGateway) // Get ALL seller bookings
 app.get('/api/market/bookings/:id', forwardToGateway)
 app.patch('/api/market/bookings/:id/status', forwardToGateway)
 app.patch('/api/market/bookings/:id/cancel', forwardToGateway)

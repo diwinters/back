@@ -913,6 +913,24 @@ router.get('/bookings/:id', async (req, res, next) => {
   }
 })
 
+// GET /bookings/seller/:did - Get ALL bookings for a seller across all their services
+router.get('/bookings/seller/:did', async (req, res, next) => {
+  try {
+    const { did } = req.params
+    const status = req.query.status as string | undefined
+    const page = req.query.page ? Number(req.query.page) : 1
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 50
+
+    logger.info(`[Market] GET /bookings/seller/${did} status=${status} page=${page}`)
+
+    const result = await marketService.getAllSellerBookings(did, { status, page, pageSize })
+    res.json({ success: true, ...result })
+  } catch (error) {
+    logger.error('[Market] Error fetching all seller bookings:', error)
+    next(error)
+  }
+})
+
 // GET /posts/:postId/bookings - Get bookings for a service (seller view)
 router.get('/posts/:postId/bookings', async (req, res, next) => {
   try {

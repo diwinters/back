@@ -1451,6 +1451,75 @@ export class MarketService {
   }
 
   /**
+   * Get ALL bookings across all seller's services (for seller dashboard)
+   */
+  async getAllSellerBookings(sellerDid: string, options?: {
+    status?: string
+    page?: number
+    pageSize?: number
+  }) {
+    logger.info(`[MarketService] getAllSellerBookings for seller ${sellerDid}`)
+    
+    // Find seller
+    const seller = await prisma.marketSeller.findFirst({
+      where: { user: { did: sellerDid } },
+      select: { id: true }
+    })
+    
+    if (!seller) {
+      return { data: [], total: 0, page: 1, pageSize: 20 }
+    }
+
+    const page = options?.page || 1
+    const pageSize = options?.pageSize || 50
+
+    // Find all bookings for services owned by this seller
+    const where: any = {
+      serviceAvailability: {
+        post: {
+          sellerId: seller.id
+        }
+      }
+    }
+
+    if (options?.status) {
+      where.status = options.status
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.serviceBooking.findMany({
+        where,
+        include: {
+          serviceAvailability: {
+            include: {
+              post: {
+                select: {
+                  id: true,
+                  title: true,
+                  price: true,
+                  currency: true,
+                  postUri: true,
+                  serviceLocation: true,
+                }
+              }
+            }
+          }
+        },
+        orderBy: [
+          { createdAt: 'desc' },
+          { serviceAvailability: { date: 'asc' } }
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.serviceBooking.count({ where })
+    ])
+
+    logger.info(`[MarketService] Found ${total} bookings for seller ${sellerDid}`)
+    return { data: bookings, total, page, pageSize }
+  }
+
+  /**
    * Get all bookings for a seller's service post
    */
   async getSellerBookings(postId: string, sellerDid: string, options?: {
