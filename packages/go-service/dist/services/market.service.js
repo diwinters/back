@@ -344,6 +344,7 @@ class MarketService {
      * Helper to verify post ownership
      */
     async verifyPostOwnership(postId, did) {
+        core_1.logger.info(`[MarketService] verifyPostOwnership postId=${postId}, did=${did}`);
         const post = await core_1.prisma.marketPost.findUnique({
             where: { id: postId },
             include: {
@@ -351,6 +352,13 @@ class MarketService {
                     include: { user: { select: { did: true } } }
                 }
             }
+        });
+        core_1.logger.info(`[MarketService] Post ownership check:`, {
+            found: !!post,
+            postSellerId: post?.sellerId,
+            sellerUserId: post?.seller?.userId,
+            sellerUserDid: post?.seller?.user?.did,
+            matchesDid: post?.seller?.user?.did === did
         });
         if (!post)
             throw new core_1.NotFoundError('Post not found');
@@ -1314,11 +1322,20 @@ class MarketService {
      * Create a recurring availability pattern
      */
     async createRecurringPattern(postId, sellerDid, data) {
-        // Verify ownership
+        core_1.logger.info(`[MarketService] createRecurringPattern postId=${postId}, sellerDid=${sellerDid}`);
+        // Verify ownership - first find the post with all relations for debugging
         const post = await core_1.prisma.marketPost.findFirst({
-            where: { id: postId, seller: { user: { did: sellerDid } } }
+            where: { id: postId },
+            include: { seller: { include: { user: { select: { did: true } } } } }
         });
-        if (!post) {
+        core_1.logger.info(`[MarketService] Post lookup result:`, {
+            found: !!post,
+            postSellerId: post?.sellerId,
+            sellerUserId: post?.seller?.userId,
+            sellerUserDid: post?.seller?.user?.did,
+            matchesDid: post?.seller?.user?.did === sellerDid
+        });
+        if (!post || post.seller?.user?.did !== sellerDid) {
             throw new core_1.NotFoundError('Service post not found or not owned by seller');
         }
         return core_1.prisma.serviceRecurringPattern.create({

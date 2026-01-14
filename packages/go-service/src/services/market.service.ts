@@ -413,6 +413,8 @@ export class MarketService {
    * Helper to verify post ownership
    */
   private async verifyPostOwnership(postId: string, did: string) {
+    logger.info(`[MarketService] verifyPostOwnership postId=${postId}, did=${did}`)
+    
     const post = await prisma.marketPost.findUnique({
       where: { id: postId },
       include: {
@@ -420,6 +422,14 @@ export class MarketService {
           include: { user: { select: { did: true } } }
         }
       }
+    })
+
+    logger.info(`[MarketService] Post ownership check:`, {
+      found: !!post,
+      postSellerId: post?.sellerId,
+      sellerUserId: post?.seller?.userId,
+      sellerUserDid: post?.seller?.user?.did,
+      matchesDid: post?.seller?.user?.did === did
     })
 
     if (!post) throw new NotFoundError('Post not found')
@@ -1653,12 +1663,23 @@ export class MarketService {
     validFrom?: Date
     validUntil?: Date
   }) {
-    // Verify ownership
+    logger.info(`[MarketService] createRecurringPattern postId=${postId}, sellerDid=${sellerDid}`)
+    
+    // Verify ownership - first find the post with all relations for debugging
     const post = await prisma.marketPost.findFirst({
-      where: { id: postId, seller: { user: { did: sellerDid } } }
+      where: { id: postId },
+      include: { seller: { include: { user: { select: { did: true } } } } }
+    })
+    
+    logger.info(`[MarketService] Post lookup result:`, {
+      found: !!post,
+      postSellerId: post?.sellerId,
+      sellerUserId: post?.seller?.userId,
+      sellerUserDid: post?.seller?.user?.did,
+      matchesDid: post?.seller?.user?.did === sellerDid
     })
 
-    if (!post) {
+    if (!post || post.seller?.user?.did !== sellerDid) {
       throw new NotFoundError('Service post not found or not owned by seller')
     }
 
