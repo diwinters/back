@@ -28,14 +28,13 @@ redis.on('connect', () => console.log('Redis connected'))
 async function forwardToGateway(req, res) {
   const targetUrl = `${GATEWAY_URL}${req.originalUrl}`
   console.log('[Proxy] Forwarding to gateway:', req.method, targetUrl)
+  console.log('[Proxy] Request body:', JSON.stringify(req.body))
   
   try {
     const fetchOptions = {
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
-        ...req.headers,
-        host: undefined, // Remove host header
       },
     }
     
@@ -43,8 +42,11 @@ async function forwardToGateway(req, res) {
       fetchOptions.body = JSON.stringify(req.body)
     }
     
+    console.log('[Proxy] Fetch options:', JSON.stringify(fetchOptions))
+    
     const response = await fetch(targetUrl, fetchOptions)
     const data = await response.json()
+    console.log('[Proxy] Gateway response:', response.status, JSON.stringify(data))
     res.status(response.status).json(data)
   } catch (error) {
     console.error('[Proxy] Error forwarding to gateway:', error.message)
