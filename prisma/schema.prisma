@@ -1472,6 +1472,16 @@ model MarketOrder {
   shippedAt             DateTime?
   deliveredAt           DateTime?
   
+  // Cancellation
+  cancelledAt           DateTime?
+  cancellationReason    String?
+  cancelledBy           String?           // 'BUYER' or 'SELLER' or DID
+  
+  // Refund
+  refundedAt            DateTime?
+  refundAmount          Float?
+  refundReason          String?
+  
   // Optional message from buyer
   buyerMessage          String?
   

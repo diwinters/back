@@ -7571,7 +7571,10 @@ app.patch('/api/orders/:id/cancel', async (req, res) => {
     const updatedOrder = await prisma.marketOrder.update({
       where: { id },
       data: {
-        status: 'CANCELLED'
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelledBy: 'BUYER',
+        cancellationReason: reason || 'Cancelled by buyer'
       },
       include: { items: true }
     })
