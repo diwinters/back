@@ -1368,7 +1368,7 @@ export class MarketService {
                 duration: true,
                 durationUnit: true,
                 seller: {
-                  select: { businessName: true, did: true }
+                  select: { storeName: true, userId: true, user: { select: { did: true } } }
                 }
               }
             }
@@ -1420,7 +1420,7 @@ export class MarketService {
                   duration: true,
                   durationUnit: true,
                   seller: {
-                    select: { businessName: true, did: true }
+                    select: { storeName: true, userId: true, user: { select: { did: true } } }
                   }
                 }
               }
@@ -1451,7 +1451,7 @@ export class MarketService {
   }) {
     // Verify ownership
     const post = await prisma.marketPost.findFirst({
-      where: { id: postId, seller: { did: sellerDid } }
+      where: { id: postId, seller: { user: { did: sellerDid } } }
     })
     
     if (!post) {
@@ -1500,7 +1500,7 @@ export class MarketService {
       where: { id: bookingId },
       include: {
         serviceAvailability: {
-          include: { post: { select: { seller: { select: { did: true } } } } }
+          include: { post: { include: { seller: { include: { user: true } } } } }
         }
       }
     })
@@ -1509,7 +1509,7 @@ export class MarketService {
       throw new NotFoundError('Booking not found')
     }
 
-    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+    if (booking.serviceAvailability.post.seller.user.did !== sellerDid) {
       throw new AppError('Not authorized to confirm this booking', ErrorCode.FORBIDDEN, 403)
     }
 
@@ -1534,7 +1534,7 @@ export class MarketService {
       where: { id: bookingId },
       include: {
         serviceAvailability: {
-          include: { post: { select: { seller: { select: { did: true } } } } }
+          include: { post: { include: { seller: { include: { user: true } } } } }
         }
       }
     })
@@ -1545,7 +1545,7 @@ export class MarketService {
 
     // Check if user is authorized (buyer or seller)
     const isBuyer = booking.userDid === cancelledByDid
-    const isSeller = booking.serviceAvailability.post.seller.did === cancelledByDid
+    const isSeller = booking.serviceAvailability.post.seller.user.did === cancelledByDid
 
     if (!isBuyer && !isSeller) {
       throw new AppError('Not authorized to cancel this booking', ErrorCode.FORBIDDEN, 403)
@@ -1582,7 +1582,7 @@ export class MarketService {
       where: { id: bookingId },
       include: {
         serviceAvailability: {
-          include: { post: { select: { seller: { select: { did: true } } } } }
+          include: { post: { include: { seller: { include: { user: true } } } } }
         }
       }
     })
@@ -1591,7 +1591,7 @@ export class MarketService {
       throw new NotFoundError('Booking not found')
     }
 
-    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+    if (booking.serviceAvailability.post.seller.user.did !== sellerDid) {
       throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
     }
 
@@ -1616,7 +1616,7 @@ export class MarketService {
       where: { id: bookingId },
       include: {
         serviceAvailability: {
-          include: { post: { select: { seller: { select: { did: true } } } } }
+          include: { post: { include: { seller: { include: { user: true } } } } }
         }
       }
     })
@@ -1625,7 +1625,7 @@ export class MarketService {
       throw new NotFoundError('Booking not found')
     }
 
-    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+    if (booking.serviceAvailability.post.seller.user.did !== sellerDid) {
       throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
     }
 
@@ -1655,7 +1655,7 @@ export class MarketService {
   }) {
     // Verify ownership
     const post = await prisma.marketPost.findFirst({
-      where: { id: postId, seller: { did: sellerDid } }
+      where: { id: postId, seller: { user: { did: sellerDid } } }
     })
 
     if (!post) {
@@ -1705,14 +1705,14 @@ export class MarketService {
   }>) {
     const pattern = await prisma.serviceRecurringPattern.findUnique({
       where: { id: patternId },
-      include: { post: { select: { seller: { select: { did: true } } } } }
+      include: { post: { include: { seller: { include: { user: true } } } } }
     })
 
     if (!pattern) {
       throw new NotFoundError('Pattern not found')
     }
 
-    if (pattern.post.seller.did !== sellerDid) {
+    if (pattern.post.seller.user.did !== sellerDid) {
       throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
     }
 
@@ -1728,14 +1728,14 @@ export class MarketService {
   async deleteRecurringPattern(patternId: string, sellerDid: string) {
     const pattern = await prisma.serviceRecurringPattern.findUnique({
       where: { id: patternId },
-      include: { post: { select: { seller: { select: { did: true } } } } }
+      include: { post: { include: { seller: { include: { user: true } } } } }
     })
 
     if (!pattern) {
       throw new NotFoundError('Pattern not found')
     }
 
-    if (pattern.post.seller.did !== sellerDid) {
+    if (pattern.post.seller.user.did !== sellerDid) {
       throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
     }
 
