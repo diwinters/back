@@ -4178,6 +4178,176 @@ app.get('/api/market/sellers/me/dashboard', async (req, res) => {
 })
 
 /**
+ * GET /api/market/sellers/me/stats
+ * Get comprehensive seller stats with period comparisons
+ * Conversion = orders per day (sales velocity/momentum)
+ */
+app.get('/api/market/sellers/me/stats', async (req, res) => {
+  try {
+    const { did, period = 'week' } = req.query // day, week, month
+    
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'DID is required' })
+    }
+    
+    // Find seller
+    const user = await prisma.user.findUnique({ where: { did } })
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' })
+    }
+    
+    const seller = await prisma.marketSeller.findUnique({
+      where: { userId: user.id },
+      include: { posts: { where: { isArchived: false } } }
+    })
+    
+    if (!seller) {
+      return res.status(404).json({ success: false, error: 'Seller not found' })
+    }
+    
+    // Calculate period dates
+    const now = new Date()
+    let periodDays, currentStart, previousStart
+    
+    if (period === 'day') {
+      periodDays = 1
+      currentStart = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      previousStart = new Date(currentStart.getTime() - 24 * 60 * 60 * 1000)
+    } else if (period === 'week') {
+      periodDays = 7
+      currentStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      previousStart = new Date(currentStart.getTime() - 7 * 24 * 60 * 60 * 1000)
+    } else { // month
+      periodDays = 30
+      currentStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      previousStart = new Date(currentStart.getTime() - 30 * 24 * 60 * 60 * 1000)
+    }
+    
+    // Get current period order items for this seller
+    const currentPeriod = await prisma.marketOrderItem.aggregate({
+      where: {
+        sellerId: seller.id,
+        createdAt: { gte: currentStart }
+      },
+      _sum: { total: true, quantity: true },
+      _count: true
+    })
+    
+    // Get previous period
+    const previousPeriod = await prisma.marketOrderItem.aggregate({
+      where: {
+        sellerId: seller.id,
+        createdAt: { gte: previousStart, lt: currentStart }
+      },
+      _sum: { total: true, quantity: true },
+      _count: true
+    })
+    
+    // Calculate totals from posts (all time)
+    const totalSold = seller.posts.reduce((sum, p) => sum + (p.soldCount || 0), 0)
+    const totalEarnings = seller.posts.reduce((sum, p) => sum + ((p.soldCount || 0) * (p.price || 0)), 0)
+    
+    // Current period values
+    const currentSales = currentPeriod._sum.total || 0
+    const currentOrders = currentPeriod._count || 0
+    
+    // Previous period values
+    const previousSales = previousPeriod._sum.total || 0
+    const previousOrders = previousPeriod._count || 0
+    
+    // Calculate percentage changes
+    const salesChange = previousSales > 0 
+      ? Math.round(((currentSales - previousSales) / previousSales) * 1000) / 10
+      : (currentSales > 0 ? 100 : 0)
+    
+    const ordersChange = previousOrders > 0 
+      ? Math.round(((currentOrders - previousOrders) / previousOrders) * 1000) / 10
+      : (currentOrders > 0 ? 100 : 0)
+    
+    // Average order value
+    const avgOrderValue = currentOrders > 0 ? currentSales / currentOrders : 0
+    const prevAvgOrder = previousOrders > 0 ? previousSales / previousOrders : 0
+    const avgOrderChange = prevAvgOrder > 0 
+      ? Math.round(((avgOrderValue - prevAvgOrder) / prevAvgOrder) * 1000) / 10
+      : 0
+    
+    // CONVERSION RATE = Orders per day (sales velocity)
+    const currentVelocity = currentOrders / periodDays
+    const previousVelocity = previousOrders / periodDays
+    const velocityChange = previousVelocity > 0 
+      ? Math.round(((currentVelocity - previousVelocity) / previousVelocity) * 1000) / 10
+      : (currentVelocity > 0 ? 100 : 0)
+    
+    // Net sales (after ~5% platform fee)
+    const platformFeeRate = 0.05
+    const netSales = totalEarnings * (1 - platformFeeRate)
+    
+    // Get daily sales for chart (last 25 days for bar chart)
+    const chartDays = 25
+    const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000)
+    
+    const dailyOrders = await prisma.marketOrderItem.findMany({
+      where: {
+        sellerId: seller.id,
+        createdAt: { gte: chartStart }
+      },
+      select: { total: true, createdAt: true }
+    })
+    
+    // Aggregate by day
+    const chartData = []
+    for (let i = chartDays - 1; i >= 0; i--) {
+      const dayStart = new Date(now.getTime() - (i + 1) * 24 * 60 * 60 * 1000)
+      const dayEnd = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
+      
+      const dayTotal = dailyOrders
+        .filter(o => new Date(o.createdAt) >= dayStart && new Date(o.createdAt) < dayEnd)
+        .reduce((sum, o) => sum + (o.total || 0), 0)
+      
+      chartData.push(dayTotal)
+    }
+    
+    console.log(`[Market] Stats for seller ${seller.id}: sales=${totalEarnings}, orders=${totalSold}, velocity=${currentVelocity}`)
+    
+    res.json({
+      success: true,
+      data: {
+        // All-time totals
+        totalSales: totalEarnings,
+        totalOrders: totalSold,
+        netSales: netSales,
+        
+        // Current period
+        periodSales: currentSales,
+        periodOrders: currentOrders,
+        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        
+        // Conversion = orders per day (velocity)
+        conversionRate: Math.round(currentVelocity * 100) / 100,
+        
+        // Percentage changes
+        salesChange,
+        ordersChange,
+        avgOrderChange,
+        conversionChange: velocityChange,
+        
+        // Chart data
+        chartData,
+        
+        // Meta
+        currency: seller.posts[0]?.currency || 'MAD',
+        period,
+        periodDays,
+        asOf: now.toISOString()
+      }
+    })
+  } catch (error) {
+    console.error('[Market] Dashboard stats error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/market/sellers/:id
  * Get seller details
  */
