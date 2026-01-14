@@ -1,0 +1,1028 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.marketRouter = void 0;
+const express_1 = require("express");
+const core_1 = require("@gominiapp/core");
+const go_service_1 = require("@gominiapp/go-service");
+const router = (0, express_1.Router)();
+const marketService = new go_service_1.MarketService();
+// Public routes
+router.get('/categories', async (req, res, next) => {
+    try {
+        const cityId = req.query.cityId;
+        core_1.logger.info(`[Market] GET /categories${cityId ? ` cityId=${cityId}` : ''}`);
+        const categories = await marketService.getCategories(cityId);
+        core_1.logger.info(`[Market] Returning ${categories.length} categories`);
+        res.json({ success: true, data: categories });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching categories:', error);
+        next(error);
+    }
+});
+/**
+ * GET /api/market/home-pinned
+ * Get categories and subcategories pinned to home screen for a SPECIFIC CITY
+ * Returns up to 5 items ordered by homePinOrder
+ *
+ * NOTE: Pin to home is now PER-CITY via CategoryCity and SubcategoryCity tables
+ */
+router.get('/home-pinned', async (req, res, next) => {
+    try {
+        const cityId = req.query.cityId;
+        core_1.logger.info(`[Market] GET /home-pinned${cityId ? ` cityId=${cityId}` : ''}`);
+        if (!cityId) {
+            // No city = no pinned items (pinning is per-city)
+            core_1.logger.info(`[Market] No cityId provided, returning empty`);
+            return res.json({ success: true, data: [] });
+        }
+        // Fetch pinned category-city and subcategory-city assignments for this city
+        const [pinnedCategoryAssignments, pinnedSubcategoryAssignments] = await Promise.all([
+            core_1.prisma.categoryCity.findMany({
+                where: {
+                    cityId,
+                    isPinnedToHome: true,
+                    isActive: true,
+                    category: { isActive: true }
+                },
+                orderBy: { homePinOrder: 'asc' },
+                include: {
+                    category: {
+                        select: {
+                            id: true,
+                            name: true,
+                            nameAr: true,
+                            emoji: true,
+                            iconUrl: true,
+                            gradientStart: true,
+                            gradientEnd: true,
+                        }
+                    }
+                },
+                take: 5,
+            }),
+            core_1.prisma.subcategoryCity.findMany({
+                where: {
+                    cityId,
+                    isPinnedToHome: true,
+                    isActive: true,
+                    subcategory: {
+                        isActive: true,
+                        category: { isActive: true }
+                    }
+                },
+                orderBy: { homePinOrder: 'asc' },
+                include: {
+                    subcategory: {
+                        select: {
+                            id: true,
+                            categoryId: true,
+                            name: true,
+                            nameAr: true,
+                            emoji: true,
+                            iconUrl: true,
+                            gradientStart: true,
+                            gradientEnd: true,
+                            category: {
+                                select: { id: true, name: true }
+                            }
+                        }
+                    }
+                },
+                take: 5,
+            })
+        ]);
+        // Transform to expected format
+        const combined = [
+            ...pinnedCategoryAssignments.map(a => ({
+                ...a.category,
+                type: 'category',
+                homePinOrder: a.homePinOrder,
+            })),
+            ...pinnedSubcategoryAssignments.map(a => ({
+                ...a.subcategory,
+                type: 'subcategory',
+                homePinOrder: a.homePinOrder,
+            })),
+        ]
+            .sort((a, b) => a.homePinOrder - b.homePinOrder)
+            .slice(0, 5);
+        core_1.logger.info(`[Market] Returning ${combined.length} home-pinned items for city ${cityId}`);
+        res.json({ success: true, data: combined });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching home-pinned items:', error);
+        next(error);
+    }
+});
+/**
+ * GET /api/market/best-sellers
+ * Get best selling products for home screen display
+ * First tries admin-curated best sellers, falls back to soldCount-based sorting
+ */
+router.get('/best-sellers', async (req, res, next) => {
+    try {
+        const cityId = req.query.cityId;
+        const limit = req.query.limit ? Number(req.query.limit) : 10;
+        core_1.logger.info(`[Market] GET /best-sellers${cityId ? ` cityId=${cityId}` : ''} limit=${limit}`);
+        // First, try to get admin-curated best sellers for this city
+        if (cityId) {
+            const curatedResults = await marketService.getCuratedBestSellers(cityId, limit);
+            if (curatedResults.length > 0) {
+                core_1.logger.info(`[Market] Returning ${curatedResults.length} curated best sellers`);
+                return res.json({ success: true, data: curatedResults, source: 'curated' });
+            }
+        }
+        // Fallback to soldCount-based sorting if no curated best sellers
+        const result = await marketService.getActivePosts({
+            cityId,
+            sortBy: 'best_selling',
+            pageSize: limit,
+            page: 1,
+        });
+        core_1.logger.info(`[Market] Returning ${result.data.length} best sellers (by soldCount)`);
+        res.json({ success: true, data: result.data, source: 'soldCount' });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching best sellers:', error);
+        next(error);
+    }
+});
+router.get('/posts/active', async (req, res, next) => {
+    try {
+        core_1.logger.info('[Market] GET /posts/active', req.query);
+        const { page, pageSize, categoryId, subcategoryId, cityId, search, sortBy } = req.query;
+        const result = await marketService.getActivePosts({
+            page: page ? Number(page) : 1,
+            pageSize: pageSize ? Number(pageSize) : 20,
+            categoryId: categoryId,
+            subcategoryId: subcategoryId,
+            cityId: cityId,
+            search: search,
+            sortBy: sortBy
+        });
+        core_1.logger.info(`[Market] Found ${result.data.length} active posts`);
+        res.json({ success: true, ...result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching active posts:', error);
+        next(error);
+    }
+});
+// GET /sellers/me - Get seller profile by DID (query param)
+router.get('/sellers/me', async (req, res, next) => {
+    try {
+        const did = req.query.did;
+        core_1.logger.info(`[Market] GET /sellers/me did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did query parameter required' });
+        }
+        const seller = await marketService.getSellerProfile(did);
+        core_1.logger.info(`[Market] Seller profile found: ${seller ? 'yes' : 'no'}`);
+        res.json({ success: true, data: seller });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching seller:', error);
+        next(error);
+    }
+});
+// GET /sellers/search - Search approved sellers (creators)
+router.get('/sellers/search', async (req, res, next) => {
+    try {
+        const { q, page = '1', pageSize = '20' } = req.query;
+        const query = q || '';
+        const pageNum = parseInt(page, 10) || 1;
+        const pageSizeNum = parseInt(pageSize, 10) || 20;
+        core_1.logger.info(`[Market] GET /sellers/search q="${query}" page=${pageNum}`);
+        // Search approved sellers by store name, description, or user info
+        const whereClause = {
+            status: 'APPROVED',
+        };
+        if (query) {
+            whereClause.OR = [
+                { storeName: { contains: query, mode: 'insensitive' } },
+                { storeDescription: { contains: query, mode: 'insensitive' } },
+                { user: { handle: { contains: query, mode: 'insensitive' } } },
+                { user: { displayName: { contains: query, mode: 'insensitive' } } },
+            ];
+        }
+        const sellers = await core_1.prisma.marketSeller.findMany({
+            where: whereClause,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        did: true,
+                        handle: true,
+                        displayName: true,
+                        avatarUrl: true,
+                    }
+                },
+                _count: {
+                    select: { posts: { where: { status: 'ACTIVE' } } }
+                }
+            },
+            orderBy: [
+                { verifiedAt: 'desc' },
+                { createdAt: 'desc' }
+            ],
+            skip: (pageNum - 1) * pageSizeNum,
+            take: pageSizeNum,
+        });
+        // Get total count for pagination
+        const total = await core_1.prisma.marketSeller.count({
+            where: whereClause
+        });
+        core_1.logger.info(`[Market] Found ${sellers.length} sellers (total: ${total})`);
+        res.json({
+            success: true,
+            data: sellers,
+            meta: {
+                total,
+                page: pageNum,
+                pageSize: pageSizeNum,
+            }
+        });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error searching sellers:', error);
+        next(error);
+    }
+});
+// Note: These routes use DID from request body/query for authorization
+// In production, you'd want to verify the DID signature
+// POST /sellers/apply - Apply to become a seller
+router.post('/sellers/apply', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] POST /sellers/apply`, req.body);
+        const result = await marketService.applyAsSeller(req.body);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error applying as seller:', error);
+        next(error);
+    }
+});
+// POST /posts/submit - Submit a new product post
+router.post('/posts/submit', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] POST /posts/submit`, req.body);
+        const result = await marketService.createPost(req.body);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error submitting post:', error);
+        next(error);
+    }
+});
+// PUT /posts/:id/inventory - Update inventory quantity
+router.put('/posts/:id/inventory', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] PUT /posts/${req.params.id}/inventory`, req.body);
+        const { did, quantity } = req.body;
+        const result = await marketService.updateInventory(req.params.id, did, quantity);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error updating inventory:', error);
+        next(error);
+    }
+});
+// POST /posts/:id/sold - Record a sale
+router.post('/posts/:id/sold', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] POST /posts/${req.params.id}/sold`, req.body);
+        const { did, quantitySold } = req.body;
+        const result = await marketService.recordSale(req.params.id, did, quantitySold || 1);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error recording sale:', error);
+        next(error);
+    }
+});
+// POST /posts/:id/archive - Archive a post
+router.post('/posts/:id/archive', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] POST /posts/${req.params.id}/archive`, req.body);
+        const { did } = req.body;
+        const result = await marketService.archivePost(req.params.id, did);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error archiving post:', error);
+        next(error);
+    }
+});
+// DELETE /posts/:id - Delete a post
+router.delete('/posts/:id', async (req, res, next) => {
+    try {
+        const did = req.query.did;
+        core_1.logger.info(`[Market] DELETE /posts/${req.params.id} did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did query parameter required' });
+        }
+        const result = await marketService.deletePost(req.params.id, did);
+        res.json({ success: true, data: { deleted: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting post:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// CHECKOUT CONFIG ROUTES
+// =============================================================================
+// GET /checkout-config - Get checkout config for a city (or global)
+router.get('/checkout-config', async (req, res, next) => {
+    try {
+        const cityId = req.query.cityId;
+        core_1.logger.info(`[Market] GET /checkout-config cityId=${cityId || 'global'}`);
+        const config = await marketService.getCheckoutConfig(cityId);
+        res.json({ success: true, data: config });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching checkout config:', error);
+        next(error);
+    }
+});
+// GET /checkout-config/all - Get all checkout configs (admin)
+router.get('/checkout-config/all', async (req, res, next) => {
+    try {
+        core_1.logger.info('[Market] GET /checkout-config/all');
+        const configs = await marketService.getAllCheckoutConfigs();
+        res.json({ success: true, data: configs });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching all checkout configs:', error);
+        next(error);
+    }
+});
+// PUT /checkout-config - Update or create checkout config (admin)
+router.put('/checkout-config', async (req, res, next) => {
+    try {
+        core_1.logger.info('[Market] PUT /checkout-config', req.body);
+        const { cityId, ...data } = req.body;
+        const config = await marketService.upsertCheckoutConfig(cityId ?? null, data);
+        res.json({ success: true, data: config });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error updating checkout config:', error);
+        next(error);
+    }
+});
+// DELETE /checkout-config/:id - Delete city-specific checkout config (admin)
+router.delete('/checkout-config/:id', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] DELETE /checkout-config/${req.params.id}`);
+        await marketService.deleteCheckoutConfig(req.params.id);
+        res.json({ success: true, data: { deleted: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting checkout config:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// PROMO CODE ROUTES
+// =============================================================================
+// GET /promo-codes - Get all promo codes (admin)
+router.get('/promo-codes', async (req, res, next) => {
+    try {
+        const { cityId, isActive } = req.query;
+        core_1.logger.info('[Market] GET /promo-codes', { cityId, isActive });
+        const promos = await marketService.getPromoCodes({
+            cityId: cityId,
+            isActive: isActive !== undefined ? isActive === 'true' : undefined
+        });
+        res.json({ success: true, data: promos });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching promo codes:', error);
+        next(error);
+    }
+});
+// POST /promo-codes - Create promo code (admin)
+router.post('/promo-codes', async (req, res, next) => {
+    try {
+        core_1.logger.info('[Market] POST /promo-codes', req.body);
+        const promo = await marketService.createPromoCode(req.body);
+        res.json({ success: true, data: promo });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error creating promo code:', error);
+        next(error);
+    }
+});
+// PUT /promo-codes/:id - Update promo code (admin)
+router.put('/promo-codes/:id', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] PUT /promo-codes/${req.params.id}`, req.body);
+        const promo = await marketService.updatePromoCode(req.params.id, req.body);
+        res.json({ success: true, data: promo });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error updating promo code:', error);
+        next(error);
+    }
+});
+// DELETE /promo-codes/:id - Delete promo code (admin)
+router.delete('/promo-codes/:id', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] DELETE /promo-codes/${req.params.id}`);
+        await marketService.deletePromoCode(req.params.id);
+        res.json({ success: true, data: { deleted: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting promo code:', error);
+        next(error);
+    }
+});
+// POST /promo-codes/validate - Validate promo code for checkout (public)
+router.post('/promo-codes/validate', async (req, res, next) => {
+    try {
+        core_1.logger.info('[Market] POST /promo-codes/validate', req.body);
+        const { code, userDid, cityId, orderSubtotal } = req.body;
+        if (!code || !userDid || orderSubtotal === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: 'code, userDid, and orderSubtotal are required'
+            });
+        }
+        const result = await marketService.validatePromoCode({
+            code,
+            userDid,
+            cityId,
+            orderSubtotal
+        });
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error validating promo code:', error);
+        next(error);
+    }
+});
+// POST /promo-codes/:id/record-usage - Record promo code usage after order
+router.post('/promo-codes/:id/record-usage', async (req, res, next) => {
+    try {
+        core_1.logger.info(`[Market] POST /promo-codes/${req.params.id}/record-usage`, req.body);
+        const { userDid, orderId, discountAmount } = req.body;
+        if (!userDid || discountAmount === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid and discountAmount are required'
+            });
+        }
+        await marketService.recordPromoUsage({
+            promoCodeId: req.params.id,
+            userDid,
+            orderId,
+            discountAmount
+        });
+        res.json({ success: true, data: { recorded: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error recording promo usage:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// SEARCH HISTORY ROUTES
+// =============================================================================
+// POST /search-history - Save a search query
+router.post('/search-history', async (req, res, next) => {
+    try {
+        const { userDid, query, resultsCount } = req.body;
+        core_1.logger.info(`[Market] POST /search-history userDid=${userDid} query="${query}"`);
+        if (!userDid || !query) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid and query are required'
+            });
+        }
+        const result = await marketService.saveSearchHistory({
+            userDid,
+            query,
+            resultsCount
+        });
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error saving search history:', error);
+        next(error);
+    }
+});
+// GET /search-history - Get recent searches for a user
+router.get('/search-history', async (req, res, next) => {
+    try {
+        const userDid = req.query.userDid;
+        const limit = req.query.limit ? Number(req.query.limit) : 10;
+        core_1.logger.info(`[Market] GET /search-history userDid=${userDid}`);
+        if (!userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid query parameter is required'
+            });
+        }
+        const history = await marketService.getSearchHistory(userDid, limit);
+        res.json({ success: true, data: history });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error getting search history:', error);
+        next(error);
+    }
+});
+// DELETE /search-history - Clear all search history for a user
+router.delete('/search-history', async (req, res, next) => {
+    try {
+        const userDid = req.query.userDid;
+        core_1.logger.info(`[Market] DELETE /search-history userDid=${userDid}`);
+        if (!userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid query parameter is required'
+            });
+        }
+        await marketService.clearSearchHistory(userDid);
+        res.json({ success: true, data: { cleared: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error clearing search history:', error);
+        next(error);
+    }
+});
+// DELETE /search-history/:id - Delete a single search history entry
+router.delete('/search-history/:id', async (req, res, next) => {
+    try {
+        const userDid = req.query.userDid;
+        core_1.logger.info(`[Market] DELETE /search-history/${req.params.id} userDid=${userDid}`);
+        if (!userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid query parameter is required'
+            });
+        }
+        await marketService.deleteSearchHistoryItem(userDid, req.params.id);
+        res.json({ success: true, data: { deleted: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting search history item:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// VISITED PRODUCTS ROUTES
+// =============================================================================
+// POST /visited-products - Track a product visit
+router.post('/visited-products', async (req, res, next) => {
+    try {
+        const { userDid, postId } = req.body;
+        core_1.logger.info(`[Market] POST /visited-products userDid=${userDid} postId=${postId}`);
+        if (!userDid || !postId) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid and postId are required'
+            });
+        }
+        const result = await marketService.trackProductVisit({ userDid, postId });
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error tracking product visit:', error);
+        next(error);
+    }
+});
+// GET /visited-products - Get recently visited products for a user
+router.get('/visited-products', async (req, res, next) => {
+    try {
+        const userDid = req.query.userDid;
+        const limit = req.query.limit ? Number(req.query.limit) : 10;
+        core_1.logger.info(`[Market] GET /visited-products userDid=${userDid}`);
+        if (!userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid query parameter is required'
+            });
+        }
+        const products = await marketService.getVisitedProducts(userDid, limit);
+        res.json({ success: true, data: products });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error getting visited products:', error);
+        next(error);
+    }
+});
+// DELETE /visited-products - Clear all visited products history
+router.delete('/visited-products', async (req, res, next) => {
+    try {
+        const userDid = req.query.userDid;
+        core_1.logger.info(`[Market] DELETE /visited-products userDid=${userDid}`);
+        if (!userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'userDid query parameter is required'
+            });
+        }
+        await marketService.clearVisitedProducts(userDid);
+        res.json({ success: true, data: { cleared: true } });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error clearing visited products:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// SERVICE AVAILABILITY ROUTES (Calendar/Booking Management)
+// =============================================================================
+// GET /posts/:postId/availability - Get availability slots for a service
+router.get('/posts/:postId/availability', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const startDate = req.query.startDate;
+        const endDate = req.query.endDate;
+        core_1.logger.info(`[Market] GET /posts/${postId}/availability startDate=${startDate} endDate=${endDate}`);
+        const slots = await marketService.getServiceAvailability(postId, { startDate, endDate });
+        res.json({ success: true, data: slots });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error getting service availability:', error);
+        next(error);
+    }
+});
+// POST /posts/:postId/availability - Create/update availability slots
+router.post('/posts/:postId/availability', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const { did, slots } = req.body;
+        core_1.logger.info(`[Market] POST /posts/${postId}/availability - ${slots?.length || 0} slots`);
+        if (!did) {
+            return res.status(400).json({
+                success: false,
+                error: 'did is required'
+            });
+        }
+        if (!slots || !Array.isArray(slots)) {
+            return res.status(400).json({
+                success: false,
+                error: 'slots array is required'
+            });
+        }
+        const result = await marketService.setServiceAvailability(postId, did, slots);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error setting service availability:', error);
+        next(error);
+    }
+});
+// DELETE /posts/:postId/availability - Delete availability slots
+router.delete('/posts/:postId/availability', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const { did, slotIds } = req.body;
+        core_1.logger.info(`[Market] DELETE /posts/${postId}/availability - ${slotIds?.length || 0} slots`);
+        if (!did) {
+            return res.status(400).json({
+                success: false,
+                error: 'did is required'
+            });
+        }
+        if (!slotIds || !Array.isArray(slotIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'slotIds array is required'
+            });
+        }
+        const result = await marketService.deleteServiceAvailability(postId, did, slotIds);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting service availability:', error);
+        next(error);
+    }
+});
+// POST /posts/:postId/availability/generate - Bulk generate slots for date range
+router.post('/posts/:postId/availability/generate', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const { did, startDate, endDate, startTime, endTime, slotDuration, totalSlotsPerSlot, excludeDays } = req.body;
+        core_1.logger.info(`[Market] POST /posts/${postId}/availability/generate ${startDate} to ${endDate}`);
+        if (!did) {
+            return res.status(400).json({
+                success: false,
+                error: 'did is required'
+            });
+        }
+        if (!startDate || !endDate) {
+            return res.status(400).json({
+                success: false,
+                error: 'startDate and endDate are required'
+            });
+        }
+        const result = await marketService.generateAvailabilitySlots(postId, did, {
+            startDate,
+            endDate,
+            startTime,
+            endTime,
+            slotDuration,
+            totalSlotsPerSlot,
+            excludeDays
+        });
+        res.json({ success: true, data: result, count: result.length });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error generating availability slots:', error);
+        next(error);
+    }
+});
+// POST /availability/:slotId/book - Book a slot
+router.post('/availability/:slotId/book', async (req, res, next) => {
+    try {
+        const { slotId } = req.params;
+        const { quantity } = req.body;
+        core_1.logger.info(`[Market] POST /availability/${slotId}/book quantity=${quantity || 1}`);
+        const result = await marketService.bookSlot(slotId, quantity || 1);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error booking slot:', error);
+        next(error);
+    }
+});
+// POST /availability/:slotId/cancel - Cancel a booking
+router.post('/availability/:slotId/cancel', async (req, res, next) => {
+    try {
+        const { slotId } = req.params;
+        const { quantity } = req.body;
+        core_1.logger.info(`[Market] POST /availability/${slotId}/cancel quantity=${quantity || 1}`);
+        const result = await marketService.cancelBooking(slotId, quantity || 1);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error canceling booking:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// SERVICE BOOKINGS (Full booking management)
+// =============================================================================
+// POST /bookings - Create a new service booking
+router.post('/bookings', async (req, res, next) => {
+    try {
+        const { serviceAvailabilityId, userDid, guestCount, customerName, customerPhone, customerEmail, specialRequests, paymentMethod } = req.body;
+        core_1.logger.info(`[Market] POST /bookings slotId=${serviceAvailabilityId} userDid=${userDid}`);
+        if (!serviceAvailabilityId || !userDid) {
+            return res.status(400).json({
+                success: false,
+                error: 'serviceAvailabilityId and userDid are required'
+            });
+        }
+        const booking = await marketService.createServiceBooking({
+            serviceAvailabilityId,
+            userDid,
+            guestCount,
+            customerName,
+            customerPhone,
+            customerEmail,
+            specialRequests,
+            paymentMethod
+        });
+        res.json({ success: true, data: booking });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error creating booking:', error);
+        next(error);
+    }
+});
+// GET /bookings/me - Get user's bookings (buyer view)
+router.get('/bookings/me', async (req, res, next) => {
+    try {
+        const did = req.query.did;
+        const status = req.query.status;
+        const upcoming = req.query.upcoming === 'true';
+        const page = req.query.page ? Number(req.query.page) : 1;
+        const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 20;
+        core_1.logger.info(`[Market] GET /bookings/me did=${did} upcoming=${upcoming}`);
+        if (!did) {
+            return res.status(400).json({
+                success: false,
+                error: 'did query parameter required'
+            });
+        }
+        const result = await marketService.getUserBookings(did, { status, upcoming, page, pageSize });
+        res.json({ success: true, ...result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching user bookings:', error);
+        next(error);
+    }
+});
+// GET /bookings/:id - Get a single booking
+router.get('/bookings/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        core_1.logger.info(`[Market] GET /bookings/${id}`);
+        const booking = await marketService.getServiceBooking(id);
+        if (!booking) {
+            return res.status(404).json({ success: false, error: 'Booking not found' });
+        }
+        res.json({ success: true, data: booking });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching booking:', error);
+        next(error);
+    }
+});
+// GET /posts/:postId/bookings - Get bookings for a service (seller view)
+router.get('/posts/:postId/bookings', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const did = req.query.did;
+        const date = req.query.date;
+        const status = req.query.status;
+        const page = req.query.page ? Number(req.query.page) : 1;
+        const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 50;
+        core_1.logger.info(`[Market] GET /posts/${postId}/bookings did=${did}`);
+        if (!did) {
+            return res.status(400).json({
+                success: false,
+                error: 'did query parameter required'
+            });
+        }
+        const result = await marketService.getSellerBookings(postId, did, { date, status, page, pageSize });
+        res.json({ success: true, ...result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching seller bookings:', error);
+        next(error);
+    }
+});
+// PATCH /bookings/:id/confirm - Confirm a booking (seller)
+router.patch('/bookings/:id/confirm', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did } = req.body;
+        core_1.logger.info(`[Market] PATCH /bookings/${id}/confirm did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        const result = await marketService.confirmServiceBooking(id, did);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error confirming booking:', error);
+        next(error);
+    }
+});
+// PATCH /bookings/:id/cancel - Cancel a booking
+router.patch('/bookings/:id/cancel', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did, reason } = req.body;
+        core_1.logger.info(`[Market] PATCH /bookings/${id}/cancel did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        const result = await marketService.cancelServiceBooking(id, did, reason);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error cancelling booking:', error);
+        next(error);
+    }
+});
+// PATCH /bookings/:id/complete - Mark booking as completed (seller)
+router.patch('/bookings/:id/complete', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did } = req.body;
+        core_1.logger.info(`[Market] PATCH /bookings/${id}/complete did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        const result = await marketService.completeServiceBooking(id, did);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error completing booking:', error);
+        next(error);
+    }
+});
+// PATCH /bookings/:id/no-show - Mark as no-show (seller)
+router.patch('/bookings/:id/no-show', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did } = req.body;
+        core_1.logger.info(`[Market] PATCH /bookings/${id}/no-show did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        const result = await marketService.markBookingNoShow(id, did);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error marking no-show:', error);
+        next(error);
+    }
+});
+// =============================================================================
+// RECURRING AVAILABILITY PATTERNS
+// =============================================================================
+// GET /posts/:postId/recurring-patterns - Get recurring patterns
+router.get('/posts/:postId/recurring-patterns', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        core_1.logger.info(`[Market] GET /posts/${postId}/recurring-patterns`);
+        const patterns = await marketService.getRecurringPatterns(postId);
+        res.json({ success: true, data: patterns });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error fetching recurring patterns:', error);
+        next(error);
+    }
+});
+// POST /posts/:postId/recurring-patterns - Create a recurring pattern
+router.post('/posts/:postId/recurring-patterns', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const { did, daysOfWeek, startTime, endTime, slotDurationMinutes, slotsPerWindow, breakBetweenMinutes, priceOverride, validFrom, validUntil } = req.body;
+        core_1.logger.info(`[Market] POST /posts/${postId}/recurring-patterns did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        if (!daysOfWeek || !Array.isArray(daysOfWeek) || daysOfWeek.length === 0) {
+            return res.status(400).json({ success: false, error: 'daysOfWeek array is required' });
+        }
+        if (!startTime || !endTime || !slotDurationMinutes) {
+            return res.status(400).json({ success: false, error: 'startTime, endTime, and slotDurationMinutes are required' });
+        }
+        const pattern = await marketService.createRecurringPattern(postId, did, {
+            daysOfWeek,
+            startTime,
+            endTime,
+            slotDurationMinutes,
+            slotsPerWindow,
+            breakBetweenMinutes,
+            priceOverride,
+            validFrom: validFrom ? new Date(validFrom) : undefined,
+            validUntil: validUntil ? new Date(validUntil) : undefined
+        });
+        res.json({ success: true, data: pattern });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error creating recurring pattern:', error);
+        next(error);
+    }
+});
+// PATCH /recurring-patterns/:id - Update a recurring pattern
+router.patch('/recurring-patterns/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did, ...updates } = req.body;
+        core_1.logger.info(`[Market] PATCH /recurring-patterns/${id} did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        const pattern = await marketService.updateRecurringPattern(id, did, updates);
+        res.json({ success: true, data: pattern });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error updating recurring pattern:', error);
+        next(error);
+    }
+});
+// DELETE /recurring-patterns/:id - Delete a recurring pattern
+router.delete('/recurring-patterns/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { did } = req.body;
+        core_1.logger.info(`[Market] DELETE /recurring-patterns/${id} did=${did}`);
+        if (!did) {
+            return res.status(400).json({ success: false, error: 'did is required' });
+        }
+        await marketService.deleteRecurringPattern(id, did);
+        res.json({ success: true });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error deleting recurring pattern:', error);
+        next(error);
+    }
+});
+// POST /posts/:postId/generate-from-patterns - Generate slots from recurring patterns
+router.post('/posts/:postId/generate-from-patterns', async (req, res, next) => {
+    try {
+        const { postId } = req.params;
+        const { startDate, endDate } = req.body;
+        core_1.logger.info(`[Market] POST /posts/${postId}/generate-from-patterns ${startDate} to ${endDate}`);
+        if (!startDate || !endDate) {
+            return res.status(400).json({ success: false, error: 'startDate and endDate are required' });
+        }
+        const slots = await marketService.generateSlotsFromPatterns(postId, new Date(startDate), new Date(endDate));
+        res.json({ success: true, data: slots, count: slots.length });
+    }
+    catch (error) {
+        core_1.logger.error('[Market] Error generating slots from patterns:', error);
+        next(error);
+    }
+});
+exports.marketRouter = router;

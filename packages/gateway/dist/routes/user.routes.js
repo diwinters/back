@@ -1,0 +1,105 @@
+"use strict";
+/**
+ * User Routes
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.userRouter = void 0;
+const express_1 = require("express");
+const core_1 = require("@gominiapp/core");
+const go_service_1 = require("@gominiapp/go-service");
+const router = (0, express_1.Router)();
+exports.userRouter = router;
+const userService = new go_service_1.UserService();
+// All routes require authentication
+router.use((0, core_1.authMiddleware)());
+/**
+ * GET /api/users/me
+ * Get current user profile
+ */
+router.get('/me', async (req, res, next) => {
+    try {
+        const user = await userService.getUser(req.user.id);
+        res.json({
+            success: true,
+            data: user,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PATCH /api/users/me
+ * Update current user profile
+ */
+router.patch('/me', async (req, res, next) => {
+    try {
+        const { displayName, avatarUrl, phone, defaultPaymentMethod } = req.body;
+        const user = await userService.updateUser(req.user.id, {
+            displayName,
+            avatarUrl,
+            phone,
+            defaultPaymentMethod,
+        });
+        res.json({
+            success: true,
+            data: user,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/users/me/push-token
+ * Update push notification token
+ */
+router.put('/me/push-token', async (req, res, next) => {
+    try {
+        const { pushToken } = req.body;
+        if (!pushToken) {
+            return res.status(400).json({
+                success: false,
+                error: { code: 'INVALID_INPUT', message: 'pushToken is required' },
+            });
+        }
+        await userService.updatePushToken(req.user.id, pushToken);
+        res.json({ success: true });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * GET /api/users/me/preferred-city
+ * Get user's preferred city for Market/Discover/Go
+ */
+router.get('/me/preferred-city', async (req, res, next) => {
+    try {
+        const city = await userService.getPreferredCity(req.user.id);
+        res.json({
+            success: true,
+            data: city,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
+ * PUT /api/users/me/preferred-city
+ * Set user's preferred city
+ */
+router.put('/me/preferred-city', async (req, res, next) => {
+    try {
+        const { cityId } = req.body;
+        const user = await userService.setPreferredCity(req.user.id, cityId || null);
+        res.json({
+            success: true,
+            data: user.preferredCity,
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});

@@ -1,0 +1,1156 @@
+"use strict";
+/**
+ * Admin Routes
+ * Protected endpoints for admin management
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.adminRouter = void 0;
+const express_1 = require("express");
+const core_1 = require("@gominiapp/core");
+const go_service_1 = require("@gominiapp/go-service");
+// import { requireAuth, requireAdmin } from '../middleware/auth'
+const router = (0, express_1.Router)();
+exports.adminRouter = router;
+const cartService = new go_service_1.CartService();
+// TODO: Re-enable authentication for production
+// All admin routes require authentication and admin role
+// router.use(requireAuth)
+// router.use(requireAdmin)
+// =============================================================================
+// CITY WALKTHROUGH ADMIN ENDPOINTS
+// =============================================================================
+/**
+ * GET /api/admin/walkthroughs
+ * List all walkthroughs with their cities
+ */
+router.get('/walkthroughs', async (req, res, next) => {
+    try {
+        const walkthroughs = await core_1.prisma.cityWalkthrough.findMany({
+            include: {
+                city: {
+                    select: { id: true, name: true, code: true }
+                },
+                points: {
+                    orderBy: { order: 'asc' }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json({
+            success: true,
+            data: walkthroughs.map(w => ({
+                id: w.id,
+                cityId: w.cityId,
+                city: w.city,
+                name: w.name,
+                isActive: w.isActive,
+                defaultDurationMs: w.defaultDurationMs,
+                pointCount: w.points.length,
+                points: w.points.map(p => ({
+                    id: p.id,
+                    order: p.order,
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                    zoom: p.zoom,
+                    pitch: p.pitch,
+                    bearing: p.bearing,
+                    durationMs: p.durationMs,
+                    label: p.label,
+                })),
+                createdAt: w.createdAt,
+                updatedAt: w.updatedAt,
+            }))
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to list walkthroughs', { error });
+        next(error);
+    }
+});
+/**
+ * GET /api/admin/walkthroughs/by-city/:cityId
+ * Get walkthrough by cityId (for admin panel - includes inactive)
+ * NOTE: Must be defined BEFORE /walkthroughs/:id to avoid matching "by-city" as id
+ */
+router.get('/walkthroughs/by-city/:cityId', async (req, res, next) => {
+    try {
+        const { cityId } = req.params;
+        const walkthrough = await core_1.prisma.cityWalkthrough.findUnique({
+            where: { cityId },
+            include: {
+                city: {
+                    select: { id: true, name: true, code: true, centerLatitude: true, centerLongitude: true }
+                },
+                points: {
+                    orderBy: { order: 'asc' }
+                }
+            }
+        });
+        if (!walkthrough) {
+            return res.json({
+                success: true,
+                data: null,
+                message: 'No walkthrough found for this city'
+            });
+        }
+        res.json({
+            success: true,
+            data: walkthrough
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to get walkthrough by city', { error });
+        next(error);
+    }
+});
+/**
+ * GET /api/admin/walkthroughs/:id
+ * Get a specific walkthrough with all details
+ */
+router.get('/walkthroughs/:id', async (req, res, next) => {
+    try {
+        const walkthrough = await core_1.prisma.cityWalkthrough.findUnique({
+            where: { id: req.params.id },
+            include: {
+                city: {
+                    select: { id: true, name: true, code: true, centerLatitude: true, centerLongitude: true }
+                },
+                points: {
+                    orderBy: { order: 'asc' }
+                }
+            }
+        });
+        if (!walkthrough) {
+            return res.status(404).json({
+                success: false,
+                error: 'Walkthrough not found'
+            });
+        }
+        res.json({
+            success: true,
+            data: walkthrough
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to get walkthrough', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/walkthroughs
+ * Create a new walkthrough for a city
+ */
+router.post('/walkthroughs', async (req, res, next) => {
+    try {
+        const { cityId, name, isActive, defaultDurationMs, points } = req.body;
+        if (!cityId) {
+            return res.status(400).json({
+                success: false,
+                error: 'cityId is required'
+            });
+        }
+        // Check if city exists
+        const city = await core_1.prisma.city.findUnique({ where: { id: cityId } });
+        if (!city) {
+            return res.status(404).json({
+                success: false,
+                error: 'City not found'
+            });
+        }
+        // Check if walkthrough already exists for this city
+        const existing = await core_1.prisma.cityWalkthrough.findUnique({ where: { cityId } });
+        if (existing) {
+            return res.status(409).json({
+                success: false,
+                error: 'Walkthrough already exists for this city. Use PUT to update.'
+            });
+        }
+        const walkthrough = await core_1.prisma.cityWalkthrough.create({
+            data: {
+                cityId,
+                name: name || `${city.name} Tour`,
+                isActive: isActive ?? true,
+                defaultDurationMs: defaultDurationMs || 3000,
+                points: points && points.length > 0 ? {
+                    create: points.map((p, index) => ({
+                        order: p.order ?? index + 1,
+                        latitude: p.latitude,
+                        longitude: p.longitude,
+                        zoom: p.zoom ?? 14,
+                        pitch: p.pitch ?? 60,
+                        bearing: p.bearing ?? 0,
+                        durationMs: p.durationMs,
+                        label: p.label,
+                        // Rich content fields
+                        title: p.title,
+                        description: p.description,
+                        imageUrl: p.imageUrl,
+                    }))
+                } : undefined
+            },
+            include: {
+                city: { select: { id: true, name: true, code: true } },
+                points: { orderBy: { order: 'asc' } }
+            }
+        });
+        core_1.logger.info('Walkthrough created', { walkthroughId: walkthrough.id, cityId });
+        res.status(201).json({
+            success: true,
+            data: walkthrough
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to create walkthrough', { error });
+        next(error);
+    }
+});
+/**
+ * PUT /api/admin/walkthroughs/:id
+ * Update a walkthrough (including replacing all points)
+ */
+router.put('/walkthroughs/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, isActive, defaultDurationMs, points } = req.body;
+        const existing = await core_1.prisma.cityWalkthrough.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Walkthrough not found'
+            });
+        }
+        // Use transaction to update walkthrough and replace points
+        const walkthrough = await core_1.prisma.$transaction(async (tx) => {
+            // Delete existing points if new points provided
+            if (points && Array.isArray(points)) {
+                await tx.walkthroughPoint.deleteMany({
+                    where: { walkthroughId: id }
+                });
+            }
+            // Update walkthrough and create new points
+            return tx.cityWalkthrough.update({
+                where: { id },
+                data: {
+                    ...(name !== undefined && { name }),
+                    ...(isActive !== undefined && { isActive }),
+                    ...(defaultDurationMs !== undefined && { defaultDurationMs }),
+                    ...(points && Array.isArray(points) && {
+                        points: {
+                            create: points.map((p, index) => ({
+                                order: p.order ?? index + 1,
+                                latitude: p.latitude,
+                                longitude: p.longitude,
+                                zoom: p.zoom ?? 14,
+                                pitch: p.pitch ?? 60,
+                                bearing: p.bearing ?? 0,
+                                durationMs: p.durationMs,
+                                label: p.label,
+                                // Rich content fields
+                                title: p.title,
+                                description: p.description,
+                                imageUrl: p.imageUrl,
+                            }))
+                        }
+                    })
+                },
+                include: {
+                    city: { select: { id: true, name: true, code: true } },
+                    points: { orderBy: { order: 'asc' } }
+                }
+            });
+        });
+        core_1.logger.info('Walkthrough updated', { walkthroughId: id });
+        res.json({
+            success: true,
+            data: walkthrough
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to update walkthrough', { error });
+        next(error);
+    }
+});
+/**
+ * DELETE /api/admin/walkthroughs/:id
+ * Delete a walkthrough
+ */
+router.delete('/walkthroughs/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const existing = await core_1.prisma.cityWalkthrough.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Walkthrough not found'
+            });
+        }
+        await core_1.prisma.cityWalkthrough.delete({ where: { id } });
+        core_1.logger.info('Walkthrough deleted', { walkthroughId: id });
+        res.json({
+            success: true,
+            message: 'Walkthrough deleted'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to delete walkthrough', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// WALKTHROUGH POINTS MANAGEMENT
+// =============================================================================
+/**
+ * POST /api/admin/walkthroughs/:id/points
+ * Add a single point to a walkthrough
+ */
+router.post('/walkthroughs/:id/points', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { latitude, longitude, zoom, pitch, bearing, durationMs, label, order } = req.body;
+        if (!latitude || !longitude) {
+            return res.status(400).json({
+                success: false,
+                error: 'latitude and longitude are required'
+            });
+        }
+        const walkthrough = await core_1.prisma.cityWalkthrough.findUnique({
+            where: { id },
+            include: { points: { orderBy: { order: 'desc' }, take: 1 } }
+        });
+        if (!walkthrough) {
+            return res.status(404).json({
+                success: false,
+                error: 'Walkthrough not found'
+            });
+        }
+        const nextOrder = order ?? (walkthrough.points[0]?.order ?? 0) + 1;
+        const point = await core_1.prisma.walkthroughPoint.create({
+            data: {
+                walkthroughId: id,
+                order: nextOrder,
+                latitude,
+                longitude,
+                zoom: zoom ?? 14,
+                pitch: pitch ?? 60,
+                bearing: bearing ?? 0,
+                durationMs,
+                label,
+            }
+        });
+        core_1.logger.info('Walkthrough point added', { walkthroughId: id, pointId: point.id });
+        res.status(201).json({
+            success: true,
+            data: point
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to add walkthrough point', { error });
+        next(error);
+    }
+});
+/**
+ * PUT /api/admin/walkthroughs/:id/points/:pointId
+ * Update a specific point
+ */
+router.put('/walkthroughs/:id/points/:pointId', async (req, res, next) => {
+    try {
+        const { pointId } = req.params;
+        const { latitude, longitude, zoom, pitch, bearing, durationMs, label, order } = req.body;
+        const existing = await core_1.prisma.walkthroughPoint.findUnique({ where: { id: pointId } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Point not found'
+            });
+        }
+        const point = await core_1.prisma.walkthroughPoint.update({
+            where: { id: pointId },
+            data: {
+                ...(latitude !== undefined && { latitude }),
+                ...(longitude !== undefined && { longitude }),
+                ...(zoom !== undefined && { zoom }),
+                ...(pitch !== undefined && { pitch }),
+                ...(bearing !== undefined && { bearing }),
+                ...(durationMs !== undefined && { durationMs }),
+                ...(label !== undefined && { label }),
+                ...(order !== undefined && { order }),
+            }
+        });
+        core_1.logger.info('Walkthrough point updated', { pointId });
+        res.json({
+            success: true,
+            data: point
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to update walkthrough point', { error });
+        next(error);
+    }
+});
+/**
+ * DELETE /api/admin/walkthroughs/:id/points/:pointId
+ * Delete a specific point
+ */
+router.delete('/walkthroughs/:id/points/:pointId', async (req, res, next) => {
+    try {
+        const { pointId } = req.params;
+        const existing = await core_1.prisma.walkthroughPoint.findUnique({ where: { id: pointId } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Point not found'
+            });
+        }
+        await core_1.prisma.walkthroughPoint.delete({ where: { id: pointId } });
+        core_1.logger.info('Walkthrough point deleted', { pointId });
+        res.json({
+            success: true,
+            message: 'Point deleted'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to delete walkthrough point', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/walkthroughs/:id/points/reorder
+ * Reorder points in a walkthrough
+ */
+router.post('/walkthroughs/:id/points/reorder', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { pointIds } = req.body; // Array of point IDs in new order
+        if (!pointIds || !Array.isArray(pointIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'pointIds array is required'
+            });
+        }
+        // Update all points with new order
+        await core_1.prisma.$transaction(pointIds.map((pointId, index) => core_1.prisma.walkthroughPoint.update({
+            where: { id: pointId },
+            data: { order: index + 1 }
+        })));
+        core_1.logger.info('Walkthrough points reordered', { walkthroughId: id });
+        res.json({
+            success: true,
+            message: 'Points reordered'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to reorder walkthrough points', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// CITIES LIST FOR ADMIN (to select when creating walkthrough)
+// =============================================================================
+/**
+ * GET /api/admin/cities
+ * List all cities for admin selection
+ */
+router.get('/cities', async (req, res, next) => {
+    try {
+        const cities = await core_1.prisma.city.findMany({
+            select: {
+                id: true,
+                code: true,
+                name: true,
+                country: true,
+                isActive: true,
+                centerLatitude: true,
+                centerLongitude: true,
+                radiusKm: true,
+                walkthrough: {
+                    select: { id: true, isActive: true }
+                }
+            },
+            orderBy: { name: 'asc' }
+        });
+        res.json({
+            success: true,
+            data: cities.map(c => ({
+                ...c,
+                hasWalkthrough: !!c.walkthrough,
+                walkthroughId: c.walkthrough?.id,
+                walkthroughActive: c.walkthrough?.isActive ?? false,
+            }))
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to list cities', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// MARKET CATEGORIES ADMIN ENDPOINTS
+// =============================================================================
+/**
+ * GET /api/admin/market/categories
+ * List all categories (including inactive) with subcategories
+ */
+router.get('/market/categories', async (req, res, next) => {
+    try {
+        const categories = await core_1.prisma.marketCategory.findMany({
+            include: {
+                subcategories: {
+                    orderBy: { sortOrder: 'asc' }
+                },
+                _count: {
+                    select: { posts: { where: { status: 'ACTIVE', isArchived: false } } }
+                }
+            },
+            orderBy: { sortOrder: 'asc' }
+        });
+        res.json({
+            success: true,
+            data: categories.map(c => ({
+                ...c,
+                postCount: c._count.posts
+            }))
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to list categories', { error });
+        next(error);
+    }
+});
+/**
+ * GET /api/admin/market/categories/:id
+ * Get single category with subcategories
+ */
+router.get('/market/categories/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const category = await core_1.prisma.marketCategory.findUnique({
+            where: { id },
+            include: {
+                subcategories: {
+                    orderBy: { sortOrder: 'asc' }
+                },
+                _count: {
+                    select: { posts: { where: { status: 'ACTIVE', isArchived: false } } }
+                }
+            }
+        });
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                error: 'Category not found'
+            });
+        }
+        res.json({
+            success: true,
+            data: {
+                ...category,
+                postCount: category._count.posts
+            }
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to get category', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/categories
+ * Create a new category
+ */
+router.post('/market/categories', async (req, res, next) => {
+    try {
+        const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body;
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                error: 'name is required'
+            });
+        }
+        const category = await core_1.prisma.marketCategory.create({
+            data: {
+                name,
+                nameAr,
+                description,
+                emoji,
+                iconUrl,
+                gradientStart,
+                gradientEnd,
+                sortOrder: sortOrder ?? 0,
+                isActive: isActive ?? true,
+                isGlobal: isGlobal ?? false,
+                listingType: listingType ?? 'PRODUCT'
+            },
+            include: {
+                subcategories: true,
+                cities: { include: { city: { select: { id: true, name: true, code: true } } } }
+            }
+        });
+        core_1.logger.info('Category created', { categoryId: category.id });
+        res.status(201).json({
+            success: true,
+            data: category
+        });
+    }
+    catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                success: false,
+                error: 'A category with this name already exists'
+            });
+        }
+        core_1.logger.error('Failed to create category', { error });
+        next(error);
+    }
+});
+/**
+ * PUT /api/admin/market/categories/:id
+ * Update a category
+ */
+router.put('/market/categories/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive, isGlobal, listingType } = req.body;
+        const existing = await core_1.prisma.marketCategory.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Category not found'
+            });
+        }
+        const category = await core_1.prisma.marketCategory.update({
+            where: { id },
+            data: {
+                ...(name !== undefined && { name }),
+                ...(nameAr !== undefined && { nameAr }),
+                ...(description !== undefined && { description }),
+                ...(emoji !== undefined && { emoji }),
+                ...(iconUrl !== undefined && { iconUrl }),
+                ...(gradientStart !== undefined && { gradientStart }),
+                ...(gradientEnd !== undefined && { gradientEnd }),
+                ...(sortOrder !== undefined && { sortOrder }),
+                ...(isActive !== undefined && { isActive }),
+                ...(isGlobal !== undefined && { isGlobal }),
+                ...(listingType !== undefined && { listingType })
+            },
+            include: {
+                subcategories: {
+                    orderBy: { sortOrder: 'asc' }
+                },
+                cities: { include: { city: { select: { id: true, name: true, code: true } } } }
+            }
+        });
+        // If listingType changed, update all subcategories to match
+        if (listingType !== undefined) {
+            await core_1.prisma.marketSubcategory.updateMany({
+                where: { categoryId: id },
+                data: { listingType }
+            });
+        }
+        core_1.logger.info('Category updated', { categoryId: id });
+        res.json({
+            success: true,
+            data: category
+        });
+    }
+    catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                success: false,
+                error: 'A category with this name already exists'
+            });
+        }
+        core_1.logger.error('Failed to update category', { error });
+        next(error);
+    }
+});
+/**
+ * DELETE /api/admin/market/categories/:id
+ * Delete a category (blocked if has posts)
+ */
+router.delete('/market/categories/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const category = await core_1.prisma.marketCategory.findUnique({
+            where: { id },
+            include: {
+                _count: { select: { posts: true } }
+            }
+        });
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                error: 'Category not found'
+            });
+        }
+        if (category._count.posts > 0) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot delete category with ${category._count.posts} posts. Move or delete posts first.`
+            });
+        }
+        await core_1.prisma.marketCategory.delete({ where: { id } });
+        core_1.logger.info('Category deleted', { categoryId: id });
+        res.json({
+            success: true,
+            message: 'Category deleted'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to delete category', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/categories/reorder
+ * Reorder categories
+ */
+router.post('/market/categories/reorder', async (req, res, next) => {
+    try {
+        const { categoryIds } = req.body;
+        if (!categoryIds || !Array.isArray(categoryIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'categoryIds array is required'
+            });
+        }
+        await core_1.prisma.$transaction(categoryIds.map((categoryId, index) => core_1.prisma.marketCategory.update({
+            where: { id: categoryId },
+            data: { sortOrder: index + 1 }
+        })));
+        core_1.logger.info('Categories reordered');
+        res.json({
+            success: true,
+            message: 'Categories reordered'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to reorder categories', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// MARKET SUBCATEGORIES ADMIN ENDPOINTS
+// =============================================================================
+/**
+ * POST /api/admin/market/categories/:id/subcategories
+ * Create a subcategory
+ */
+router.post('/market/categories/:categoryId/subcategories', async (req, res, next) => {
+    try {
+        const { categoryId } = req.params;
+        const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive } = req.body;
+        if (!name) {
+            return res.status(400).json({
+                success: false,
+                error: 'name is required'
+            });
+        }
+        const category = await core_1.prisma.marketCategory.findUnique({ where: { id: categoryId } });
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                error: 'Category not found'
+            });
+        }
+        const subcategory = await core_1.prisma.marketSubcategory.create({
+            data: {
+                categoryId,
+                name,
+                nameAr,
+                description,
+                emoji,
+                iconUrl,
+                gradientStart,
+                gradientEnd,
+                sortOrder: sortOrder ?? 0,
+                isActive: isActive ?? true,
+                listingType: category.listingType // Inherit from parent category
+            }
+        });
+        core_1.logger.info('Subcategory created', { subcategoryId: subcategory.id, categoryId, listingType: category.listingType });
+        res.status(201).json({
+            success: true,
+            data: subcategory
+        });
+    }
+    catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                success: false,
+                error: 'A subcategory with this name already exists in this category'
+            });
+        }
+        core_1.logger.error('Failed to create subcategory', { error });
+        next(error);
+    }
+});
+/**
+ * PUT /api/admin/market/subcategories/:id
+ * Update a subcategory
+ */
+router.put('/market/subcategories/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, nameAr, description, emoji, iconUrl, gradientStart, gradientEnd, sortOrder, isActive } = req.body;
+        const existing = await core_1.prisma.marketSubcategory.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Subcategory not found'
+            });
+        }
+        const subcategory = await core_1.prisma.marketSubcategory.update({
+            where: { id },
+            data: {
+                ...(name !== undefined && { name }),
+                ...(nameAr !== undefined && { nameAr }),
+                ...(description !== undefined && { description }),
+                ...(emoji !== undefined && { emoji }),
+                ...(iconUrl !== undefined && { iconUrl }),
+                ...(gradientStart !== undefined && { gradientStart }),
+                ...(gradientEnd !== undefined && { gradientEnd }),
+                ...(sortOrder !== undefined && { sortOrder }),
+                ...(isActive !== undefined && { isActive })
+            }
+        });
+        core_1.logger.info('Subcategory updated', { subcategoryId: id });
+        res.json({
+            success: true,
+            data: subcategory
+        });
+    }
+    catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                success: false,
+                error: 'A subcategory with this name already exists in this category'
+            });
+        }
+        core_1.logger.error('Failed to update subcategory', { error });
+        next(error);
+    }
+});
+/**
+ * DELETE /api/admin/market/subcategories/:id
+ * Delete a subcategory (blocked if has posts)
+ */
+router.delete('/market/subcategories/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const subcategory = await core_1.prisma.marketSubcategory.findUnique({
+            where: { id },
+            include: {
+                _count: { select: { posts: true } }
+            }
+        });
+        if (!subcategory) {
+            return res.status(404).json({
+                success: false,
+                error: 'Subcategory not found'
+            });
+        }
+        if (subcategory._count.posts > 0) {
+            return res.status(400).json({
+                success: false,
+                error: `Cannot delete subcategory with ${subcategory._count.posts} posts. Move or delete posts first.`
+            });
+        }
+        await core_1.prisma.marketSubcategory.delete({ where: { id } });
+        core_1.logger.info('Subcategory deleted', { subcategoryId: id });
+        res.json({
+            success: true,
+            message: 'Subcategory deleted'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to delete subcategory', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/categories/:categoryId/subcategories/reorder
+ * Reorder subcategories within a category
+ */
+router.post('/market/categories/:categoryId/subcategories/reorder', async (req, res, next) => {
+    try {
+        const { subcategoryIds } = req.body;
+        if (!subcategoryIds || !Array.isArray(subcategoryIds)) {
+            return res.status(400).json({
+                success: false,
+                error: 'subcategoryIds array is required'
+            });
+        }
+        await core_1.prisma.$transaction(subcategoryIds.map((subcategoryId, index) => core_1.prisma.marketSubcategory.update({
+            where: { id: subcategoryId },
+            data: { sortOrder: index + 1 }
+        })));
+        core_1.logger.info('Subcategories reordered');
+        res.json({
+            success: true,
+            message: 'Subcategories reordered'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to reorder subcategories', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// PIN TO HOME ADMIN ENDPOINTS
+// =============================================================================
+/**
+ * GET /api/admin/market/home-pinned
+ * Get all categories and subcategories pinned to home
+ */
+router.get('/market/home-pinned', async (req, res, next) => {
+    try {
+        const [pinnedCategories, pinnedSubcategories] = await Promise.all([
+            core_1.prisma.marketCategory.findMany({
+                where: { isPinnedToHome: true, isActive: true },
+                orderBy: { homePinOrder: 'asc' },
+                include: {
+                    subcategories: {
+                        where: { isActive: true },
+                        orderBy: { sortOrder: 'asc' }
+                    }
+                }
+            }),
+            core_1.prisma.marketSubcategory.findMany({
+                where: { isPinnedToHome: true, isActive: true },
+                orderBy: { homePinOrder: 'asc' },
+                include: {
+                    category: true
+                }
+            })
+        ]);
+        res.json({
+            success: true,
+            data: {
+                categories: pinnedCategories,
+                subcategories: pinnedSubcategories
+            }
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to get home-pinned items', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/categories/:id/pin-to-home
+ * Pin or unpin a category to home screen
+ */
+router.post('/market/categories/:id/pin-to-home', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { isPinnedToHome, homePinOrder } = req.body;
+        const existing = await core_1.prisma.marketCategory.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Category not found'
+            });
+        }
+        // Check limit: max 5 pinned categories + subcategories combined (6th slot is for Market button)
+        if (isPinnedToHome === true) {
+            const [pinnedCategoriesCount, pinnedSubcategoriesCount] = await Promise.all([
+                core_1.prisma.marketCategory.count({ where: { isPinnedToHome: true, id: { not: id } } }),
+                core_1.prisma.marketSubcategory.count({ where: { isPinnedToHome: true } })
+            ]);
+            if (pinnedCategoriesCount + pinnedSubcategoriesCount >= 5) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Maximum 5 items can be pinned to home (categories + subcategories combined). Unpin some items first.'
+                });
+            }
+        }
+        const category = await core_1.prisma.marketCategory.update({
+            where: { id },
+            data: {
+                isPinnedToHome: isPinnedToHome ?? existing.isPinnedToHome,
+                homePinOrder: homePinOrder ?? existing.homePinOrder ?? 0
+            },
+            include: {
+                subcategories: {
+                    where: { isActive: true },
+                    orderBy: { sortOrder: 'asc' }
+                }
+            }
+        });
+        core_1.logger.info('Category pin-to-home updated', { categoryId: id, isPinnedToHome });
+        res.json({
+            success: true,
+            data: category
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to update category pin-to-home', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/subcategories/:id/pin-to-home
+ * Pin or unpin a subcategory to home screen
+ */
+router.post('/market/subcategories/:id/pin-to-home', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { isPinnedToHome, homePinOrder } = req.body;
+        const existing = await core_1.prisma.marketSubcategory.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: 'Subcategory not found'
+            });
+        }
+        // Check limit: max 5 pinned categories + subcategories combined (6th slot is for Market button)
+        if (isPinnedToHome === true) {
+            const [pinnedCategoriesCount, pinnedSubcategoriesCount] = await Promise.all([
+                core_1.prisma.marketCategory.count({ where: { isPinnedToHome: true } }),
+                core_1.prisma.marketSubcategory.count({ where: { isPinnedToHome: true, id: { not: id } } })
+            ]);
+            if (pinnedCategoriesCount + pinnedSubcategoriesCount >= 5) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Maximum 5 items can be pinned to home (categories + subcategories combined). Unpin some items first.'
+                });
+            }
+        }
+        const subcategory = await core_1.prisma.marketSubcategory.update({
+            where: { id },
+            data: {
+                isPinnedToHome: isPinnedToHome ?? existing.isPinnedToHome,
+                homePinOrder: homePinOrder ?? existing.homePinOrder ?? 0
+            },
+            include: {
+                category: true
+            }
+        });
+        core_1.logger.info('Subcategory pin-to-home updated', { subcategoryId: id, isPinnedToHome });
+        res.json({
+            success: true,
+            data: subcategory
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to update subcategory pin-to-home', { error });
+        next(error);
+    }
+});
+/**
+ * POST /api/admin/market/home-pinned/reorder
+ * Reorder home-pinned items (categories and subcategories)
+ */
+router.post('/market/home-pinned/reorder', async (req, res, next) => {
+    try {
+        const { items } = req.body; // Array of { type: 'category' | 'subcategory', id: string }
+        if (!items || !Array.isArray(items)) {
+            return res.status(400).json({
+                success: false,
+                error: 'items array is required'
+            });
+        }
+        await core_1.prisma.$transaction(items.map((item, index) => {
+            if (item.type === 'category') {
+                return core_1.prisma.marketCategory.update({
+                    where: { id: item.id },
+                    data: { homePinOrder: index + 1 }
+                });
+            }
+            else {
+                return core_1.prisma.marketSubcategory.update({
+                    where: { id: item.id },
+                    data: { homePinOrder: index + 1 }
+                });
+            }
+        }));
+        core_1.logger.info('Home-pinned items reordered');
+        res.json({
+            success: true,
+            message: 'Home-pinned items reordered'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to reorder home-pinned items', { error });
+        next(error);
+    }
+});
+// =============================================================================
+// MARKET SETTINGS ADMIN ENDPOINTS
+// =============================================================================
+/**
+ * GET /api/admin/market/settings
+ * Get current market settings (TVA, service fee, etc.)
+ */
+router.get('/market/settings', async (req, res, next) => {
+    try {
+        const settings = await cartService.getMarketSettings();
+        res.json({
+            success: true,
+            data: {
+                tvaRate: settings.tvaRate,
+                tvaEnabled: settings.tvaEnabled,
+                serviceFeeRate: settings.serviceFeeRate,
+                serviceFeeMin: settings.serviceFeeMin,
+                serviceFeeMax: settings.serviceFeeMax,
+                serviceFeeEnabled: settings.serviceFeeEnabled,
+                defaultCurrency: settings.defaultCurrency,
+                updatedAt: settings.updatedAt
+            }
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to get market settings', { error });
+        next(error);
+    }
+});
+/**
+ * PUT /api/admin/market/settings
+ * Update market settings (TVA, service fee, etc.)
+ */
+router.put('/market/settings', async (req, res, next) => {
+    try {
+        const { tvaRate, tvaEnabled, serviceFeeRate, serviceFeeMin, serviceFeeMax, serviceFeeEnabled, defaultCurrency } = req.body;
+        // Validate rates are percentages (0-1)
+        if (tvaRate !== undefined && (tvaRate < 0 || tvaRate > 1)) {
+            return res.status(400).json({
+                success: false,
+                error: 'TVA rate must be between 0 and 1 (e.g., 0.20 for 20%)'
+            });
+        }
+        if (serviceFeeRate !== undefined && (serviceFeeRate < 0 || serviceFeeRate > 1)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Service fee rate must be between 0 and 1 (e.g., 0.05 for 5%)'
+            });
+        }
+        const settings = await cartService.updateMarketSettings({
+            tvaRate,
+            tvaEnabled,
+            serviceFeeRate,
+            serviceFeeMin,
+            serviceFeeMax,
+            serviceFeeEnabled,
+            defaultCurrency
+        });
+        core_1.logger.info('Market settings updated', { settings });
+        res.json({
+            success: true,
+            data: {
+                tvaRate: settings.tvaRate,
+                tvaEnabled: settings.tvaEnabled,
+                serviceFeeRate: settings.serviceFeeRate,
+                serviceFeeMin: settings.serviceFeeMin,
+                serviceFeeMax: settings.serviceFeeMax,
+                serviceFeeEnabled: settings.serviceFeeEnabled,
+                defaultCurrency: settings.defaultCurrency,
+                updatedAt: settings.updatedAt
+            },
+            message: 'Market settings updated successfully'
+        });
+    }
+    catch (error) {
+        core_1.logger.error('Failed to update market settings', { error });
+        next(error);
+    }
+});
