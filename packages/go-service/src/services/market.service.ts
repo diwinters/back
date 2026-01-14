@@ -343,6 +343,7 @@ export class MarketService {
     // Service-specific fields (when listingType = SERVICE)
     duration?: number
     durationUnit?: string
+    pricingType?: string
     minGuests?: number
     maxGuests?: number
     bookingLeadTime?: number
@@ -393,6 +394,7 @@ export class MarketService {
     if (isServiceListing) {
       createData.duration = data.duration || null
       createData.durationUnit = data.durationUnit || null
+      createData.pricingType = data.pricingType || 'FLAT'
       createData.minGuests = data.minGuests || null
       createData.maxGuests = data.maxGuests || null
       createData.bookingLeadTime = data.bookingLeadTime || null
@@ -1018,6 +1020,225 @@ export class MarketService {
 
     return prisma.marketVisitedProduct.deleteMany({
       where: { userDid }
+    })
+  }
+
+  // ============================================================================
+  // SERVICE AVAILABILITY (Calendar/Booking Management)
+  // ============================================================================
+
+  /**
+   * Get availability slots for a service
+   */
+  async getServiceAvailability(postId: string, params: {
+    startDate?: string  // ISO date string
+    endDate?: string    // ISO date string
+  } = {}) {
+    logger.info(`[MarketService] Getting availability for post ${postId}`)
+
+    const where: any = { postId }
+    
+    if (params.startDate || params.endDate) {
+      where.date = {}
+      if (params.startDate) {
+        where.date.gte = new Date(params.startDate)
+      }
+      if (params.endDate) {
+        where.date.lte = new Date(params.endDate)
+      }
+    } else {
+      // Default: next 30 days
+      const now = new Date()
+      where.date = {
+        gte: now,
+        lte: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+      }
+    }
+
+    return prisma.serviceAvailability.findMany({
+      where,
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }]
+    })
+  }
+
+  /**
+   * Create/update availability slots for a service
+   */
+  async setServiceAvailability(postId: string, did: string, slots: Array<{
+    date: string         // ISO date string (YYYY-MM-DD)
+    startTime?: string   // HH:mm format
+    endTime?: string     // HH:mm format
+    totalSlots?: number
+    priceOverride?: number
+    isAvailable?: boolean
+  }>) {
+    // Verify ownership
+    await this.verifyPostOwnership(postId, did)
+
+    logger.info(`[MarketService] Setting ${slots.length} availability slots for post ${postId}`)
+
+    const results = []
+    
+    for (const slot of slots) {
+      const date = new Date(slot.date)
+      
+      const result = await prisma.serviceAvailability.upsert({
+        where: {
+          postId_date_startTime: {
+            postId,
+            date,
+            startTime: slot.startTime || null
+          }
+        },
+        create: {
+          postId,
+          date,
+          startTime: slot.startTime || null,
+          endTime: slot.endTime || null,
+          totalSlots: slot.totalSlots ?? 1,
+          priceOverride: slot.priceOverride || null,
+          isAvailable: slot.isAvailable ?? true
+        },
+        update: {
+          endTime: slot.endTime || null,
+          totalSlots: slot.totalSlots ?? 1,
+          priceOverride: slot.priceOverride || null,
+          isAvailable: slot.isAvailable ?? true
+        }
+      })
+      
+      results.push(result)
+    }
+
+    return results
+  }
+
+  /**
+   * Delete availability slots
+   */
+  async deleteServiceAvailability(postId: string, did: string, slotIds: string[]) {
+    // Verify ownership
+    await this.verifyPostOwnership(postId, did)
+
+    logger.info(`[MarketService] Deleting ${slotIds.length} availability slots for post ${postId}`)
+
+    return prisma.serviceAvailability.deleteMany({
+      where: {
+        id: { in: slotIds },
+        postId
+      }
+    })
+  }
+
+  /**
+   * Bulk generate availability slots for a date range
+   */
+  async generateAvailabilitySlots(postId: string, did: string, params: {
+    startDate: string    // ISO date string (YYYY-MM-DD)
+    endDate: string      // ISO date string (YYYY-MM-DD)
+    startTime?: string   // HH:mm - daily start time
+    endTime?: string     // HH:mm - daily end time
+    slotDuration?: number // Minutes per slot
+    totalSlotsPerSlot?: number
+    excludeDays?: number[] // 0=Sunday, 6=Saturday
+  }) {
+    // Verify ownership
+    await this.verifyPostOwnership(postId, did)
+
+    logger.info(`[MarketService] Generating availability slots for post ${postId}`)
+
+    const slots: Array<{
+      date: string
+      startTime?: string
+      endTime?: string
+      totalSlots: number
+    }> = []
+
+    const start = new Date(params.startDate)
+    const end = new Date(params.endDate)
+    const excludeDays = params.excludeDays || []
+
+    // Iterate through each day
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      // Skip excluded days
+      if (excludeDays.includes(date.getDay())) {
+        continue
+      }
+
+      const dateStr = date.toISOString().split('T')[0]
+
+      if (params.startTime && params.endTime && params.slotDuration) {
+        // Generate time slots
+        const [startHour, startMin] = params.startTime.split(':').map(Number)
+        const [endHour, endMin] = params.endTime.split(':').map(Number)
+        const startMinutes = startHour * 60 + startMin
+        const endMinutes = endHour * 60 + endMin
+
+        for (let mins = startMinutes; mins < endMinutes; mins += params.slotDuration) {
+          const slotStart = `${Math.floor(mins / 60).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`
+          const slotEndMins = mins + params.slotDuration
+          const slotEnd = `${Math.floor(slotEndMins / 60).toString().padStart(2, '0')}:${(slotEndMins % 60).toString().padStart(2, '0')}`
+
+          slots.push({
+            date: dateStr,
+            startTime: slotStart,
+            endTime: slotEnd,
+            totalSlots: params.totalSlotsPerSlot ?? 1
+          })
+        }
+      } else {
+        // Single slot per day
+        slots.push({
+          date: dateStr,
+          startTime: params.startTime,
+          endTime: params.endTime,
+          totalSlots: params.totalSlotsPerSlot ?? 1
+        })
+      }
+    }
+
+    // Create all slots
+    return this.setServiceAvailability(postId, did, slots)
+  }
+
+  /**
+   * Book a slot (increment bookedSlots)
+   */
+  async bookSlot(slotId: string, quantity: number = 1) {
+    const slot = await prisma.serviceAvailability.findUnique({
+      where: { id: slotId }
+    })
+
+    if (!slot) {
+      throw new NotFoundError('Availability slot not found')
+    }
+
+    if (!slot.isAvailable) {
+      throw new AppError('Slot is not available', ErrorCode.BAD_REQUEST, 400)
+    }
+
+    const availableSlots = slot.totalSlots - slot.bookedSlots
+    if (quantity > availableSlots) {
+      throw new AppError(`Only ${availableSlots} slots available`, ErrorCode.BAD_REQUEST, 400)
+    }
+
+    return prisma.serviceAvailability.update({
+      where: { id: slotId },
+      data: {
+        bookedSlots: { increment: quantity }
+      }
+    })
+  }
+
+  /**
+   * Cancel a booking (decrement bookedSlots)
+   */
+  async cancelBooking(slotId: string, quantity: number = 1) {
+    return prisma.serviceAvailability.update({
+      where: { id: slotId },
+      data: {
+        bookedSlots: { decrement: quantity }
+      }
     })
   }
 }

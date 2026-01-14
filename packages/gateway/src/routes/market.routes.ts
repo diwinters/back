@@ -672,4 +672,156 @@ router.delete('/visited-products', async (req, res, next) => {
   }
 })
 
+// =============================================================================
+// SERVICE AVAILABILITY ROUTES (Calendar/Booking Management)
+// =============================================================================
+
+// GET /posts/:postId/availability - Get availability slots for a service
+router.get('/posts/:postId/availability', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const startDate = req.query.startDate as string | undefined
+    const endDate = req.query.endDate as string | undefined
+    
+    logger.info(`[Market] GET /posts/${postId}/availability startDate=${startDate} endDate=${endDate}`)
+
+    const slots = await marketService.getServiceAvailability(postId, { startDate, endDate })
+    res.json({ success: true, data: slots })
+  } catch (error) {
+    logger.error('[Market] Error getting service availability:', error)
+    next(error)
+  }
+})
+
+// POST /posts/:postId/availability - Create/update availability slots
+router.post('/posts/:postId/availability', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const { did, slots } = req.body
+    
+    logger.info(`[Market] POST /posts/${postId}/availability - ${slots?.length || 0} slots`)
+
+    if (!did) {
+      return res.status(400).json({
+        success: false,
+        error: 'did is required'
+      })
+    }
+
+    if (!slots || !Array.isArray(slots)) {
+      return res.status(400).json({
+        success: false,
+        error: 'slots array is required'
+      })
+    }
+
+    const result = await marketService.setServiceAvailability(postId, did, slots)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error setting service availability:', error)
+    next(error)
+  }
+})
+
+// DELETE /posts/:postId/availability - Delete availability slots
+router.delete('/posts/:postId/availability', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const { did, slotIds } = req.body
+    
+    logger.info(`[Market] DELETE /posts/${postId}/availability - ${slotIds?.length || 0} slots`)
+
+    if (!did) {
+      return res.status(400).json({
+        success: false,
+        error: 'did is required'
+      })
+    }
+
+    if (!slotIds || !Array.isArray(slotIds)) {
+      return res.status(400).json({
+        success: false,
+        error: 'slotIds array is required'
+      })
+    }
+
+    const result = await marketService.deleteServiceAvailability(postId, did, slotIds)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error deleting service availability:', error)
+    next(error)
+  }
+})
+
+// POST /posts/:postId/availability/generate - Bulk generate slots for date range
+router.post('/posts/:postId/availability/generate', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const { did, startDate, endDate, startTime, endTime, slotDuration, totalSlotsPerSlot, excludeDays } = req.body
+    
+    logger.info(`[Market] POST /posts/${postId}/availability/generate ${startDate} to ${endDate}`)
+
+    if (!did) {
+      return res.status(400).json({
+        success: false,
+        error: 'did is required'
+      })
+    }
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'startDate and endDate are required'
+      })
+    }
+
+    const result = await marketService.generateAvailabilitySlots(postId, did, {
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      slotDuration,
+      totalSlotsPerSlot,
+      excludeDays
+    })
+    
+    res.json({ success: true, data: result, count: result.length })
+  } catch (error) {
+    logger.error('[Market] Error generating availability slots:', error)
+    next(error)
+  }
+})
+
+// POST /availability/:slotId/book - Book a slot
+router.post('/availability/:slotId/book', async (req, res, next) => {
+  try {
+    const { slotId } = req.params
+    const { quantity } = req.body
+    
+    logger.info(`[Market] POST /availability/${slotId}/book quantity=${quantity || 1}`)
+
+    const result = await marketService.bookSlot(slotId, quantity || 1)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error booking slot:', error)
+    next(error)
+  }
+})
+
+// POST /availability/:slotId/cancel - Cancel a booking
+router.post('/availability/:slotId/cancel', async (req, res, next) => {
+  try {
+    const { slotId } = req.params
+    const { quantity } = req.body
+    
+    logger.info(`[Market] POST /availability/${slotId}/cancel quantity=${quantity || 1}`)
+
+    const result = await marketService.cancelBooking(slotId, quantity || 1)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error canceling booking:', error)
+    next(error)
+  }
+})
+
 export const marketRouter = router

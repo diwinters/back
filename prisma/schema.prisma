@@ -807,6 +807,9 @@ model MarketPost {
   duration        Int?              // Duration value
   durationUnit    DurationUnit?     // MINUTES, HOURS, DAYS, NIGHTS
   
+  // Pricing Model (for services)
+  pricingType     PricingType?      // FLAT, HOURLY, PER_PERSON
+  
   // Capacity (for group activities, accommodations)
   minGuests       Int?              // Minimum guests/people
   maxGuests       Int?              // Maximum guests/people (capacity)
@@ -877,6 +880,13 @@ enum DurationUnit {
   HOURS
   DAYS
   NIGHTS  // For accommodations
+}
+
+// Pricing type for services
+enum PricingType {
+  FLAT        // Fixed price
+  HOURLY      // Price per hour
+  PER_PERSON  // Price per guest/person
 }
 
 // =============================================================================
