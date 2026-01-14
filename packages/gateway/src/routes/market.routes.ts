@@ -824,4 +824,317 @@ router.post('/availability/:slotId/cancel', async (req, res, next) => {
   }
 })
 
+// =============================================================================
+// SERVICE BOOKINGS (Full booking management)
+// =============================================================================
+
+// POST /bookings - Create a new service booking
+router.post('/bookings', async (req, res, next) => {
+  try {
+    const { 
+      serviceAvailabilityId, 
+      userDid, 
+      guestCount, 
+      customerName, 
+      customerPhone, 
+      customerEmail, 
+      specialRequests,
+      paymentMethod
+    } = req.body
+
+    logger.info(`[Market] POST /bookings slotId=${serviceAvailabilityId} userDid=${userDid}`)
+
+    if (!serviceAvailabilityId || !userDid) {
+      return res.status(400).json({
+        success: false,
+        error: 'serviceAvailabilityId and userDid are required'
+      })
+    }
+
+    const booking = await marketService.createServiceBooking({
+      serviceAvailabilityId,
+      userDid,
+      guestCount,
+      customerName,
+      customerPhone,
+      customerEmail,
+      specialRequests,
+      paymentMethod
+    })
+
+    res.json({ success: true, data: booking })
+  } catch (error) {
+    logger.error('[Market] Error creating booking:', error)
+    next(error)
+  }
+})
+
+// GET /bookings/me - Get user's bookings (buyer view)
+router.get('/bookings/me', async (req, res, next) => {
+  try {
+    const did = req.query.did as string
+    const status = req.query.status as string | undefined
+    const upcoming = req.query.upcoming === 'true'
+    const page = req.query.page ? Number(req.query.page) : 1
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 20
+
+    logger.info(`[Market] GET /bookings/me did=${did} upcoming=${upcoming}`)
+
+    if (!did) {
+      return res.status(400).json({
+        success: false,
+        error: 'did query parameter required'
+      })
+    }
+
+    const result = await marketService.getUserBookings(did, { status, upcoming, page, pageSize })
+    res.json({ success: true, ...result })
+  } catch (error) {
+    logger.error('[Market] Error fetching user bookings:', error)
+    next(error)
+  }
+})
+
+// GET /bookings/:id - Get a single booking
+router.get('/bookings/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    logger.info(`[Market] GET /bookings/${id}`)
+
+    const booking = await marketService.getServiceBooking(id)
+    if (!booking) {
+      return res.status(404).json({ success: false, error: 'Booking not found' })
+    }
+
+    res.json({ success: true, data: booking })
+  } catch (error) {
+    logger.error('[Market] Error fetching booking:', error)
+    next(error)
+  }
+})
+
+// GET /posts/:postId/bookings - Get bookings for a service (seller view)
+router.get('/posts/:postId/bookings', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const did = req.query.did as string
+    const date = req.query.date as string | undefined
+    const status = req.query.status as string | undefined
+    const page = req.query.page ? Number(req.query.page) : 1
+    const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 50
+
+    logger.info(`[Market] GET /posts/${postId}/bookings did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({
+        success: false,
+        error: 'did query parameter required'
+      })
+    }
+
+    const result = await marketService.getSellerBookings(postId, did, { date, status, page, pageSize })
+    res.json({ success: true, ...result })
+  } catch (error) {
+    logger.error('[Market] Error fetching seller bookings:', error)
+    next(error)
+  }
+})
+
+// PATCH /bookings/:id/confirm - Confirm a booking (seller)
+router.patch('/bookings/:id/confirm', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did } = req.body
+
+    logger.info(`[Market] PATCH /bookings/${id}/confirm did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const result = await marketService.confirmServiceBooking(id, did)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error confirming booking:', error)
+    next(error)
+  }
+})
+
+// PATCH /bookings/:id/cancel - Cancel a booking
+router.patch('/bookings/:id/cancel', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did, reason } = req.body
+
+    logger.info(`[Market] PATCH /bookings/${id}/cancel did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const result = await marketService.cancelServiceBooking(id, did, reason)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error cancelling booking:', error)
+    next(error)
+  }
+})
+
+// PATCH /bookings/:id/complete - Mark booking as completed (seller)
+router.patch('/bookings/:id/complete', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did } = req.body
+
+    logger.info(`[Market] PATCH /bookings/${id}/complete did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const result = await marketService.completeServiceBooking(id, did)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error completing booking:', error)
+    next(error)
+  }
+})
+
+// PATCH /bookings/:id/no-show - Mark as no-show (seller)
+router.patch('/bookings/:id/no-show', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did } = req.body
+
+    logger.info(`[Market] PATCH /bookings/${id}/no-show did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const result = await marketService.markBookingNoShow(id, did)
+    res.json({ success: true, data: result })
+  } catch (error) {
+    logger.error('[Market] Error marking no-show:', error)
+    next(error)
+  }
+})
+
+// =============================================================================
+// RECURRING AVAILABILITY PATTERNS
+// =============================================================================
+
+// GET /posts/:postId/recurring-patterns - Get recurring patterns
+router.get('/posts/:postId/recurring-patterns', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    logger.info(`[Market] GET /posts/${postId}/recurring-patterns`)
+
+    const patterns = await marketService.getRecurringPatterns(postId)
+    res.json({ success: true, data: patterns })
+  } catch (error) {
+    logger.error('[Market] Error fetching recurring patterns:', error)
+    next(error)
+  }
+})
+
+// POST /posts/:postId/recurring-patterns - Create a recurring pattern
+router.post('/posts/:postId/recurring-patterns', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const { did, daysOfWeek, startTime, endTime, slotDurationMinutes, slotsPerWindow, breakBetweenMinutes, priceOverride, validFrom, validUntil } = req.body
+
+    logger.info(`[Market] POST /posts/${postId}/recurring-patterns did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    if (!daysOfWeek || !Array.isArray(daysOfWeek) || daysOfWeek.length === 0) {
+      return res.status(400).json({ success: false, error: 'daysOfWeek array is required' })
+    }
+
+    if (!startTime || !endTime || !slotDurationMinutes) {
+      return res.status(400).json({ success: false, error: 'startTime, endTime, and slotDurationMinutes are required' })
+    }
+
+    const pattern = await marketService.createRecurringPattern(postId, did, {
+      daysOfWeek,
+      startTime,
+      endTime,
+      slotDurationMinutes,
+      slotsPerWindow,
+      breakBetweenMinutes,
+      priceOverride,
+      validFrom: validFrom ? new Date(validFrom) : undefined,
+      validUntil: validUntil ? new Date(validUntil) : undefined
+    })
+
+    res.json({ success: true, data: pattern })
+  } catch (error) {
+    logger.error('[Market] Error creating recurring pattern:', error)
+    next(error)
+  }
+})
+
+// PATCH /recurring-patterns/:id - Update a recurring pattern
+router.patch('/recurring-patterns/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did, ...updates } = req.body
+
+    logger.info(`[Market] PATCH /recurring-patterns/${id} did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    const pattern = await marketService.updateRecurringPattern(id, did, updates)
+    res.json({ success: true, data: pattern })
+  } catch (error) {
+    logger.error('[Market] Error updating recurring pattern:', error)
+    next(error)
+  }
+})
+
+// DELETE /recurring-patterns/:id - Delete a recurring pattern
+router.delete('/recurring-patterns/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { did } = req.body
+
+    logger.info(`[Market] DELETE /recurring-patterns/${id} did=${did}`)
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    await marketService.deleteRecurringPattern(id, did)
+    res.json({ success: true })
+  } catch (error) {
+    logger.error('[Market] Error deleting recurring pattern:', error)
+    next(error)
+  }
+})
+
+// POST /posts/:postId/generate-from-patterns - Generate slots from recurring patterns
+router.post('/posts/:postId/generate-from-patterns', async (req, res, next) => {
+  try {
+    const { postId } = req.params
+    const { startDate, endDate } = req.body
+
+    logger.info(`[Market] POST /posts/${postId}/generate-from-patterns ${startDate} to ${endDate}`)
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'startDate and endDate are required' })
+    }
+
+    const slots = await marketService.generateSlotsFromPatterns(postId, new Date(startDate), new Date(endDate))
+    res.json({ success: true, data: slots, count: slots.length })
+  } catch (error) {
+    logger.error('[Market] Error generating slots from patterns:', error)
+    next(error)
+  }
+})
+
 export const marketRouter = router

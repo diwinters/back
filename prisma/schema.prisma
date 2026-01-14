@@ -846,6 +846,7 @@ model MarketPost {
   visitedBy       MarketVisitedProduct[]
   bestSellerEntries MarketBestSeller[]
   availability    ServiceAvailability[]   // Calendar slots (for SERVICE type)
+  recurringPatterns ServiceRecurringPattern[] // Weekly availability templates
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -916,10 +917,119 @@ model ServiceAvailability {
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  
+  // Relations
+  bookings        ServiceBooking[]
 
   @@unique([postId, date, startTime])
   @@index([postId, date])
   @@index([date, isAvailable])
+}
+
+// =============================================================================
+// MARKET: Service Bookings (Individual booking records for services)
+// =============================================================================
+
+model ServiceBooking {
+  id                    String   @id @default(cuid())
+  
+  // References
+  serviceAvailabilityId String
+  serviceAvailability   ServiceAvailability @relation(fields: [serviceAvailabilityId], references: [id], onDelete: Cascade)
+  
+  userDid               String               // Buyer's DID (Bluesky)
+  
+  // Link to order item (if booked through checkout)
+  orderItemId           String?  @unique
+  orderItem             MarketOrderItem? @relation(fields: [orderItemId], references: [id])
+  
+  // Booking details
+  guestCount            Int      @default(1)
+  totalPrice            Float
+  currency              String   @default("MAD")
+  
+  // Payment method for services (pay on arrival)
+  paymentMethod         ServicePaymentMethod @default(PAY_ON_ARRIVAL)
+  
+  // Status
+  status                ServiceBookingStatus @default(PENDING)
+  
+  // Customer contact info (for the service provider)
+  customerName          String?
+  customerPhone         String?
+  customerEmail         String?
+  specialRequests       String?  // Notes from customer
+  
+  // Seller notes (internal)
+  sellerNotes           String?
+  
+  // Cancellation (no refund policy)
+  cancelledBy           String?  // DID of who cancelled
+  cancellationReason    String?
+  
+  // Timestamps
+  confirmedAt           DateTime?
+  cancelledAt           DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([serviceAvailabilityId])
+  @@index([userDid])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum ServiceBookingStatus {
+  PENDING       // Awaiting seller confirmation
+  CONFIRMED     // Seller confirmed the booking
+  CANCELLED     // Booking cancelled (no refund)
+  COMPLETED     // Service was delivered
+  NO_SHOW       // Customer didn't show up
+}
+
+enum ServicePaymentMethod {
+  PAY_ON_ARRIVAL  // Pay when service is delivered
+  PREPAID         // Already paid through checkout
+}
+
+// =============================================================================
+// MARKET: Recurring Availability Patterns (Weekly templates)
+// =============================================================================
+
+model ServiceRecurringPattern {
+  id              String   @id @default(cuid())
+  
+  postId          String
+  post            MarketPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  
+  // Which days of the week (0=Sunday, 1=Monday, ..., 6=Saturday)
+  daysOfWeek      Int[]              // e.g., [1,2,3,4,5] for Mon-Fri
+  
+  // Time window
+  startTime       String             // "09:00"
+  endTime         String             // "17:00"
+  
+  // Slot configuration
+  slotDurationMinutes Int            // Duration of each slot in minutes
+  slotsPerWindow      Int  @default(1)  // Number of concurrent slots (capacity)
+  breakBetweenMinutes Int  @default(0)  // Buffer time between slots
+  
+  // Price override (optional)
+  priceOverride   Float?
+  
+  // Validity period
+  validFrom       DateTime @default(now())
+  validUntil      DateTime?          // Null = indefinite
+  
+  // Active flag
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([postId])
+  @@index([isActive])
 }
 
 // =============================================================================
@@ -1441,6 +1551,9 @@ model MarketOrderItem {
   
   // Dispute
   dispute       MarketOrderDispute?
+  
+  // Service booking (for SERVICE type orders)
+  serviceBooking ServiceBooking?
   
   // Status timestamps
   confirmedAt   DateTime?

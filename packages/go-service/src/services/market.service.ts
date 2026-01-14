@@ -1231,7 +1231,7 @@ export class MarketService {
   }
 
   /**
-   * Cancel a booking (decrement bookedSlots)
+   * Cancel a booking (decrement bookedSlots) - DEPRECATED: Use cancelServiceBooking instead
    */
   async cancelBooking(slotId: string, quantity: number = 1) {
     return prisma.serviceAvailability.update({
@@ -1240,5 +1240,608 @@ export class MarketService {
         bookedSlots: { decrement: quantity }
       }
     })
+  }
+
+  // =============================================================================
+  // SERVICE BOOKING MANAGEMENT (New comprehensive booking system)
+  // =============================================================================
+
+  /**
+   * Create a service booking with full tracking
+   */
+  async createServiceBooking(data: {
+    serviceAvailabilityId: string
+    userDid: string
+    guestCount?: number
+    customerName?: string
+    customerPhone?: string
+    customerEmail?: string
+    specialRequests?: string
+    orderItemId?: string
+    paymentMethod?: 'PAY_ON_ARRIVAL' | 'PREPAID'
+  }) {
+    // Get the slot with post info for pricing
+    const slot = await prisma.serviceAvailability.findUnique({
+      where: { id: data.serviceAvailabilityId },
+      include: {
+        post: {
+          select: {
+            id: true,
+            sellerId: true,
+            price: true,
+            currency: true,
+            pricingType: true,
+            title: true
+          }
+        }
+      }
+    })
+
+    if (!slot) {
+      throw new NotFoundError('Availability slot not found')
+    }
+
+    if (!slot.isAvailable) {
+      throw new AppError('Slot is not available for booking', ErrorCode.BAD_REQUEST, 400)
+    }
+
+    const guestCount = data.guestCount || 1
+    const availableSlots = slot.totalSlots - slot.bookedSlots
+    
+    if (guestCount > availableSlots) {
+      throw new AppError(`Only ${availableSlots} spots available`, ErrorCode.BAD_REQUEST, 400)
+    }
+
+    // Calculate total price based on pricing type
+    let totalPrice: number
+    const basePrice = slot.priceOverride ?? slot.post.price ?? 0
+    
+    switch (slot.post.pricingType) {
+      case 'PER_PERSON':
+        totalPrice = basePrice * guestCount
+        break
+      case 'HOURLY':
+        // For hourly, we'd need duration info; for now, use base price
+        totalPrice = basePrice
+        break
+      case 'FLAT':
+      default:
+        totalPrice = basePrice
+    }
+
+    // Create booking within a transaction
+    return prisma.$transaction(async (tx) => {
+      // Increment booked slots
+      await tx.serviceAvailability.update({
+        where: { id: data.serviceAvailabilityId },
+        data: { bookedSlots: { increment: guestCount } }
+      })
+
+      // Create the booking record
+      const booking = await tx.serviceBooking.create({
+        data: {
+          serviceAvailabilityId: data.serviceAvailabilityId,
+          userDid: data.userDid,
+          guestCount,
+          totalPrice,
+          currency: slot.post.currency || 'MAD',
+          paymentMethod: data.paymentMethod || 'PAY_ON_ARRIVAL',
+          status: 'PENDING',
+          customerName: data.customerName,
+          customerPhone: data.customerPhone,
+          customerEmail: data.customerEmail,
+          specialRequests: data.specialRequests,
+          orderItemId: data.orderItemId,
+        },
+        include: {
+          serviceAvailability: {
+            include: {
+              post: {
+                select: { id: true, title: true, sellerId: true }
+              }
+            }
+          }
+        }
+      })
+
+      return booking
+    })
+  }
+
+  /**
+   * Get a single booking by ID
+   */
+  async getServiceBooking(bookingId: string) {
+    return prisma.serviceBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        serviceAvailability: {
+          include: {
+            post: {
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                currency: true,
+                sellerId: true,
+                serviceLocation: true,
+                duration: true,
+                durationUnit: true,
+                seller: {
+                  select: { businessName: true, did: true }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+  }
+
+  /**
+   * Get all bookings for a user (buyer view)
+   */
+  async getUserBookings(userDid: string, options?: {
+    status?: string
+    upcoming?: boolean
+    page?: number
+    pageSize?: number
+  }) {
+    const page = options?.page || 1
+    const pageSize = options?.pageSize || 20
+
+    const where: any = { userDid }
+    
+    if (options?.status) {
+      where.status = options.status
+    }
+
+    if (options?.upcoming) {
+      where.serviceAvailability = {
+        date: { gte: new Date() }
+      }
+      where.status = { in: ['PENDING', 'CONFIRMED'] }
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.serviceBooking.findMany({
+        where,
+        include: {
+          serviceAvailability: {
+            include: {
+              post: {
+                select: {
+                  id: true,
+                  title: true,
+                  price: true,
+                  currency: true,
+                  postUri: true,
+                  serviceLocation: true,
+                  duration: true,
+                  durationUnit: true,
+                  seller: {
+                    select: { businessName: true, did: true }
+                  }
+                }
+              }
+            }
+          }
+        },
+        orderBy: [
+          { serviceAvailability: { date: 'asc' } },
+          { createdAt: 'desc' }
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.serviceBooking.count({ where })
+    ])
+
+    return { data: bookings, total, page, pageSize }
+  }
+
+  /**
+   * Get all bookings for a seller's service post
+   */
+  async getSellerBookings(postId: string, sellerDid: string, options?: {
+    date?: string
+    status?: string
+    page?: number
+    pageSize?: number
+  }) {
+    // Verify ownership
+    const post = await prisma.marketPost.findFirst({
+      where: { id: postId, seller: { did: sellerDid } }
+    })
+    
+    if (!post) {
+      throw new NotFoundError('Service post not found or not owned by seller')
+    }
+
+    const page = options?.page || 1
+    const pageSize = options?.pageSize || 50
+
+    const where: any = {
+      serviceAvailability: { postId }
+    }
+
+    if (options?.date) {
+      where.serviceAvailability.date = new Date(options.date)
+    }
+
+    if (options?.status) {
+      where.status = options.status
+    }
+
+    const [bookings, total] = await Promise.all([
+      prisma.serviceBooking.findMany({
+        where,
+        include: {
+          serviceAvailability: true
+        },
+        orderBy: [
+          { serviceAvailability: { date: 'asc' } },
+          { serviceAvailability: { startTime: 'asc' } }
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.serviceBooking.count({ where })
+    ])
+
+    return { data: bookings, total, page, pageSize }
+  }
+
+  /**
+   * Confirm a booking (seller action)
+   */
+  async confirmServiceBooking(bookingId: string, sellerDid: string) {
+    const booking = await prisma.serviceBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        serviceAvailability: {
+          include: { post: { select: { seller: { select: { did: true } } } } }
+        }
+      }
+    })
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found')
+    }
+
+    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+      throw new AppError('Not authorized to confirm this booking', ErrorCode.FORBIDDEN, 403)
+    }
+
+    if (booking.status !== 'PENDING') {
+      throw new AppError('Booking is not in pending status', ErrorCode.BAD_REQUEST, 400)
+    }
+
+    return prisma.serviceBooking.update({
+      where: { id: bookingId },
+      data: {
+        status: 'CONFIRMED',
+        confirmedAt: new Date()
+      }
+    })
+  }
+
+  /**
+   * Cancel a service booking (no refund policy)
+   */
+  async cancelServiceBooking(bookingId: string, cancelledByDid: string, reason?: string) {
+    const booking = await prisma.serviceBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        serviceAvailability: {
+          include: { post: { select: { seller: { select: { did: true } } } } }
+        }
+      }
+    })
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found')
+    }
+
+    // Check if user is authorized (buyer or seller)
+    const isBuyer = booking.userDid === cancelledByDid
+    const isSeller = booking.serviceAvailability.post.seller.did === cancelledByDid
+
+    if (!isBuyer && !isSeller) {
+      throw new AppError('Not authorized to cancel this booking', ErrorCode.FORBIDDEN, 403)
+    }
+
+    if (['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(booking.status)) {
+      throw new AppError('Booking cannot be cancelled', ErrorCode.BAD_REQUEST, 400)
+    }
+
+    // Cancel booking and free up slots
+    return prisma.$transaction(async (tx) => {
+      await tx.serviceAvailability.update({
+        where: { id: booking.serviceAvailabilityId },
+        data: { bookedSlots: { decrement: booking.guestCount } }
+      })
+
+      return tx.serviceBooking.update({
+        where: { id: bookingId },
+        data: {
+          status: 'CANCELLED',
+          cancelledBy: cancelledByDid,
+          cancellationReason: reason || (isBuyer ? 'Cancelled by customer' : 'Cancelled by seller'),
+          cancelledAt: new Date()
+        }
+      })
+    })
+  }
+
+  /**
+   * Mark booking as completed (seller action after service delivery)
+   */
+  async completeServiceBooking(bookingId: string, sellerDid: string) {
+    const booking = await prisma.serviceBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        serviceAvailability: {
+          include: { post: { select: { seller: { select: { did: true } } } } }
+        }
+      }
+    })
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found')
+    }
+
+    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+      throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    }
+
+    if (booking.status !== 'CONFIRMED') {
+      throw new AppError('Booking must be confirmed first', ErrorCode.BAD_REQUEST, 400)
+    }
+
+    return prisma.serviceBooking.update({
+      where: { id: bookingId },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date()
+      }
+    })
+  }
+
+  /**
+   * Mark as no-show (seller action)
+   */
+  async markBookingNoShow(bookingId: string, sellerDid: string) {
+    const booking = await prisma.serviceBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        serviceAvailability: {
+          include: { post: { select: { seller: { select: { did: true } } } } }
+        }
+      }
+    })
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found')
+    }
+
+    if (booking.serviceAvailability.post.seller.did !== sellerDid) {
+      throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    }
+
+    return prisma.serviceBooking.update({
+      where: { id: bookingId },
+      data: { status: 'NO_SHOW' }
+    })
+  }
+
+  // =============================================================================
+  // RECURRING AVAILABILITY PATTERNS
+  // =============================================================================
+
+  /**
+   * Create a recurring availability pattern
+   */
+  async createRecurringPattern(postId: string, sellerDid: string, data: {
+    daysOfWeek: number[]  // 0-6 (Sun-Sat)
+    startTime: string     // "09:00"
+    endTime: string       // "17:00"
+    slotDurationMinutes: number
+    slotsPerWindow?: number
+    breakBetweenMinutes?: number
+    priceOverride?: number
+    validFrom?: Date
+    validUntil?: Date
+  }) {
+    // Verify ownership
+    const post = await prisma.marketPost.findFirst({
+      where: { id: postId, seller: { did: sellerDid } }
+    })
+
+    if (!post) {
+      throw new NotFoundError('Service post not found or not owned by seller')
+    }
+
+    return prisma.serviceRecurringPattern.create({
+      data: {
+        postId,
+        daysOfWeek: data.daysOfWeek,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        slotDurationMinutes: data.slotDurationMinutes,
+        slotsPerWindow: data.slotsPerWindow || 1,
+        breakBetweenMinutes: data.breakBetweenMinutes || 0,
+        priceOverride: data.priceOverride,
+        validFrom: data.validFrom || new Date(),
+        validUntil: data.validUntil,
+        isActive: true
+      }
+    })
+  }
+
+  /**
+   * Get recurring patterns for a service
+   */
+  async getRecurringPatterns(postId: string) {
+    return prisma.serviceRecurringPattern.findMany({
+      where: { postId, isActive: true },
+      orderBy: { createdAt: 'desc' }
+    })
+  }
+
+  /**
+   * Update a recurring pattern
+   */
+  async updateRecurringPattern(patternId: string, sellerDid: string, data: Partial<{
+    daysOfWeek: number[]
+    startTime: string
+    endTime: string
+    slotDurationMinutes: number
+    slotsPerWindow: number
+    breakBetweenMinutes: number
+    priceOverride: number | null
+    validUntil: Date | null
+    isActive: boolean
+  }>) {
+    const pattern = await prisma.serviceRecurringPattern.findUnique({
+      where: { id: patternId },
+      include: { post: { select: { seller: { select: { did: true } } } } }
+    })
+
+    if (!pattern) {
+      throw new NotFoundError('Pattern not found')
+    }
+
+    if (pattern.post.seller.did !== sellerDid) {
+      throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    }
+
+    return prisma.serviceRecurringPattern.update({
+      where: { id: patternId },
+      data
+    })
+  }
+
+  /**
+   * Delete a recurring pattern
+   */
+  async deleteRecurringPattern(patternId: string, sellerDid: string) {
+    const pattern = await prisma.serviceRecurringPattern.findUnique({
+      where: { id: patternId },
+      include: { post: { select: { seller: { select: { did: true } } } } }
+    })
+
+    if (!pattern) {
+      throw new NotFoundError('Pattern not found')
+    }
+
+    if (pattern.post.seller.did !== sellerDid) {
+      throw new AppError('Not authorized', ErrorCode.FORBIDDEN, 403)
+    }
+
+    return prisma.serviceRecurringPattern.delete({
+      where: { id: patternId }
+    })
+  }
+
+  /**
+   * Generate slots from recurring patterns for a date range
+   * This should be called periodically (cron job) or on-demand
+   */
+  async generateSlotsFromPatterns(postId: string, startDate: Date, endDate: Date) {
+    const patterns = await prisma.serviceRecurringPattern.findMany({
+      where: {
+        postId,
+        isActive: true,
+        validFrom: { lte: endDate },
+        OR: [
+          { validUntil: null },
+          { validUntil: { gte: startDate } }
+        ]
+      }
+    })
+
+    if (patterns.length === 0) {
+      return []
+    }
+
+    const slotsToCreate: any[] = []
+    const currentDate = new Date(startDate)
+
+    while (currentDate <= endDate) {
+      const dayOfWeek = currentDate.getDay()
+      const dateStr = currentDate.toISOString().split('T')[0]
+
+      for (const pattern of patterns) {
+        // Check if this day is in the pattern
+        if (!pattern.daysOfWeek.includes(dayOfWeek)) continue
+
+        // Check validity period
+        if (pattern.validFrom && currentDate < pattern.validFrom) continue
+        if (pattern.validUntil && currentDate > pattern.validUntil) continue
+
+        // Generate time slots for this day
+        const startMins = this.timeToMinutes(pattern.startTime)
+        const endMins = this.timeToMinutes(pattern.endTime)
+        const duration = pattern.slotDurationMinutes
+        const breakTime = pattern.breakBetweenMinutes
+
+        let slotStart = startMins
+        while (slotStart + duration <= endMins) {
+          const slotEnd = slotStart + duration
+          const slotStartTime = this.minutesToTime(slotStart)
+          const slotEndTime = this.minutesToTime(slotEnd)
+
+          slotsToCreate.push({
+            postId,
+            date: new Date(dateStr),
+            startTime: slotStartTime,
+            endTime: slotEndTime,
+            totalSlots: pattern.slotsPerWindow,
+            priceOverride: pattern.priceOverride,
+            isAvailable: true
+          })
+
+          slotStart = slotEnd + breakTime
+        }
+      }
+
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    // Upsert slots (don't duplicate existing ones)
+    const results = []
+    for (const slot of slotsToCreate) {
+      try {
+        const result = await prisma.serviceAvailability.upsert({
+          where: {
+            postId_date_startTime: {
+              postId: slot.postId,
+              date: slot.date,
+              startTime: slot.startTime
+            }
+          },
+          update: {}, // Don't update existing slots
+          create: slot
+        })
+        results.push(result)
+      } catch (e) {
+        // Skip duplicates
+      }
+    }
+
+    return results
+  }
+
+  // Helper methods
+  private timeToMinutes(time: string): number {
+    const [hours, mins] = time.split(':').map(Number)
+    return hours * 60 + mins
+  }
+
+  private minutesToTime(mins: number): string {
+    const hours = Math.floor(mins / 60)
+    const minutes = mins % 60
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
   }
 }
