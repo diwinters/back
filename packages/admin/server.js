@@ -4243,9 +4243,17 @@ app.get('/api/market/sellers/me/stats', async (req, res) => {
       _count: true
     })
     
-    // Calculate totals from posts (all time)
-    const totalSold = seller.posts.reduce((sum, p) => sum + (p.soldCount || 0), 0)
-    const totalEarnings = seller.posts.reduce((sum, p) => sum + ((p.soldCount || 0) * (p.price || 0)), 0)
+    // Get ALL-TIME totals from MarketOrderItem (not from posts - more accurate)
+    const allTimeStats = await prisma.marketOrderItem.aggregate({
+      where: { sellerId: seller.id },
+      _sum: { total: true, quantity: true },
+      _count: true
+    })
+    
+    // All-time values (from actual orders)
+    const totalSales = allTimeStats._sum.total || 0
+    const totalOrders = allTimeStats._count || 0
+    const totalQuantity = allTimeStats._sum.quantity || 0
     
     // Current period values
     const currentSales = currentPeriod._sum.total || 0
@@ -4255,32 +4263,33 @@ app.get('/api/market/sellers/me/stats', async (req, res) => {
     const previousSales = previousPeriod._sum.total || 0
     const previousOrders = previousPeriod._count || 0
     
-    // Calculate percentage changes
-    const salesChange = previousSales > 0 
-      ? Math.round(((currentSales - previousSales) / previousSales) * 1000) / 10
-      : (currentSales > 0 ? 100 : 0)
+    // Calculate percentage changes - ONLY show if there's actual data
+    // If both periods are 0, show 0% (no change)
+    // If previous is 0 but current > 0, show +100%
+    // If current is 0 but previous > 0, show -100%
+    const calcChange = (current, previous) => {
+      if (current === 0 && previous === 0) return 0
+      if (previous === 0) return current > 0 ? 100 : 0
+      return Math.round(((current - previous) / previous) * 1000) / 10
+    }
     
-    const ordersChange = previousOrders > 0 
-      ? Math.round(((currentOrders - previousOrders) / previousOrders) * 1000) / 10
-      : (currentOrders > 0 ? 100 : 0)
+    const salesChange = calcChange(currentSales, previousSales)
+    const ordersChange = calcChange(currentOrders, previousOrders)
     
-    // Average order value
-    const avgOrderValue = currentOrders > 0 ? currentSales / currentOrders : 0
+    // Average order value (only if there are orders in current period)
+    const avgOrderValue = currentOrders > 0 ? currentSales / currentOrders : 
+                          (totalOrders > 0 ? totalSales / totalOrders : 0)
     const prevAvgOrder = previousOrders > 0 ? previousSales / previousOrders : 0
-    const avgOrderChange = prevAvgOrder > 0 
-      ? Math.round(((avgOrderValue - prevAvgOrder) / prevAvgOrder) * 1000) / 10
-      : 0
+    const avgOrderChange = calcChange(avgOrderValue, prevAvgOrder)
     
     // CONVERSION RATE = Orders per day (sales velocity)
     const currentVelocity = currentOrders / periodDays
     const previousVelocity = previousOrders / periodDays
-    const velocityChange = previousVelocity > 0 
-      ? Math.round(((currentVelocity - previousVelocity) / previousVelocity) * 1000) / 10
-      : (currentVelocity > 0 ? 100 : 0)
+    const conversionChange = calcChange(currentVelocity, previousVelocity)
     
     // Net sales (after ~5% platform fee)
     const platformFeeRate = 0.05
-    const netSales = totalEarnings * (1 - platformFeeRate)
+    const netSales = totalSales * (1 - platformFeeRate)
     
     // Get daily sales for chart (last 25 days for bar chart)
     const chartDays = 25
@@ -4307,14 +4316,14 @@ app.get('/api/market/sellers/me/stats', async (req, res) => {
       chartData.push(dayTotal)
     }
     
-    console.log(`[Market] Stats for seller ${seller.id}: sales=${totalEarnings}, orders=${totalSold}, velocity=${currentVelocity}`)
+    console.log(`[Market] Stats for seller ${seller.id}: totalSales=${totalSales}, totalOrders=${totalOrders}, currentOrders=${currentOrders}, velocity=${currentVelocity}`)
     
     res.json({
       success: true,
       data: {
-        // All-time totals
-        totalSales: totalEarnings,
-        totalOrders: totalSold,
+        // All-time totals (from actual MarketOrderItem records)
+        totalSales: totalSales,
+        totalOrders: totalOrders,
         netSales: netSales,
         
         // Current period
@@ -4325,11 +4334,11 @@ app.get('/api/market/sellers/me/stats', async (req, res) => {
         // Conversion = orders per day (velocity)
         conversionRate: Math.round(currentVelocity * 100) / 100,
         
-        // Percentage changes
+        // Percentage changes (0 if no data to compare)
         salesChange,
         ordersChange,
         avgOrderChange,
-        conversionChange: velocityChange,
+        conversionChange,
         
         // Chart data
         chartData,
