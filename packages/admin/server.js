@@ -9090,36 +9090,33 @@ app.delete('/api/market/best-sellers/admin/:id', async (req, res) => {
 // Proxy for Gateway API routes (recurring patterns, bookings, etc.)
 // ============================================================================
 
-// Proxy unhandled /api/market requests to gateway
-app.use('/api/market/posts/:postId/recurring-patterns', createProxyMiddleware({
+// Create a single proxy instance
+const gatewayProxy = createProxyMiddleware({
   target: GATEWAY_URL,
   changeOrigin: true,
-  logLevel: 'warn',
-}))
+  logLevel: 'debug',
+  onError: (err, req, res) => {
+    console.error('[Proxy] Error:', err.message)
+    res.status(502).json({ success: false, error: 'Gateway proxy error: ' + err.message })
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    console.log('[Proxy] Forwarding:', req.method, req.url, '-> gateway')
+  }
+})
 
-app.use('/api/market/posts/:postId/generate-from-patterns', createProxyMiddleware({
-  target: GATEWAY_URL,
-  changeOrigin: true,
-  logLevel: 'warn',
-}))
+// Proxy routes that should go to gateway (use regex to match dynamic paths)
+app.use('/api/market/posts', (req, res, next) => {
+  // Only proxy specific sub-paths to gateway
+  if (req.url.includes('/recurring-patterns') || 
+      req.url.includes('/generate-from-patterns') ||
+      req.url.includes('/bookings')) {
+    return gatewayProxy(req, res, next)
+  }
+  next()
+})
 
-app.use('/api/market/posts/:postId/bookings', createProxyMiddleware({
-  target: GATEWAY_URL,
-  changeOrigin: true,
-  logLevel: 'warn',
-}))
-
-app.use('/api/market/recurring-patterns', createProxyMiddleware({
-  target: GATEWAY_URL,
-  changeOrigin: true,
-  logLevel: 'warn',
-}))
-
-app.use('/api/market/bookings', createProxyMiddleware({
-  target: GATEWAY_URL,
-  changeOrigin: true,
-  logLevel: 'warn',
-}))
+app.use('/api/market/recurring-patterns', gatewayProxy)
+app.use('/api/market/bookings', gatewayProxy)
 
 // ============================================================================
 // Server Start
