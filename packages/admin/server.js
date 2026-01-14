@@ -7457,6 +7457,144 @@ app.get('/api/orders/seller/:did', async (req, res) => {
 })
 
 /**
+ * PATCH /api/orders/:id/status
+ * Update order status (seller action: mark as shipped/delivered)
+ */
+app.patch('/api/orders/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { did, status } = req.body
+
+    if (!did || !status) {
+      return res.status(400).json({ success: false, error: 'did and status are required' })
+    }
+
+    const validStatuses = ['PROCESSING', 'SHIPPED', 'DELIVERED']
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` })
+    }
+
+    // Get seller by DID
+    const seller = await prisma.marketSeller.findFirst({
+      where: { user: { did } }
+    })
+
+    if (!seller) {
+      return res.status(403).json({ success: false, error: 'Not authorized - seller not found' })
+    }
+
+    // Get the order and verify seller owns at least one item
+    const order = await prisma.marketOrder.findUnique({
+      where: { id },
+      include: {
+        items: true
+      }
+    })
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+
+    // Check if seller has items in this order
+    const sellerItems = order.items.filter(item => item.sellerId === seller.id)
+    if (sellerItems.length === 0) {
+      return res.status(403).json({ success: false, error: 'Not authorized - you have no items in this order' })
+    }
+
+    // Update timestamps based on status
+    const updateData = { status }
+    if (status === 'SHIPPED') {
+      updateData.shippedAt = new Date()
+    } else if (status === 'DELIVERED') {
+      updateData.deliveredAt = new Date()
+    }
+
+    // Update order
+    const updatedOrder = await prisma.marketOrder.update({
+      where: { id },
+      data: updateData,
+      include: { items: true }
+    })
+
+    // Also update seller's items status
+    await prisma.marketOrderItem.updateMany({
+      where: { orderId: id, sellerId: seller.id },
+      data: updateData
+    })
+
+    console.log(`[Orders] Order ${id} updated to ${status} by seller ${did}`)
+    res.json({ success: true, data: updatedOrder })
+  } catch (error) {
+    console.error('[Orders] Update status error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
+ * PATCH /api/orders/:id/cancel
+ * Cancel order (buyer action - only before shipping)
+ */
+app.patch('/api/orders/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params
+    const { did, reason } = req.body
+
+    if (!did) {
+      return res.status(400).json({ success: false, error: 'did is required' })
+    }
+
+    // Get the order
+    const order = await prisma.marketOrder.findUnique({
+      where: { id },
+      include: { items: true }
+    })
+
+    if (!order) {
+      return res.status(404).json({ success: false, error: 'Order not found' })
+    }
+
+    // Verify buyer owns this order
+    if (order.buyerDid !== did) {
+      return res.status(403).json({ success: false, error: 'Not authorized - this is not your order' })
+    }
+
+    // Only allow cancellation if not yet shipped
+    const nonCancellableStatuses = ['SHIPPED', 'DELIVERED', 'CANCELLED', 'REFUNDED']
+    if (nonCancellableStatuses.includes(order.status)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Cannot cancel order with status: ${order.status}. Orders can only be cancelled before shipping.`
+      })
+    }
+
+    // Update order status
+    const updatedOrder = await prisma.marketOrder.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancellationReason: reason || 'Cancelled by buyer'
+      },
+      include: { items: true }
+    })
+
+    // Update all items
+    await prisma.marketOrderItem.updateMany({
+      where: { orderId: id },
+      data: { status: 'CANCELLED' }
+    })
+
+    // TODO: Handle refund if prepaid
+
+    console.log(`[Orders] Order ${id} cancelled by buyer ${did}`)
+    res.json({ success: true, data: updatedOrder })
+  } catch (error) {
+    console.error('[Orders] Cancel order error:', error)
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+/**
  * GET /api/orders/disputes
  * Get all disputes (admin)
  */
