@@ -158,7 +158,7 @@ export class UserService {
       }),
     ])
 
-    const statusCounts = new Map(
+    const statusCounts = new Map<string, number>(
       orderStats.map(s => [s.status, s._count])
     )
 

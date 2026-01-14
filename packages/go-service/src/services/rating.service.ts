@@ -142,7 +142,7 @@ export class RatingService {
     ])
 
     // Build distribution with all star levels (1-5)
-    const distributionMap = new Map(
+    const distributionMap = new Map<number, number>(
       distribution.map(d => [d.rating, d._count])
     )
     const fullDistribution = [5, 4, 3, 2, 1].map(stars => ({

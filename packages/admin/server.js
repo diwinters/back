@@ -9,11 +9,13 @@ const fs = require('fs')
 const multer = require('multer')
 const { PrismaClient } = require('@prisma/client')
 const Redis = require('ioredis')
+const { createProxyMiddleware } = require('http-proxy-middleware')
 
 const app = express()
 const prisma = new PrismaClient()
 
 const PORT = process.env.ADMIN_PORT || 8080
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3001'
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
 
 // Redis client for pub/sub (to notify gateway of new orders)
@@ -9083,6 +9085,41 @@ app.delete('/api/market/best-sellers/admin/:id', async (req, res) => {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
+// ============================================================================
+// Proxy for Gateway API routes (recurring patterns, bookings, etc.)
+// ============================================================================
+
+// Proxy unhandled /api/market requests to gateway
+app.use('/api/market/posts/:postId/recurring-patterns', createProxyMiddleware({
+  target: GATEWAY_URL,
+  changeOrigin: true,
+  logLevel: 'warn',
+}))
+
+app.use('/api/market/posts/:postId/generate-from-patterns', createProxyMiddleware({
+  target: GATEWAY_URL,
+  changeOrigin: true,
+  logLevel: 'warn',
+}))
+
+app.use('/api/market/posts/:postId/bookings', createProxyMiddleware({
+  target: GATEWAY_URL,
+  changeOrigin: true,
+  logLevel: 'warn',
+}))
+
+app.use('/api/market/recurring-patterns', createProxyMiddleware({
+  target: GATEWAY_URL,
+  changeOrigin: true,
+  logLevel: 'warn',
+}))
+
+app.use('/api/market/bookings', createProxyMiddleware({
+  target: GATEWAY_URL,
+  changeOrigin: true,
+  logLevel: 'warn',
+}))
 
 // ============================================================================
 // Server Start

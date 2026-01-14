@@ -39,7 +39,7 @@ app.use(cors({
 }))
 
 // Compression
-app.use(compression())
+app.use(compression() as any)
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }))
