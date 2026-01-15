@@ -91,6 +91,20 @@ export class WebSocketServer {
       }
     })
 
+    // Listen for new posts from Jetstream indexer
+    await this.redis.subscribe('jetstream:new_post', (message) => {
+      // Broadcast to all clients subscribed to 'feed:updates' channel
+      this.broadcastToChannel('feed:updates', {
+        type: 'new_post',
+        payload: message,
+      })
+      
+      logger.debug('Broadcast new post to feed subscribers', { 
+        uri: message.uri,
+        instanceId: this.instanceId 
+      })
+    })
+
     logger.info('WebSocket cluster messaging initialized', { instanceId: this.instanceId })
   }
 

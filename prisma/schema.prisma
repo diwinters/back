@@ -46,6 +46,55 @@ model PostLabel {
 }
 
 // =============================================================================
+// JETSTREAM POST INDEX (For list-scoped search)
+// =============================================================================
+
+model IndexedPost {
+  id          String   @id @default(cuid())
+  uri         String   @unique  // at://did:plc:xxx/app.bsky.feed.post/rkey
+  cid         String             // Content hash
+  authorDid   String             // Post author's DID
+  authorHandle String?           // Cached handle for display
+  text        String             // Post text content
+  
+  // Metadata
+  langs       String[] @default([])
+  hasImages   Boolean  @default(false)
+  hasVideo    Boolean  @default(false)
+  replyCount  Int      @default(0)
+  repostCount Int      @default(0)
+  likeCount   Int      @default(0)
+  
+  // Extracted facets for filtering
+  mentions    String[] @default([])  // DIDs mentioned
+  hashtags    String[] @default([])  // Extracted hashtags
+  links       String[] @default([])  // URLs in post
+  
+  // Raw data for display
+  rawRecord   String?  @db.Text      // Full JSON record for hydration
+  
+  // Timestamps
+  createdAt   DateTime              // Original post creation time
+  indexedAt   DateTime @default(now())
+
+  @@index([authorDid])
+  @@index([createdAt(sort: Desc)])
+  @@index([indexedAt(sort: Desc)])
+}
+
+// Track Jetstream consumer state
+model JetstreamState {
+  id            String   @id @default("singleton")
+  cursor        BigInt?  // Unix microseconds cursor for resume
+  watchedDids   String[] @default([]) // DIDs being watched
+  listUri       String?  // Admin list URI being indexed
+  status        String   @default("stopped") // running, stopped, error
+  lastEventAt   DateTime?
+  errorMessage  String?
+  updatedAt     DateTime @updatedAt
+}
+
+// =============================================================================
 // SHARED: Users & Authentication
 // =============================================================================
 

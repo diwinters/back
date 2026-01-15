@@ -17,6 +17,18 @@ export { PushNotificationService } from './notifications/push'
 export { WebSocketServer, setWebSocketServer, getWebSocketServer } from './realtime/websocket'
 export { RedisService, getRedisService } from './realtime/redis'
 
+// Jetstream (Post Indexing)
+export { 
+  JetstreamConsumer, 
+  PostIndexer, 
+  getPostIndexer,
+  startJetstreamWorker, 
+  stopJetstreamWorker, 
+  getJetstreamStatus,
+  isJetstreamRunning 
+} from './jetstream'
+export type { JetstreamEvent, JetstreamStatus } from './jetstream'
+
 // Geo
 export { GeoService } from './geo/geo'
 export type { Coordinates, BoundingBox, CityInfo, CityDetectionResult } from './geo/geo'
